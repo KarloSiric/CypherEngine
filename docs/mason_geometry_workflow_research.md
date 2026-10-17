@@ -968,3 +968,1453 @@ The old-source run built cleanly and failed **73 assertions / 2859 total**, with
 Mason was rebuilt once at the coherent checkpoint in the existing compact tree. Final test/app builds have no compiler warnings/errors; no packages, downloads, duplicate builds or large caches were added. Human maps, the running editor and unrelated source were preserved. Owned publication contains one view hunk, one test-target entry, the separate contracts and factual changelogs/research. Evidence lives under ignored `build-mason/artifacts/mason_orbit_surface_*`, including initial and retried LastTest logs, external baselines and the owned patch. Exact publication CI must be checked against its own commit.
 
 This changes captured view state, reusing existing query allocation/failure handling; it needs no authored persistence format or undo step. Component editing adapters, TileEditor hosting, terrain authoring and runtime renderer/world systems remain separate unfinished work.
+
+
+## Repeatable edge extension, component rings and open-mesh clipping — 2026-10-15
+
+The user's Hammer reference starts with a one-face mesh. Pulling an edge to add a wall is a boundary extension: keep the old endpoints, copy them through a transform, then connect old and new edges with a face. Ordinary component translation/rotation instead moves the selected endpoints and deforms their incident faces. The supplied Mason screenshot alone does not demonstrate whole-object translation; the regression now checks exact selected and unselected source positions rather than inferring behavior from the silhouette. These changes follow the reference workflow without copying external code or claiming full Hammer equivalence.
+
+The geometry library now accepts an affine boundary extension, supporting translation and remote-pivot rotation/scaling. Shared endpoints get one copy, original vertices stay fixed, and returned outer handles support another pull. The raw operation validates and reserves before mutation. The source wrapper retains the existing attribute-transfer bracket and requires cancellation of its private transaction on a late failure. The map adapter resolves temporary outer handles to persistent endpoint IDs after ID assignment but before rebuilding/publishing the document. GUI selection storage is prepared before publication and adopted without allocation afterwards, so successful pulls leave the new outer boundary selected. Numeric Extrude/Extend uses the same result selection. Shift is captured at mouse press; releasing it before the mouse cannot change an extension into an ordinary move.
+
+Component translation uses thin RGB arrows and a dashed active-axis guide. Rotation draws and picks the same projected X/Y/Z rings; it no longer treats an entire circular disk as a rotation handle or hardcodes the perspective axis to Z. The Pivot tool supplies the center. An invalid current rotation sample clears the affine rather than allowing release to commit the previous angle. Document/selection revision changes cancel a captured component gesture. The new strip preview connects the fixed source edge to the transformed rim, with a translucent face in 3D. Tool Properties distinguishes extension from object duplication and ordinary component deformation.
+
+Open quad/strip clipping now disables caps while retaining requested capping for closed meshes. BOTH previews independently slice the two halves with the same policy as commit. Collapsed endpoints, collinear third points and unavailable construction rays invalidate the staged surface cut while preserving editable anchors; Enter cannot commit an older plane, and moving the anchors back to a valid configuration recovers the preview.
+
+Focused checks pass: Geometry boundary 4,368 assertions / 29 cases; Map Core edge/clip 3,270 / 4; Map GUI edge/clip/gizmo 11,389 / 31. They cover repeated upward/sideways/pivot pulls, shared endpoints, canonical stable IDs, unchanged original vertices, selected-only ordinary transforms, all three perspective ring axes, invalid-sample recovery, cancellation, changed gesture context, undo/redo geometry, save/load and allocation failures. The Core fixture initially used a pivot producing a crossing strip and was corrected to a valid external pivot; a GUI context fixture initially used a selection API intentionally restricted to Select mode and was corrected to the permitted component-set command. Neither fixture failure was disguised as a production fix.
+
+The independent geometry subset and its changelog are published as `81bf8781b8ebdeedace3c8564d8984e3ecd4b411`. Its CI is [run 38652721968](https://github.com/KarloSiric/CypherEngine/actions/runs/38652721968); it was in progress at this checkpoint. The prior renderer commit's run was cancelled by the configured newer-push policy, not reported as passing. Map/GUI integration remains local because it depends on pre-existing untracked adapters and dirty format/editor work. No unrelated changes or active map files were staged. The owned before/after patch, test logs, preview capture and baseline are in ignored `build-mason/artifacts/mason_edge_workflow_*` (preview: `mason_edge_extend.png`). Mason was rebuilt once at the checkpoint with installed dependencies in the existing build tree; no packages, downloads or duplicate build trees were created. The running editor was not restarted.
+
+Limits: boundary extension requires an open edge; a closed box edge already has two incident faces. A Quad or removal of a face supplies an eligible boundary. Collapsed side quads, including a rotation that leaves one endpoint fixed and would need a triangular side, are rejected. General new-strip intersections against unrelated faces are not detected. Cap eligibility is currently per mesh, so a mixed open/closed-shell mesh uses the open policy. Existing undo/redo restores geometry but clears component selection. These fixes do not complete every geometry tool, repair the full gizmo system, integrate the runtime renderer, or claim full Hammer parity.
+
+Complete checkpoint validation: Geometry **374,675 assertions / 1,271 cases**, Map Core **130,744 / 219**, Map GUI **127,403 / 663** and Mason **3,969 / 69** all pass. GUI suites ran serially (Map GUI 65.20 seconds; Mason 138.67 seconds) under existing timeout settings. These are shared-working-tree integration counts, not attribution of prior adapter work to this change or CI evidence for unpublished files. The final test/app build has no compiler warnings or errors.
+
+
+## Round Block spheres and projected vertex workflows — 2026-10-15
+
+The reported sphere was investigated separately from the vertex fan screenshot. The previous Block sphere used a 20/80-face Icosphere; radius checks did not reproduce corrupt spikes. New spheres use 16×8 or 24×10 latitude/longitude bands (128/240 faces), with triangular pole fans and editable quad rings. Equal construction extents produce a sphere; unequal extents intentionally produce an ellipsoid. The retained setting identity `editor.map.sphere_subdivisions` selects these two detail levels. Existing authored maps and the geometry library's Icosphere API are unchanged.
+
+Mesh output now calls the existing parametric mesh primitive builder directly. Every sphere preview uses that same mesh construction even when final output is Brush, while preflighting the requested brush-side policy. Cache reuse checks that policy again after an output change. This removes repeated convex-plane reconstruction during dragging. A local instrumented run measured roughly 3.7–7.3 ms previews, 4.6–8.8 ms mesh commits, and 404/3396 ms brush commits for low/high detail; these are single-run observations with another CPU test active, not general performance guarantees. Explicit high-detail Brush commit remains expensive. The viewport capture in the ignored artifacts was inspected: the silhouette is round with regular latitude rings.
+
+Two visible handles in an orthographic view can represent four source vertices on opposite surfaces. Connect previously required exactly two IDs and could not cut both caps. The new adapter plans all faces before mutation, skips existing connections, rejects faces with more than two selected corners as ambiguous, and splits all eligible faces in one attribute/provenance bracket. Testing exposed and repaired a second issue: multiple source-level split wrappers in one transaction tried to capture a freshly created face before its persistent ID existed. The batch now resolves attributes once. Tests check unchanged positions, both child materials/smoothing groups/corner UVs, persistent identity and save/load.
+
+Orthographic vertex clicks and box selection record their depth axis with the exact selection revision. Merge groups vertices at the same depth, preserving front/back layers; mixed-view or non-projected selections use the existing single-group semantics. Collapse remains an explicit single-center operation. Direct dragging onto stationary vertices now welds target/source pairs in one edit rather than first attempting a degenerate move onto coincident positions. Each surviving target retains its position and ID. Partial or ambiguous target matches reject the entire operation. Prepared component selection is allocated before publication; allocation failure leaves the document, wireframe, history and selection unchanged. A post-pick acknowledgement captures the view's legitimate selection change, allowing both pending and active drags to reject later document/selection changes. Foreign viewport events cannot steer or release an active component drag.
+
+Validation covers real Qt press/move/release sequences, projected columns, single-vertex and column welding, all three merge depth axes, invalid topology, cancellation, pending/active context changes, undo/redo geometry, save/load, sphere bounds/convexity/sampled silhouettes and allocation-failure sweeps. Initial focused Connect failures and their logs are retained, including a fixture's overly strict exact cap-plane lookup corrected to a tolerance without relaxing unchanged-vertex assertions. Full checkpoint results are recorded below. Evidence and the owned before/after patch live under ignored `build-mason/artifacts/mason_sphere_vertex_*`; the actual camera capture is `mason_round_sphere.png`.
+
+This is a local editor checkpoint built on pre-existing unpublished Map/Core/GUI adapters. Publishing isolated hunks would leave missing source/API dependencies; no unrelated or active map files are staged. No packages, downloads or duplicate build trees were created. Remaining limits include ambiguous multi-corner Connect, destructive/non-manifold weld rejection, no partial-weld movement, and the existing history behavior that clears component selection on undo/redo. This does not establish that every geometry tool has been audited or fixed and does not integrate the runtime renderer.
+
+
+Final checkpoint: complete Map Core passes **157,842 assertions / 228 cases**; complete Map GUI passes **136,786 / 676**; Mason passes **3,969 / 69**. GUI suites ran serially (74.59 seconds Map GUI, 181.62 seconds Mason). A corrected Core binary rerun passed after the first combined CTest run exposed a test-only material-ID assumption: persisted material paths are authoritative, while load may reorder document-local material refs. The fixture now verifies all face material paths and normalizes only its temporary comparison refs; geometry IDs, positions, UVs, smoothing and edges still compare exactly. The initial failed CTest log is retained separately from the final passing Core log. Final source/test/app builds have no compiler warnings or errors. Mason was rebuilt once at this checkpoint in `build-mason`; the human editor session was not restarted.
+
+The adjacent-tool audit found no equivalent unidentified-face bug in SplitEdges/DissolveEdges; existing face IDs survive those operations. Two follow-ups remain: batch edge splitting should retain ancestry and select its new halves, and ConnectEdges should receive newly assigned midpoint IDs rather than resolving them by first exact position match, which is ambiguous for overlapping disconnected shells. These are recorded follow-up concerns, not claimed fixes in this checkpoint.
+
+## Component picking through the actual transform workflow — 2026-10-15
+
+The user reported that the earlier edge checkpoint still failed. Its fixtures selected an edge programmatically before starting the transform, so they did not establish that the toolbar/category/picking sequence worked. Inspection found two Select-only gates: viewport component picking and workspace component selection/automatic brush conversion. A third transition bug left Block active after choosing Edges and cleared an unconfirmed stage. Scale also captured every click inside an invisible 90-pixel disk although its drawn control was a 60-pixel ring.
+
+Select, Translate, Rotate and Scale now share edge/vertex picking and hover. Existing gizmos receive first chance to capture their visible handles. Selection categories preserve transform tools but leave creation/navigation tools; a staged Block is committed before the mode changes, with failure preserving the stage, tool, mode, document, selection and history. Scale uses one radius constant for painting and picking and accepts the ring/pivot rather than the entire interior. Tool hints explain component picking and Shift-drag boundary extension.
+
+New regressions deliver Qt mouse events through the real orthographic and Perspective widgets and dispatch the same category/tool commands as the toolbar, without preselecting component IDs. The original six cases failed on old production code (8 failed assertions / 77 total); the separate nearby-edge Scale regression also failed before its fix (1 / 19). The expanded checks cover all orthographic panes and transform modes, selection add/toggle/clear, automatic brush conversion, staged Block confirmation and allocation failure, selected-endpoint-only movement, and Perspective Shift-Z extension. The latter asserts that all four existing floor vertices stay fixed, one connected wall is added, and the two elevated vertices form the newly selected outer edge. Its native widget capture is `build-mason/artifacts/mason_edge_routing_wall.png`.
+
+Focused edge/gizmo checks pass 12,164 assertions / 36 cases; the eight routing cases pass natively with the Cocoa platform (1,026 assertions including capture). Complete Map GUI passes 137,835 assertions / 684 cases in 115.54 seconds, and Mason passes 3,969 / 69 in 157.52 seconds, run serially through CTest. The final source/test/app build has no compiler warnings or errors. This is a local integration checkpoint on unpublished editor adapters; no unrelated files or active maps are staged, and no new packages or build trees are created. Before/after snapshots, regression failures, full LastTest output and the owned patch are retained under ignored `build-mason/artifacts/mason_edge_routing_*`.
+
+Limits: this does not reproduce every possible user gesture. Direct Select dragging moves components rather than extruding; Shift on a transform gizmo extends open boundaries, not closed solid edges. Faces and Select Loop/Ring still have separate Select-tool restrictions. A pre-existing failed automatic brush-conversion path can clear component selection even though document/history remain unchanged; this is not covered by the staged-Block failure guarantee. Whole-object movement was not observed in these new reproduction cases and is not claimed as independently reproduced.
+
+Native inspection also encountered a separate Qt 6.11.1 macOS accessibility crash: both reports stop in `QMacAccessibilityElement::accessibilitySelectedChildren` during an accessibility query. The final native tests use the Cocoa widgets and Qt mouse events without CUA accessibility queries. This is not evidence that ordinary New Map or edge geometry crashes. The rebuilt development bundle's ad-hoc signature was refreshed and `codesign --verify --deep --strict` passed; no installed Qt library or accessibility preference was modified. The previously published geometry-only commit `81bf8781b8ebdeedace3c8564d8984e3ecd4b411` completed all 15 CI jobs successfully in run 38652721968; that CI result does not validate these unpublished GUI changes.
+
+The final application was launched directly from the rebuilt bundle executable and reported `Ready in 1895 ms` (PID 37337, launch log retained). LaunchServices `open` still stalled in this automation session despite the valid signature; only this turn's stalled launch stubs were stopped. No accessibility inspection was performed against the final running app. Successful direct startup does not claim the separate LaunchServices/accessibility issues are repaired.
+
+
+## Explicit plain-drag edge extension — 2026-10-15
+
+The user clarified that the failing gesture was dragging an edge **without Shift**. The preceding checkpoint only established Shift-gizmo extension; direct Select dragging still called MoveVertices. A working topology operation was therefore insufficient to establish the requested input workflow.
+
+Tool Properties now places Edge dragging near the top for Edges under Select and Translate. The persistent `editor.map.edge_drag_action` choice defaults to `move`; `extend` makes an ordinary direct edge drag create connected faces, and also applies to an ordinary Translate gizmo drag. Shift-gizmo extension remains available. Ordinary Rotate/Scale retain their prior behavior. The action is captured at press, including the delayed-pick stage, rather than reread when the first movement or release arrives.
+
+Extension uses the existing cloned geometry/history transaction and prepares the new outer-edge selection before publishing it. Original vertices remain fixed. The returned boundary becomes the next selection, enabling repeated pulls. Captured component drags retain input ahead of idle gizmo picking, and Translate's paint branch now draws their preview instead of returning first. The preview includes connecting sides and the proposed outer edge. Temporary weld/selection storage in the touched commit function now has scoped cleanup on all exits.
+
+Direct 3D dragging retains its established horizontal-plane behavior; Alt added after press raises/lowers vertically. The Translate Z arrow gives an unambiguous upward pull without modifiers when Extend is selected. Closed/non-boundary edges and collapsed new faces are still rejected with a notice. This does not enable non-manifold solid-edge extrusion or claim every Hammer gesture has been reproduced.
+
+Seven focused cases exercise the actual visible property control, ordinary Select/Translate dragging twice, native Perspective direct and Z-arrow wall creation, unchanged original vertices, selection modifiers, cancellation, press-time action capture, Move behavior, undo/redo, map save/load, settings serialization, representative allocation failures/retry, contextual visibility and a preview pixel. The initial run found the Translate control incorrectly visible outside Edges (six of seven cases passed); applying visibility masks outside the Select-only header path repaired it. Final combined plain-drag/routing checks pass 1,719 assertions in 15 cases, and native Cocoa plain-drag checks pass 695 assertions in seven cases including the captured wall image.
+
+The first complete Map GUI run reached its configured 120-second limit without a reported assertion failure. Its per-test allowance was raised to 300 seconds for the expanded suite. Source snapshots, scoped patch, initial failure, build/test logs and native capture are retained under ignored `build-mason/artifacts/mason_edge_plain_drag_*`. Mason is rebuilt in the existing compact tree and its development bundle signature is refreshed. The already running user process is preserved and must be restarted after saving to load the new code. These editor changes remain local with the pre-existing unpublished adapters; the independent renderer publication does not validate this GUI change.
+
+
+Final complete validation: Map GUI passes **138,524 assertions / 691 cases** in 179.87 seconds under the new 300-second allowance; Mason smoke passes **3,969 / 69** in 257.27 seconds. The first timeout log is retained separately. These are serial local shared-tree integration results, including pre-existing unpublished work. Final focused test and app builds have no compiler warnings or errors, and the refreshed development bundle passes `codesign --verify --deep --strict`. Independent final review found no actionable correctness concerns in the owned delta. No packages, downloads, duplicate build trees, unrelated staging or edits to the running user's maps were introduced.
+
+
+## Pivot rotation and continuous edge transform controls — 2026-10-15
+
+The user confirmed direct extension worked, then requested Hammer-like rotation about a placed pivot and access to edge gizmos without returning to Select. Inspection found two actual gaps: the first paint after Pivot → Rotate discarded the persistent pivot until an input event rebuilt the transient tool state, and Edge dragging = Extend only affected Translate. The existing geometry library already supported affine boundary extension, including nonplanar quad strips from a varying-height edge chain.
+
+The paint fallback now carries the saved pivot and displays its marker alongside the ring. Rotate and Scale honour the press-captured Extend choice, using the existing cloned-document transaction and prepared outer-edge selection. The same contextual section offers Move/Extend and Translate, Rotate, Scale, Pivot and Clear Pivot in Select and all three transform tools. Select exposes move handles for selected edges. Direct visible edge hits win over overlapping shafts in Select, while modified clicks retain selection behavior; explicit Translate still prioritises its handles. Modified cage drawing precedes the gizmo early return. Changing or clearing the pivot cancels an active gizmo gesture rather than reusing its old press rays around a new centre.
+
+The new workflow regressions failed on the prior implementation: three cases, four failed assertions out of 93, including the first-paint ring pixel and absent Rotate control. The final focused set passes 4,237 assertions in 30 cases. Four native Cocoa cases pass 1,392 assertions. They drive real Block creation/category switch/picking/Pivot clicks/Rotate drags, two unmodified 30-degree extensions, Select shaft overlap and modifier clicks, Scale extension, zero-angle/Escape cancellation and pivot changes during capture. A four-edge doorway profile is selected with actual Perspective clicks and extended through six 15-degree turns: each increment adds four faces and five shared vertices, preserves all earlier vertices, and returns the four new outer edges. Exact coordinates and six-step undo/redo are checked. Native screenshots are mason_pivot_edge_strip.png and mason_pivot_edge_profile.png under build-mason/artifacts. No CUA accessibility inspection or edits to the running user's maps were performed.
+
+The first complete GUI run passed 694 of 695 cases and found only a stale expectation of 34 property operations; the four new transform shortcuts produce 38 unique operations. The test now also checks each shortcut's icon, enablement and unique registration. One application build invocation used lowercase mason rather than target Mason; the corrected target built successfully. Final complete validation is recorded below. The development bundle has been rebuilt in the existing compact tree and its ad-hoc signature verified.
+
+Limits: one gesture adds one transformed strip; repeated angle-snapped turns create the segmented bend. This does not add automatic smooth-arc subdivision or permit folded/self-crossing/non-boundary extensions. Numeric transform fields still deform the current component selection. Direct 3D edge dragging retains its existing floor-plane/Alt behavior. The outstanding near-clipped edge picker mismatch found during the earlier audit is not changed or claimed fixed here. This is a local checkpoint built on unpublished editor adapters; publishing it alone would omit required source dependencies. No unrelated files or live maps are staged.
+
+Final checkpoint: complete Map GUI passes **139,944 assertions / 695 cases** in **117.56 seconds** after the assertion update. Mason smoke passes **3,969 / 69** in **170.77 seconds**; its successful run uses the same production build and was not repeated for the subsequent test-only correction. Native Cocoa passes **1,392 / 4**, with the screenshot inspected. Final builds report no compiler warnings/errors. The bundle passes strict signing verification, and app/standalone executables share UUID `934FB203-1B27-4E13-9912-72639260DCD2`. The running user's earlier process was preserved; save and restart to load the new binary. Scoped snapshots, owned patch, first failing regression/full run, successful runs and captures are under ignored `build-mason/artifacts/mason_pivot_edge_*`. The separate published renderer commit dfc5f3c9 has 14 successful CI jobs and Windows Render Asset Tools still building at this checkpoint; that CI does not validate the local editor delta. The recurring continuation prompt now respects the human's temporary Mason priority before returning to renderer work.
+
+## Tool workflow audit — 2026-10-15
+
+The user's subsequent request is a deep review, not another implementation increment. The current working tree was audited against existing tests, the supplied screenshots, Valve-attributed Source 2 mesh-editing documentation, and relevant original tutorial transcripts/selected frames. The complete inventory, evidence limits, defects, design gaps and acceptance projects are in [Mason tool workflow audit](/Users/karlosiric/Documents/MyProjects/CYPHER/docs/mason_tool_workflow_audit.md).
+
+Priorities are shared edge picking, component/UV gesture cancellation, consistent component selection, and geometry/publication boundaries. The Hammer curved-tunnel workflow also needs semantic repetition of mouse-authored edits, local/workplane transform orientation, and component selection restoration after undo/redo. Existing Shift+G command-ID replay does not repeat a mouse Rotate-Extend operation. These are review findings and proposed fixes, not delivered changes. No source implementation, rebuild, live-map edit or fresh test run was performed for this audit.
+
+The follow-up [geometry capability matrix and completion gates](/Users/karlosiric/Documents/MyProjects/CYPHER/docs/mason_tool_workflow_audit.md:255) cover all component modes, procedural shapes, pipes, object kinds, groups, ownership, parenting, instances and export. It separates existing GUI operations, library-only machinery and missing algorithms. In particular, Block Pipe is straight and hollow, Curve Round is curved and solid, and the current single-contour sweep does not provide a hollow elbow. Connected-region extrusion, constant-width mesh inset, face bevel and annular solidify are incomplete despite existing related tools.
+
+New source-confirmed priorities include parent Cut deleting descendants not copied to the clipboard, missing pasted-parent remapping, indirect selection bypassing layer locks, world-axis modifier transforms changing shape during rotation, inconsistent prefab/terrain operation gates, and metadata/export losses. Existing tests were run from build-mason: Geometry passed 374,675 assertions in 1,271 cases; the full Map Core CTest timed out at its 120-second limit; focused creation/topology/modifier/hierarchy/clipboard/sphere tests passed 4,950 assertions in 65 cases. These passes do not reproduce or clear the newly found combinations. The report defines eight complete mapping tasks as the geometry release gate. This follow-up changes audit notes only; implementation and live maps remain untouched.
+
+
+## Hierarchy-safe portable clipboard — 2026-10-15
+
+The human explicitly requested implementation after the audit and supplied Eagle
+One's 47-lesson Hammer crash course playlist. The first implementation closes
+preservation finding D1 before further modelling operations. Playlist findings
+are tracked separately in `mason_hammer_playlist_review.md`; unavailable captions
+are not counted as reviewed tutorials.
+
+Copy now snapshots the recursive entity attachment closure and its owned geometry,
+while retaining the original ordered/deduplicated selection roots. Parent/owner
+references within that bundle are remapped to newly allocated IDs on Paste.
+External entity parents are omitted in portable child-only copies; Duplicate's
+same-document policy is unchanged. Parsing validates parent type/target, detects
+cycles independently of selected roots, and requires every included object to be
+reachable from selection. Internal references are remapped before the existing
+hierarchy-aware translation so a coincident destination ID cannot capture a child.
+Originless containers remain originless and movement is deduplicated.
+
+Four initial Core regression cases failed on the previous implementation (46 failed
+assertions out of 472); the log is retained. Six new Core cases, four workspace
+cases and one real Mason keyboard-dispatch case now cover recursive closure,
+brush/mesh/patch ownership, identity collisions, selected-root order, exactly-once
+translation, originless descendants, malformed/cyclic parents, save/reload,
+Cut/Paste/Undo/Redo, active gesture guards, and bounded custom-allocator failures.
+The keyboard case focuses a test-owned viewport and sends Copy/Cut/Paste In Place
+key events, then routes Undo/Redo through registered commands. All user maps and
+the running Mason session are untouched. GUI tests use Qt offscreen.
+
+Checkpoint validation:
+
+- Map Core `[clipboard],[hierarchy],[groups]`: 19 cases, 2,428 assertions passed.
+- Map GUI `[clipboard]`: 14 cases, 3,908 assertions passed.
+- Mason `[hierarchy-clipboard]`: 1 case, 226 assertions passed.
+- Existing `build-mason` rebuilt Core/GUI tests, Mason smoke tests and Mason;
+  no compiler warnings/errors. App and standalone ad-hoc signatures verified;
+  bundle Mach-O UUID `E416A496-69DA-4A18-B766-432FB0C0FB6F`.
+- Independent scoped production review found no new correctness blocker.
+
+Logs, original file snapshots, the owned patch and source/build hashes are under
+`build-mason/artifacts/mason_hierarchy_clipboard_*`. This is a tested local
+checkpoint, not a main/CI result: current sources depend on unpublished V11 layer
+storage, Groups/Hierarchy and hierarchy-aware Edit changes. Publishing only this
+fix would break main; staging the entire dependency chain would include unreviewed
+work. No commit or push was performed, and no maps were staged.
+
+Limits: offscreen keyboard tests do not prove native clipboard format interop;
+bounded custom-allocator probes do not exhaust every allocation or force failures
+inside STL. Standard-library allocation exceptions are translated to failure at
+the clipboard boundaries. Group/layer-lock, prefab, modifier and export defects,
+component selection restoration, curved bridging and other geometry release gates
+remain separate work. This does not complete assembly gate G6 or the editor.
+
+
+## Seeded boundary selection through double-click — 2026-10-15
+
+The reviewed arch tutorials use boundary double-click as a modelling step. Mason's
+old Edges double-click selected one edge and opened its inspector. A new actual
+mouse-event test failed on the old path (one edge selected instead of four: one
+failed assertion of 42). The fix is a seeded boundary query, not the existing quad
+edge-loop query or the query selecting every boundary in a mesh.
+
+`MeshSelection_TrySelectBoundaryLoop` enumerates boundary edges privately, sorts
+vertex incidences, and follows only the seed's closed degree-two cycle. It merges
+into the selection only after successful preparation. Missing/interior seeds,
+wrong mesh scope and ambiguous topology refuse; scratch storage uses existing
+RAII vectors. Three query cases cover separate openings on one connected shell,
+retained mixed component selection, idempotence, invalid scope/seeds and all
+allocation failures within the small fixture's measured 64-allocation bound.
+The full selection-query filter passes 9 cases / 495 assertions. Independent
+review verified all dependencies already exist on main, so the query/header/tests
+and an isolated factual changelog entry were committed and pushed as
+`065a274c5fe1d363d974436d21844046ca975fc9`.
+
+The local viewport handler invokes this query in Edges mode for Select, Translate,
+Rotate and Scale. Shift adds the rim. Ctrl/Command intent is captured before the
+first ordinary click so the second click toggles the entire rim consistently.
+Pending component/gizmo gestures are cancelled without clearing the custom pivot;
+selection publishes through the existing atomic component setter. Other openings
+remain distinct; object, vertex and interior-edge inspection remains available.
+The full press/release → double-click/release test passes 760 assertions across
+Camera/Top and all four tools, including custom pivot retention and a late motion/
+release that must not mutate geometry or history. A missing header declaration
+was caught during the first GUI build and corrected before passing validation.
+
+The geometry query is on main, while Views and its workflow regression remain
+local with the unpublished editor prerequisites. GUI/input tests use Qt offscreen.
+Failure preserves selection at double-click-handler entry, not before the first
+ordinary click. Invalid branching degree is rejected by code inspection but has
+no dedicated malformed GUI fixture. This milestone does not add arbitrary edge
+loops, semantic repeat, oriented workplanes, contour offsets or curved bridges.
+Baselines, regression/build logs and scoped patches are retained under
+`build-mason/artifacts/mason_boundary_doubleclick_*`.
+
+The final checkpoint rebuilt Mason and its smoke tests in the existing
+`build-mason`. The complete Map GUI contract target passed 700 cases / 143,128
+assertions (103.75 seconds); the relinked Mason clipboard keyboard regression
+also passed 1 case / 226 assertions. No compiler warnings/errors were reported.
+Both app and standalone ad-hoc signatures verified. Final bundle Mach-O UUID:
+`FB92051D-DC40-43C8-9B87-525E1EAB52A9`. The user's running app was not restarted.
+GitHub Actions run 38766244584 is checking the independently published query;
+the local editor checkpoint must not be described as covered by that CI run.
+
+## Component and UV gesture interruption safety — 2026-10-15
+
+The human explicitly resumed implementation of the missing Mason workflows and
+reserved renderer changes until requested. This checkpoint addresses audit A2's
+component captures and A3's UV lifecycle. No renderer source or live map changed.
+The earlier published geometry-query run 38766244584 completed successfully in
+all 15 jobs; that result still does not cover these unpublished editor changes.
+
+The failure had two owners: the viewport reset its whole-object drag, while
+ToolGestures retained a component drag captured against the old projection.
+`MapToolGestures_CancelViewDrag` now looks up existing state without allocating
+and drops pending/direct component grabs, component gizmos and lassos only for
+the originating pane. It clears flags and references before notifying listeners.
+It deliberately preserves custom pivots, workplanes and staged construction in
+other tools. Both viewport types invoke it on focus loss, resize, navigation,
+framing and relevant display changes, hide/deactivation/ungrab, and a move without
+the held button. Tool/mode changes also drop the pane's component capture.
+
+Cancellation remains separate from a root-only BeginEdit reset. An unconditional
+document-notice cancel was removed during review because a press can intentionally
+convert a brush to a mesh before completing its component pickup. A new real
+press/move/release regression now preserves that supported one-gesture route,
+including selected endpoints, Undo and Redo. The first version of this regression
+incorrectly used Translate for a direct vertex grab; current behavior permits that
+under Select, while Translate directly grabs edges and uses gizmos for vertices.
+The fixture was corrected rather than expanding unrelated interaction policy.
+
+UV Canvas now starts each press with an empty pending edit and tracks its initiating
+button. Release copies the edit and clears transient state before synchronous
+document publication. Existing identity rejection prevents stationary clicks,
+return-to-start drags and sub-texel movements from adding history. Escape, focus,
+hide/deactivation/ungrab, lost-button motion, wheel/resize, Fit and document or
+selection changes cancel. Pending pivot/pan movements restore their captured local
+state. Completed UV shifts move the captured pivot by the delta once, avoiding a
+second translation after publication refreshes an implicit face-centre pivot.
+These lifecycle resets introduce no new allocations; existing ApplyEdit remains
+the edit publication boundary. No new exhaustive allocator-failure claim is made.
+
+New actual Qt widget-event regressions cover 80 active component interruption
+scenarios (Top/Camera, vertex move, direct edge extension, pivoted edge rotation
+extension and face move), other-pane ownership, pending presses/lassos and fresh
+post-cancel gestures. The UV cases cover brush/mesh faces, all transform-area
+stationary clicks, identity motion, interruption and late release, fresh edits,
+Undo/Redo, pivot restoration and button ownership. Baseline runs reproduced stale
+component commits after focus/resize and UV edit replay. Initial combined logs
+also contain a UV fixture failure caused by retaining Faces mode when converting
+a new brush; that fixture now explicitly enters Objects for conversion.
+
+Validation:
+
+- Seven focused cases: **8,880 assertions passed**, both Qt offscreen and native
+  macOS Cocoa. These are synthetic mouse/key events delivered to real widgets;
+  the user's running editor and live maps were not driven or restarted.
+- Complete Map GUI: **707 cases / 152,008 assertions passed**.
+- Mason cancellation/shortcut integration: **2 cases / 160 assertions passed**.
+- Mason and its affected tests rebuilt using the existing build-mason. No compiler
+  warnings/errors in the checkpoint builds. Both bundle and standalone ad-hoc
+  signatures verify; shared Mach-O UUID `D0846FEE-1434-46BA-B9A8-6D9D313C2C40`.
+- Independent reviews of the viewport and UV deltas found no new blocking defect.
+
+Scoped baseline snapshots, patch, source/build hashes and baseline/final logs use
+the ignored `build-mason/artifacts/mason_interaction_safety_*` prefix. Both
+changelogs and the audit record the delivered scope. These files still depend on
+unpublished editor/V11/hierarchy adapters; publishing the isolated delta would
+leave main incomplete, while staging the dependency chain would sweep unreviewed
+work. This remains a tested local checkpoint, with no new commit/push or CI claim.
+
+Limits: the new owner-specific API does not cover specialized Arc, dedicated
+Extrude, Shear or sculpt captures. UV interruption tests exercise Move through
+the shared cancel path; pivot Escape is explicit, but pan/Fit rollback and
+allocator-failure pivot retention are not separately injected. A1 shared edge
+picking, A4 selection-modifier consistency and A5 face picking in transforms remain
+open, as do semantic repeat, oriented workplanes, connected-region operations and
+hollow curved sweeps. No geometry release gate or full editor completion is claimed.
+
+Next A1 design is scoped: expose a mode-independent viewport edge query with
+HIT/MISS/FAILED, optional mesh/plane/edge filters and a perspective-correct world
+fraction. Reuse the existing camera near-plane/depth/occlusion rules for direct
+grab, Knife, Loop Cut and Arc instead of their duplicate projection routines.
+Canonical edge IDs must match endpoint positions, and FAILED must never fall
+through to brush conversion. Tests must cover near-clipped/receding edges, hidden
+selected-edge regrabs, reversed endpoints, orthographic ties and failure safety.
+This design has not been implemented in this checkpoint.
+
+## Shared edge picking and planned Connect Edges — 2026-10-16
+
+The human requested continued implementation of the audited Mason gaps and
+reserved renderer work until directed. This increment addresses native edge
+acquisition finding A1 and Connect preservation finding B1. The existing layout,
+theme and live maps are preserved; no renderer source changed.
+
+Actual native panes now supply an edge-query callback through `map_tool_view_t`.
+Its result distinguishes HIT, MISS and FAILED and includes the mesh, canonical
+edge IDs, matching endpoint positions and fraction along the original edge.
+Optional mesh, plane and allowed-edge filters are applied before choosing a
+candidate. Orthographic views retain screen-distance/positive-depth ordering;
+camera views retain depth ordering and physical occlusion, including a mesh's
+own faces. Tool-specific hit radii remain intentional. Synthetic test views
+without the native callback retain their legacy projection-only path.
+
+The camera clips first, retains that interval on the original edge, and converts
+the screen fraction using reciprocal depth before mapping it back to that
+interval. Direct edge grabs/regrabs, Select/gizmo arbitration, Knife, Edge Cut,
+Loop Cut and Arc acquisition consume this result instead of duplicate projection
+and visibility calculations. A cached direct hit is revalidated before restoring
+it. Initial query failure cannot fall through into an implicit brush conversion,
+an empty-space lasso or a Knife face point. Camera Knife/Edge Cut corner snaps
+retain their wider eight-pixel reach but validate visible incident-edge endpoints;
+they cannot bypass a foreground brush through raw presentation-point selection.
+
+Connect Edges now plans on original faces. Inputs are canonicalized and checked
+for duplicate/stale refs; every selected edge must participate in a face with
+exactly two selected edges, and a face with more than two refuses the batch.
+No selected edge is silently split without a connection. The split transaction
+records returned vertex handles, then resolves them to persistent midpoint IDs
+through the existing pre-publication observer. Coordinate matching is removed,
+so coincident disconnected shells remain distinct. New scratch uses fallible
+allocator-backed vectors with scoped cleanup. Later split/face-cut failures
+retain the existing private-copy contract: callers discard the complete copy.
+The registered GUI command reports incompatible selections without mislabelling
+allocation or history failures, and a successful batch remains one undo step.
+
+Baseline tests reproduced all four initial picker cases (28 failed assertions of
+551), including near-clipped drag refusal, hidden-edge edits and cut vertices
+91–101 pixels away from the clicked position. All three initial Core Connect
+cases failed (29 of 227 assertions), including coincident-shell failure. Tests
+were authored before the production changes and source snapshots were retained.
+
+The expanded visibility test initially assumed a VIEW notice could hide a
+selected mesh without changing component selection. Source tracing and its
+failed assertion disproved that assumption: `MapWorkspace_Notify` already invokes
+`PruneMeshComponents`, clearing hidden components and incrementing selection
+revision. The fixture now checks that established policy, stale-input rejection
+and a fresh reselected gesture. A proposed redundant visibility-cancellation
+helper was removed; no new visibility-lifecycle repair is claimed here.
+
+Current focused validation:
+
+- Shared edge/registered Connect GUI: **8 cases / 1,272 assertions passed**.
+  Cases drive actual Qt widgets, including near-clipped movement/cuts, strongly
+  receding edges in both canonical orders, hidden regrabs/Loop Cut/Arc, query
+  allocation failure, Top-view depth ties, stale visibility input and hidden
+  Knife corners with a positive seven-pixel corner-snap control. Cut vertices in
+  these fixtures reproject within 0.05 pixels. Undo/Redo is checked geometrically.
+- Complete Map Core topology filter: **44 cases / 10,742 assertions passed**.
+  New cases cover malformed/mixed selections, coincident and separate shells,
+  saved reload, every measured allocation failure within a bounded preflight,
+  and an allocation-free read-only guard. Existing multi-face Connect remains
+  covered. The GUI case checks rejected live-state preservation, feedback,
+  corrected selection, one-step Undo/Redo and save/reopen.
+- Independent production reviews of the query, corner helper, assigned-ID
+  planning and registered command found no remaining blocker within this scope.
+
+Final checkpoint validation also passed the same eight GUI cases on native
+macOS Cocoa (**1,272 assertions**), the complete Map GUI suite (**715 cases /
+153,280 assertions**) and five rebuilt Mason geometry/cancellation application
+cases (**163 assertions**). Native checks deliver synthetic input to actual Qt
+widgets; they do not operate the user's live map. Mason and its affected test
+targets rebuilt without compiler warnings/errors. App and standalone ad-hoc
+signatures verify; both executables have Mach-O UUID
+`6B37B578-6505-41BE-A7ED-D86327C985E2`. The running editor was not restarted.
+
+Baselines, owned patches, checkpoint hashes and build/test logs use the ignored
+`build-mason/artifacts/mason_shared_edge_pick_*` and `mason_connect_edges_*`
+prefixes. Build-mason and installed dependencies are reused; no package downloads,
+extra build trees or large caches are introduced. Publication remains constrained
+by the existing unpublished editor/V11/hierarchy prerequisites. No unrelated
+changes or maps are staged, and local GUI validation is not a main/CI result.
+
+Remaining boundaries: general component vertex/face picking, Knife's face-plane
+lookup and separately committed brush conversion still need work. Arc still
+allows bending its already selected chain from an empty-space drag; acquisition
+visibility does not redefine that gesture. A4 modifier consistency, A5 picking
+faces in transform tools, semantic repeat, oriented workplanes, connected-region
+inset/extrusion, curved bridging and hollow sweeps remain open. This does not
+complete the eight geometry workflow gates or the editor.
+
+## Consistent component selection and face picking in transforms — 2026-10-16
+
+The human requested continued implementation of the Mason audit gaps and kept
+renderer work reserved. This checkpoint addresses A4/A5 and a newly exposed
+Fast Texture/workspace lifetime defect (A6). Layout, theme and live maps are
+preserved; no renderer implementation changed.
+
+Faces mode now picks faces while Select, Translate, Rotate or Scale remains
+active in either pane. A shared helper implements replacement, Shift addition
+and Ctrl/Command toggling, with Ctrl/Command taking precedence over Shift.
+Modified foreign-mesh or mesh/brush input retains the current face selection
+with a notice. Brush faces remain a single-face selection. A real gizmo hit
+still owns its gesture, including the established snap-bypass modifier.
+
+Mesh face Set/Add validates and prepares candidate IDs and the inspection root
+privately, then publishes once and increments selection revision once. A failed
+add never falls back to replacement. Duplicate IDs and borrowed live spans are
+safe; unchanged borrowed Set and same-active Add allocate nothing or notify.
+Removal of the last face increments revision, so capture guards see the change.
+Brush root and face context are prepared before publication too.
+
+Vertex/edge clicks, orthographic columns, lasso and direct-drag fallback now
+apply one-mesh ownership consistently. Modified foreign input is refused before
+implicit brush conversion. Shift unions and Ctrl/Command subtracts a lasso;
+empty subtraction cannot acquire an owner. Modified no-ops retain revision,
+seed and projection metadata. Plain lasso prefers an eligible current mesh/root,
+then greatest distinct eligible count and lowest persistent object ID. Edge
+eligibility requires both endpoints; contained vertices alone cannot win.
+Lasso candidate/union scratch uses scoped fallible mesh selections before final
+atomic SetMeshComponents publication.
+
+Tests were added before implementation. The initial four-case baseline failed
+35 of 493 assertions, reproducing face-tool routing, foreign-owner lassos,
+partial face/root publication and borrowed-set behavior. Direct API fault tests
+now enumerate each measured face Set/Add preparation failure through success,
+checking no partial notification, ID/root/storage replacement or leaks. Native
+widget cases cover the modifier routes, foreign brush refusal, scoped face
+translation with geometry Undo/Redo, deterministic lasso choice, no-op projection
+retention and first/middle/final release-time lasso allocation failures plus retry.
+
+The first complete-suite run found 12 obsolete assertions in an old camera
+probe: it targeted the former root gizmo location and expected the selected face
+to remain unchanged. With A5 this is legitimately a surface pick. The fixture
+now resets the intended face per tool, independently raycasts the probe, accepts
+only the intended face or the actual visible hit, retains post-press selection,
+and forbids an edit after repicking. Original parent-motion, unselected-corner
+and history/Undo guards remain; the test was not merely weakened to ignore IDs.
+
+A subsequent complete run failed a hotspot fit and crashed in the next fixture.
+The hotspot case passes alone; LLDB reproduced the full-run failure with seed
+1367353702 and stopped at EXC_BAD_ACCESS in QTemporaryDir::path(). Source tracing
+identified two independent lifetime defects: Fast Texture cached a detached
+window until deferred deletion, and workspace shutdown left asset callbacks
+registered. A failed test assertion skipped explicit resolver cleanup, leaving
+its temporary-directory reference reachable from the next workspace address.
+This is production lifetime cleanup, not an allocator-fixture lifetime defect.
+
+Fast Texture now synchronously detaches its listener/cache on done, close,
+shutdown and destruction, with identity-checked erasure and disabled detached
+controls. Both done and closeEvent are required: the installed Qt dialog's hidden
+close can bypass done; see [Qt dialog implementation](https://raw.githubusercontent.com/qt/qtbase/v6.11.1/src/widgets/dialogs/qdialog.cpp).
+Workspace shutdown clears resolver/generation, lister and roots after shutdown
+listeners. Deterministic tests cover immediate close/reject/hidden-close reopen,
+same-address shutdown/reinitialization, late old-dialog destruction and strong
+callback-capture release. The first lifetime baseline had 17 failures in three
+cases; one same-address fixture initially inherited Faces mode and failed its
+Objects-only conversion setup. That fixture now explicitly selects Objects
+before preparation, rather than changing the production conversion contract.
+
+Final validation:
+
+- Combined selection/transform-safety/Fast Texture filter: **21 cases / 3,682
+  assertions passed** on Qt offscreen and native macOS Cocoa. Tests deliver input
+  to actual Qt widgets; they do not manipulate the user's live map.
+- Complete Map GUI: **730 cases / 155,369 assertions passed**, reusing the crash
+  seed 1367353702. This includes the existing component/history/persistence cases.
+- Rebuilt Mason geometry/cancellation application checks: **5 cases / 163
+  assertions passed**. Mason and affected tests build without compiler warnings
+  or errors. App/standalone strict signatures verify; both have Mach-O UUID
+  `54B836A6-5042-4FF8-B1F6-C42224431BB8`.
+
+Snapshots, owned patch, checkpoint hashes and logs use the ignored
+`build-mason/artifacts/mason_component_selection_*` and
+`mason_selection_lifetime_*` prefixes. The existing build tree and installed
+dependencies were reused. No package downloads, duplicate build tree, user-map
+edits, renderer edits or running-editor restart occurred.
+
+Publication remains local: HEAD and origin/main are
+`065a274c5fe1d363d974436d21844046ca975fc9`. Required ToolGestures/Hotspots and other
+editor/V11/hierarchy adapters are still unpublished; main does not contain their
+headers. Publishing only this delta would not form a self-contained build.
+Unrelated pending work is not staged and local validation is not a CI result.
+
+Remaining boundaries: native vertex/face acquisition is not yet one shared
+tri-state query; lasso occlusion retains its existing boolean SurfaceHit path,
+which can treat a document-query allocation failure as unoccluded. The new
+allocator checks cover selection storage/publication, not that query failure.
+History snapshots still store the active face rather than a complete historical
+face set, and no claim is made that every modeless window has the new lifecycle
+policy. Locked-layer/indirect-selection and object-preservation findings, semantic
+repeat, oriented workplanes, connected-region inset/extrusion, curved bridging
+and hollow sweeps remain open. None of the eight completion gates is declared
+fully complete by this checkpoint.
+
+
+## Layer-lock selection and hierarchy protection — 2026-10-16
+
+The user explicitly authorized implementation of the outstanding Mason audit
+items one by one, with renderer work deferred. This checkpoint addresses D2's
+indirect selection and root-edit paths. It preserves the accepted layout/theme.
+
+The failing baseline exercised direct batch selection, a real Top Groups click,
+the group command, a saved selection set and an Outliner group-row click. One
+case produced 12 failures across 92 assertions: the locked group member entered
+selection and replaced the old context. The fix rejects a mixed locked batch
+before allocation or selection mutation, posts a warning and resynchronizes the
+Outliner. Failed group preparation is consumed without falling back to the
+clicked member. Direct face/component admission and automatic brush conversion
+also check the actual object's layer, independently of mode and visibility.
+
+Core now exposes MapEdit_CollectAffectedObjects: the same closure used by root
+transforms, Delete and Duplicate. It includes owned geometry and attached
+entity descendants exactly once, stages output with the destination allocator,
+accepts borrowed input/output storage and read-only documents, and preserves the
+output on failure. Empty input yields empty output. Existing hierarchy-link
+collection still uses caught standard-library allocations; injected allocation
+tests cover the new result storage, not every process allocation.
+
+GUI move/turn/delete/duplicate/Cut gates inspect that closure before starting an
+edit. A selected unlocked parent can remain available for inspection and Copy,
+but an operation affecting a locked descendant is refused in full. Cut refusal
+leaves clipboard data intact. Entity-property operations inspect their resolved
+owner IDs. Ordinary wire surfaces and prefab instances have no entity attachment
+closure; their eligibility uses direct checks without scratch allocation even
+when another layer is locked. Entity-root checks still collect the hierarchy;
+large-map timing of that path has not been benchmarked.
+
+A real lock-state change, including Show All unlocking, advances the selection
+revision and notifies views even if no selected root was removed. The existing
+capture contract then invalidates parent drags across lock → unlock → late
+release. Repeating SetLocked with the same state is a no-op. Hidden/locked root
+pruning compacts existing storage without allocation and clears the removed
+component context before one notification. Custom pivots/workplanes are retained.
+Undo/Redo remains able to restore authored geometry: session locks do not break
+the history stack. Publication clears a restored root batch containing a locked
+object instead of reviving it as editable selection.
+
+Validation (existing build-mason and installed dependencies):
+
+- Core affected-object query and hierarchy tests: **4 cases / 469 assertions**.
+  Query tests cover nested ownership/attachments, duplicate roots, aliasing,
+  read-only source, invalid IDs, empty replacement, exact serialized source
+  preservation and every measured result-allocation failure with leak checks.
+- Focused layer/hierarchy/component-transform-safety tests: **17 cases / 2,843
+  assertions** on Qt offscreen.
+- New layer-lock tests on native macOS Cocoa: **7 cases / 1,112 assertions**.
+  Actual Qt input covers Groups/Outliner selection and a parent gizmo drag;
+  lock/unlock cancellation, fresh retry, Undo/Redo, conversion refusal, clipboard
+  preservation and target-query allocation failure have separate checks.
+- Complete Map GUI: **737 cases / 156,481 assertions**, seed 1367353702.
+- Rebuilt Mason application geometry/cancellation checks: **5 cases / 163
+  assertions**. Final builds contain no compiler warnings/errors. App and
+  standalone strict signatures verify; both have Mach-O UUID
+  `9F99E420-1A5D-4D0F-8668-39954A391070`.
+
+Baseline copies, logs, owned patch and checkpoint hashes are under the ignored
+`build-mason/artifacts/mason_layer_lock_*` prefixes. No dependency downloads,
+duplicate builds, renderer changes, user-map changes or running-editor restart
+were performed. HEAD and origin/main remain
+`065a274c5fe1d363d974436d21844046ca975fc9`: required editor/V11/hierarchy adapters
+are unpublished, so this delta alone is not a self-contained main build. This
+checkpoint is local validation, not a new CI result.
+
+Remaining D2 boundaries: cached/unselected mutation targets bypass the selected
+root gates in specialised Extrude/Paint/Displace, Carve, map-wide Replace
+Materials, entity I/O and instance editing. Those paths need operation-specific
+target checks and capture cancellation. Surface hit testing must continue to
+see locked geometry for physical occlusion; making locked objects invisible to
+ray tests would introduce a different picking defect. A blanket current-selection
+check in the generic edit callback cannot establish the actual write set and
+would also block unrelated creation. No full geometry completion gate is declared
+closed by this checkpoint. Continue the explicit-target lock boundary next,
+then the remaining object-preservation and curved-corridor milestones.
+
+
+## Dedicated Extrude capture and lock safety — 2026-10-16
+
+This follows the layer-lock checkpoint under the user's explicit editor
+implementation request. It repairs the dedicated face Extrude tool's admission
+and gesture lifetime; renderer implementation remains deferred.
+
+The baseline used real camera-widget mouse input. Two new cases produced
+**11 failures across 199 assertions**: dragging a locked face could still
+extrude, and lock then unlock before a late release could revive the drag. The
+old path ignored failed face selection and could capture the clicked mesh with
+a foreign selected face set. It also had no pane/document/selection ownership
+for its overlay capture.
+
+The repaired press path refuses locked surfaces, prepares face IDs privately,
+checks face-selection publication and confirms the exact admitted owner/set.
+Shift on another mesh preserves the existing face context with an explanation;
+preparation failure cannot fall through to replacement. It rechecks document
+identity and geometry revision after synchronous selection observers run, so a
+new document retaining the same IDs cannot inherit an old hit point/normal.
+The captured selection revision is recorded after successful publication,
+including the first press's legitimate switch into Faces mode.
+
+Active captures retain the originating pane, document pointer, geometry and
+selection revisions. Changes to those inputs, target locking, or edit readiness
+make the overlay invalid and prevent move/release from committing. Existing
+native CancelViewDrag hooks now retire that pane's dedicated extrusion on focus,
+projection, camera and tool/mode interruption. Another pane's lifecycle/mouse
+events cannot take over the capture. Escape intentionally remains a global
+workspace cancellation. Discarding extrusion preserves persistent pivot and
+workplane state and does not edit authored geometry.
+
+Release moves its captured face IDs into local storage and clears the capture
+before callbacks can publish another document. Normal-list preparation catches
+allocation failure; invalid/nonfinite displacement discards the overlay. The
+existing private edit/history transaction still owns geometry publication.
+Memory refusal has a memory-specific notice; other failures report inability to
+apply the edit without asserting a folded face; UNCHANGED/OK stays quiet.
+
+Validation, using the existing build-mason tree and installed dependencies:
+
+- Focused Extrude, 2D extrusion and component-transform safety: **12 cases /
+  2,692 assertions** on Qt offscreen.
+- New dedicated Extrude regressions: **6 cases / 1,054 assertions** on native
+  macOS Cocoa. These drive actual camera widgets, with visible previews before
+  interruption. Cases cover locked presses with/without foreign face selection;
+  lock/unlock; focus, resize, camera framing, tool/mode changes and Undo document
+  replacement; other-pane ownership; Shift foreign-face refusal; and first-GUI-
+  allocation failures at press and release. Refusal preserves geometry, context,
+  history token and storage; injected storage is leak-free. Fresh retries produce
+  four side faces, the expected cap height, unchanged lower vertices and cap
+  material. Undo/Redo restores exact before/after mesh descriptions.
+- Complete Map GUI: **743 cases / 157,535 assertions**, seed 1367353702.
+- Rebuilt Mason application geometry/cancellation checks: **5 cases / 163
+  assertions**.
+- The rebuilt app and standalone strict signatures verify, both with Mach-O
+  UUID `12EA24F2-A99E-4DD6-9153-8D3361DE8D4E`. Final build logs contain no
+  compiler warnings/errors.
+
+Baseline sources, logs, owned patch and checkpoint hashes use the ignored
+`build-mason/artifacts/mason_extrude_capture_*` prefix. No user-map edits,
+renderer edits, dependency downloads, duplicate build tree or live-editor
+restart occurred. HEAD and origin/main remain
+`065a274c5fe1d363d974436d21844046ca975fc9`: this local delta depends on unpublished
+editor/V11/hierarchy and ToolGestures adapters, and is not independently
+publishable to main. No unrelated work was staged; no new CI result is claimed.
+
+Limits: this remains individual-face extrusion, not connected-region extrusion.
+SurfaceHit retains its existing wire-polygon/visibility policy rather than the
+shared camera near-plane picker. Post-commit multi-face reselection can still
+allocate; complete historical face-set restoration remains open. Tests inject
+the editor allocator at admission/publication, not private std::vector failures
+or every process allocation; those new preparation exceptions are caught.
+Exact Undo/Redo checks and cap material checks are not a comprehensive UV policy
+test. Other specialised tools (Paint/Displace/Arc/Shear), Carve, material
+replacement, modeless entity editing and prefab transitions still need their own
+target/capture audit. The eight complete modelling gates remain open. Continue
+those object-preservation boundaries, then semantic repeat and the full curved-
+corridor, connected-region and hollow-sweep workflows.
+
+
+## Atomic Paint strokes and capture safety — 2026-10-16
+
+This continues the explicit editor implementation request and the audit's
+object-preservation/cancellation work. Renderer implementation remains deferred.
+The previous Paint press could publish brush conversion before any paint was
+committed, leaving a mesh/history entry after cancellation. It could also paint
+locked objects. The new real-camera baseline failed **68 assertions across two
+cases / 149 assertions**, establishing those failures before implementation.
+
+Paint now records the target and dabs without changing authored geometry.
+Radius, strength, channel and colour are captured at press; release retains the
+existing Ctrl/Command erase convention. Capture is owned by one pane and records
+the document pointer, geometry revision and selection revision. Target locking,
+visibility, edit readiness and brush-conversion policy are checked. Escape and
+the existing pane interruption hooks discard captured input while preserving
+persistent pivot/workplane state. Other panes cannot add dabs or release the
+stroke. Allocation failure while collecting dabs retires capture and reports a
+memory error.
+
+Release moves dabs to local storage and retires capture before notifying any
+observers. Brush conversion and painting execute on one private document using
+the existing explicit-change transaction. The change comparison begins after
+conversion: only an actual paint change publishes the candidate. No-effect
+strokes therefore retain the original brush and IDs without adding history.
+A successful stroke produces one undo step; Undo restores the original brush
+and Redo restores the exact painted mesh. Conversion remains subject to the
+existing metadata preservation/refusal rules.
+
+Review found a second lifetime defect: Paint can target an unselected object,
+so hiding and showing it need not change selection revision. With no input
+between those operations, per-event validation alone could revive the stroke.
+The intermediate run failed **31 assertions in one case** (14 cases / 1,570
+assertions overall) across brush/mesh hide-show and conversion off-on sections.
+`MapToolGestures_ValidateCaptures` now retires invalid Paint capture during
+workspace document/selection/view notification, before listeners run. It is a
+lookup-only, allocation-free check and does not notify recursively. Changes to
+the brush-conversion setting now issue the required view notification. The
+regression keeps the selection revision unchanged and supplies no intervening
+mouse event, proving cancellation does not depend on either.
+
+Validation used the existing build-mason tree and installed dependencies:
+
+- Focused Paint, brush conversion, Extrude and component-transform safety:
+  **24 cases / 4,281 assertions** on Qt offscreen.
+- Ten new Paint capture cases: **1,500 assertions** on native macOS Cocoa.
+  Actual camera-widget events cover locked brush/mesh presses; focus, resize,
+  camera, tool/mode and selection interruption; Escape; lock/unlock; Undo document
+  replacement; other-pane isolation; no-effect strokes; conversion disabled
+  during capture; press-time parameter retention; hide/show and conversion off/on;
+  failed publication and a fresh retry. They verify one-step history, exact
+  Undo/Redo geometry and preservation of owner, named layer, material, source
+  root/face IDs and painted colours through save/load.
+- Complete Map GUI: **753 cases / 159,035 assertions**, seed 1367353702.
+- Rebuilt Mason application geometry/cancellation checks: **5 cases / 163
+  assertions**. Final build logs contain no compiler warnings/errors.
+- App and standalone strict signatures verify. Both have Mach-O UUID
+  `3A7A6AAE-4859-4121-9B65-3D00F9597B89`.
+
+The ignored `build-mason/artifacts/mason_paint_transaction_*` files preserve
+baseline sources, failing and passing logs, the owned patch and checkpoint
+hashes. No user maps, renderer files, external dependencies or running editor
+were modified. HEAD and origin/main remain
+`065a274c5fe1d363d974436d21844046ca975fc9`. Required editor/V11/hierarchy and
+ToolGestures dependencies remain unpublished; this delta alone would not form a
+self-contained main build. No unrelated work was staged or new CI result claimed.
+
+Limits: Paint changes mesh corner colours inside a world-space radius and
+applies them on release; the drag overlay shows dabs, not a live colour preview.
+This is not terrain blend-material painting. Tests inject the first GUI
+allocation failure at release and verify exact preservation, leak-free storage
+and a fresh retry; they do not fault-inject every system allocation or private
+std::vector growth. New vector failures are caught. Metadata checks establish
+the named preservation cases, not every possible imported attribute policy.
+Shared SurfaceHit/MeshUnder/BrushToMesh behavior is unchanged. Knife/Loop Cut,
+Displace/sculpt, Arc/Shear, Carve, material replacement and modeless entity/prefab
+transitions still require their own capture or write-target work. None of the
+eight complete modelling gates is declared closed by this checkpoint.
+
+The next B3 conversion repair needs a private candidate-picking boundary.
+Brush wire vertices lack the canonical source vertex IDs used by Knife and
+Loop Cut; conversion allocates those IDs and preserves side IDs as mesh faces.
+Simply moving the conversion call to release would invalidate acquired targets.
+Prepare a converted candidate and expose its source through the existing picker
+for the same live brush root, retaining near-plane, perspective and scene
+occlusion policy. Do not temporarily replace the workspace document or duplicate
+the projection/picking algorithm. Loop Cut is the smaller first consumer: reject
+misses/invalid rings without mutation, then convert and cut inside one final
+transaction after checking candidate identity. Knife can retain that candidate
+across its intentional multi-click navigation, validating document, geometry,
+target eligibility and both ID cursors. Commit against a fresh live copy and
+verify IDs/topology rather than publishing an old whole-document candidate that
+could discard intervening metadata. This is reviewed design, not implemented
+behavior; both tools remain open audit items.
+
+
+## Atomic Loop Cut and direction-correct rings — 2026-10-16
+
+This continues the user's explicit editor implementation request. The first
+two new camera-event cases failed **23 of 82 assertions** against the old path:
+a missed edge or rejected wedge ring could leave a converted brush, and a
+successful cut required separate conversion/cut history steps.
+
+Loop Cut now performs conversion, candidate edge resolution and cutting inside
+one existing private edit transaction. The edge query borrows the converted
+mesh source only for that synchronous call. Its root must match the explicitly
+requested live brush, and it must be initialized. Both native viewport pickers
+reuse their existing edge enumeration, clipping, canonical fractions and depth
+ordering while the live scene still supplies visibility and physical occlusion.
+The workspace document/wire are never swapped to the provisional copy. Because
+picking and cutting use the same copy, the returned vertex IDs need no remapping.
+
+Only a successful topology change after conversion sets the transaction's change
+flag. Misses, unsupported topology and allocation/publication failure discard
+the candidate. Success produces one history step; Undo restores the original
+brush and Redo the exact cut mesh. Explicit lock, visibility, conversion-policy,
+document and revision checks protect the actual target. Picking failure is
+reported separately from unsupported topology and memory refusal. A failed
+initial visibility query still exits before attempting an edit. No provisional
+candidate is retained across events or built on every hover sample.
+
+The first off-centre success checks then exposed a separate geometry defect:
+**12 assertions failed in the 26-case / 3,636-assertion intermediate GUI run**.
+Clicking at z=32 on a 128-unit-high box created two ring vertices at z=96.
+The source-ID adapter had lost the direction of the caller's endpoints, and the
+kernel reused one fraction on edges whose representative half-edges point in
+different directions. Existing 0.5 tests hid both errors.
+
+The adapter now maps vertexA-to-vertexB fractions to the starting representative
+direction. During ring discovery, the kernel records each edge's split fraction,
+transports it through the opposite quad winding and converts it into the next
+representative's direction. This follows connectivity rather than world-axis
+heuristics. Corrupt representative relationships and inconsistent closed-loop
+fractions are rejected before splitting. The existing clone-and-publish atomic
+wrapper and open-strip policy remain; the repair adds no kernel allocations.
+Header comments specify both fraction conventions.
+
+Final validation, reusing build-mason and installed dependencies:
+
+- Focused Loop Cut, brush conversion, shared edge-picking and Paint checks:
+  **27 cases / 3,708 assertions**, Qt offscreen.
+- Seven new Loop Cut cases: **877 assertions** on native macOS Cocoa. Actual
+  camera/Top mouse events cover missed/empty clicks, a triangle-adjacent wedge
+  refusal, noncentral cuts, Ctrl/Command centring, locked brush/mesh targets,
+  disabled conversion, GUI allocation refusal and a clean retry. They verify
+  exact history/identity preservation and supported owner, named layer,
+  material and mesh persistence through Undo/Redo and save/load.
+- One of those native cases places a thin brush between the camera and the
+  closest edge point while the cursor ray still hits the target. The blocked
+  attempt leaves both objects unchanged. Hiding only the occluder allows the
+  same click to cut once, with exact Undo/Redo.
+- Geometry Loop Cut/mesh-edit checks: **67 cases / 19,504 assertions**, including
+  existing allocation-failure atomicity checks. Two new cases test all 12 raw
+  box edges at 0.25/0.75 and all three source-ID axes with both endpoint orders.
+  Expected cut planes, four distinct new corners, unchanged original vertices,
+  Euler/mesh validity and the existing UV/material interpolation oracle pass.
+- Complete Map GUI: **760 cases / 159,912 assertions**, seed 1367353702.
+- Rebuilt Mason application geometry/cancellation checks: **5 cases / 163
+  assertions**. Final build logs contain no compiler warnings/errors. Strict
+  app/standalone signatures verify; both have Mach-O UUID
+  `A095384F-99C0-4AEC-B755-0EE7985BC7EA`.
+
+The ignored `build-mason/artifacts/mason_loopcut_transaction_*` files retain
+baseline sources, failure/passing logs, owned patch and final hashes. Test
+development also corrected a noexcept visitor and a raw-fixture bounds
+assumption; their diagnostic logs are retained. No renderer, user-map, dependency
+installation or live-editor changes were made. HEAD and local origin/main remain
+`065a274c5fe1d363d974436d21844046ca975fc9`; required editor/V11/hierarchy and
+ToolGestures adapters remain unpublished. This local checkpoint is not a new
+commit, push or CI result, and unrelated work was not staged.
+
+Limits: brush admission still uses SurfaceHit before the candidate query, so
+this does not establish every silhouette/border admission case. Brush hover has
+no loop preview. Projection-only injected views retain existing mesh behavior
+but cannot provisionally convert brushes without the authoritative picker.
+The existing bounded traversal and open-strip policy were not expanded, and
+the new positional expectations exercise box rings rather than every curved
+or non-orientable strip. GUI allocation tests cover the documented first
+refusal; they do not exhaust every process allocation. No full modelling gate
+is declared closed.
+
+Knife remains the next B3 consumer. Its multi-click path needs retained candidate
+face/vertex data as well as the borrowed edge query, and must verify fresh
+conversion IDs before committing against the current live document. Navigation
+between construction points should remain possible. Do not publish an old
+whole-document candidate or copy held-drag cancellation rules indiscriminately
+onto a multi-click tool. Displace/sculpt target safety, semantic repeat,
+connected-region edits and hollow curved sweeps also remain open.
+
+
+## Selection, shell-aware Clip and atomic Knife — 2026-10-17
+
+This implements the user's renewed editor priority, starting with real 3D Select
+failures rather than renderer work. The exact initial sources and per-run logs
+are retained under ignored `build-mason/artifacts/mason_select_reliability_*`,
+`mason_clip_shell_caps_*`, `mason_knife_transaction_*`, and the combined
+`mason_selection_clip_knife_*` checkpoint. Three new native selection cases
+failed before the repair (151 assertions, 12 failures). The mixed-shell Core
+Clip reproduction failed 13 assertions in two cases before its policy change.
+Knife's early-conversion defect was source-confirmed; no pre-fix native Knife
+failure run is claimed here.
+
+**Selection contract.** A camera press now checks whether the old camera-drag
+button is still held before allowing that capture to swallow the press.
+Modified Select input over an actual resize/move/push-pull handle first captures
+its complete action and settings. Movement greater than three logical pixels
+starts that captured action; a stationary release routes the selection click.
+The handle is not picked again and resize settings are not reread on promotion.
+Focus/projection/navigation/tool/context interruption cancels pending input.
+Ctrl/Command handle drags still bypass snapping; Shift resize keeps its centre
+policy. Modified component-body clicks preserve the existing component owner;
+a plain body click may adopt the other mesh.
+
+Camera picking separates a failed physical query from an empty hit. Failure
+leaves hit outputs neutral and preserves selection. A source's conservative
+ray/AABB entry allows a known nearer hit to be accepted only if it is strictly
+in front of every failed source, including numerical tolerance. Overlap, ties,
+unknown foreground and edge-visibility probe failures remain incomplete. This
+also prevents document insertion order from changing valid foreground selection.
+Existing point-entity/control-net helper picking retains its own selection
+policy; physical occlusion probes still exclude those helpers.
+
+Mesh ray queries retain PLANAR_ONLY by default. Viewport authoring explicitly
+opts into PROJECTED_TRIANGLES: validate topology and projected simple rings,
+triangulate in the Newell basis, intersect original 3D triangle positions and
+return the hit triangle's normal. Warped authoring faces no longer invalidate
+an entire visible mesh. Invalid topology, degenerate geometry, scratch budgets
+and allocation failures still reject safely. This is not mesh repair.
+
+Modifier evaluation now owns one transient query mesh in the wire cache, with
+face-slot to authored-face provenance and no persistent ID allocation. Camera
+root picking and 2D face picking consume that displayed result rather than the
+hidden cage; root edge tolerance uses displayed surface edges. Array copies
+select their source owner. Generated faces without cage IDs do not invent
+editable components: face selection is preserved and a hint explains the limit.
+Cage component handles remain editable against their own modifier surface while
+other physical objects retain occlusion. Cache build/rebuild/shutdown and the
+single manual wire transfer own and release those entries. Allocation failure
+aborts the wire rebuild instead of dropping a source or using a partial cage.
+
+**Clip contract.** The kernel adds an opt-in original-closed-shell cap policy;
+strict existing callers retain their old default. Shell/twin validity is checked
+before planning. Open-shell darts are excluded from cap construction, while all
+closed outer/cavity outlines remain together for holes. The mesh is still
+replaced once after successful planning. Map Clip preview and commit request
+this policy directly instead of disabling all caps when any boundary exists.
+The wrapper's target list now uses the fallible document allocator. Direct Core
+multi-root Clip still requires a private working document for rollback of later
+failures; this change does not invent an independent document transaction.
+
+**Knife contract.** Knife and Edge Cut own a shared private conversion candidate
+across multi-click input. Candidate corners/edges use the native viewport query,
+including receding-edge fractions, depth, clipping and occlusion. Source brush
+side IDs become candidate face IDs. Confirmation reconverts a fresh clone of
+the current map and verifies geometry IDs/topology before cutting; it never
+publishes an old staged whole-document copy. Conversion alone is not a changed
+edit. Escape, last-point Backspace, tool changes and stale lock/visibility/
+conversion/document/geometry/selection/cursor state discard the stage. Camera
+navigation intentionally retains staged world points. Allocation refusal keeps
+the live document unchanged and supports retry. Standard allocation exceptions
+while staging paired path/overlay arrays are caught. Query refusal is safe but
+some failed-edge cases still use ordinary placement guidance.
+
+Validation at this checkpoint, using the existing build-mason/dependencies:
+
+- Combined focused GUI: **44 cases / 13,585 assertions**.
+- Native macOS Cocoa: **18 cases / 4,132 assertions**, actual Camera/Top events.
+- Complete Map GUI: **777 cases / 164,012 assertions**, seed 1367353702.
+- Mesh Slice and Raycast Queries: **36 cases / 13,328 assertions**.
+- Focused Map Core topology/modifier/wire: **69 cases / 20,038 assertions**.
+
+Coverage includes varied camera/inside/near-plane views, modifier copy picking
+and save/reload, warped-face hits from both sides, foreground query OOM and
+farther invalid topology, pending-input cancellation, mixed closed/open clip
+preview/commit/history/persistence, nested cavity cap area, untouched open-sheet
+UV0/UV1/material/colour/IDs, kernel allocation failure sweeps, and native Knife/
+Edge Cut cancellation, navigation, one-step history and publication refusal.
+The broad GUI run exposed a genuine deferred-resize preference regression;
+promotion now uses the press snapshot. Two historical assertions were updated
+to the new safe incomplete-pick and single-owner modifier policies. Fixture-only
+repairs include modifier placement registration, counting only live cache face
+slots, and an independent perspective screen-foot oracle for Edge Cut.
+
+The full geometry/editor completion gates remain open. Semantic repeat, local
+axes, connected-region edits, hollow curved sweeps and broader assembly/export
+work remain. Displace's pointer lifetime, private preparation and capture safety
+are the next active repairs. No renderer changes, dependency downloads, duplicate
+build tree or user-map changes belong to this checkpoint. It remains local;
+unpublished editor/V11/hierarchy adapters prevent treating a partial commit as
+a self-contained main/CI result.
+
+
+## Atomic Sculpt, connected refinement and shell preflight — 2026-10-17
+
+Sculpt/Displace now stages conversion, refinement and brush dabs in a private
+map and wireframe. Drawing borrows that private wire only during synchronous
+viewport rendering. The live document and its wire are unchanged until release.
+Six existing modes remain: push/pull, smooth, flatten, inflate, pinch and noise.
+The brush captures its pane, parameters, eligible targets and source epochs.
+Other panes cannot finish it. Focus/navigation/projection/tool/document or
+selection interruption, hidden/locked targets, conversion-policy changes and
+lost-button movement discard the preview. Capture is retired before publication
+notifies listeners. No-effect strokes also discard conversion and refinement.
+
+Coarse quad preparation now uses the existing connected Quad Slice operation
+on the same mesh. It no longer deletes the face and appends an independent grid
+object. Root identity, owner/layer and supported face/corner material, UV0/UV1
+and colour lineage follow that operation. Mesh indices replace references into
+a growing target vector, removing an invalidation hazard when a dab reaches
+another mesh. Release prepares from the current document, repeats preparation,
+verifies IDs/positions/topology and applies only the changed positions. Metadata
+from the current document is not replaced by an old preview snapshot.
+
+A larger 256-unit face exposed a real kernel defect: connected 16-by-16
+refinement failed with LIMIT_EXCEEDED. A direct raw-mesh reproduction failed
+before repair. Face replacement reserved shells from an upper bound based on
+face count: 261 prospective shells for an output with one connected shell.
+Preflight now counts the planned connected components with a fallible face graph
+and disjoint sets before mutation. Tight valid one-shell and 256-shell limits
+both accept the dense closed result; genuinely disconnected output still rejects
+atomically under a one-shell limit. Existing exhaustive slice-allocation sweeps
+exercise the added planning allocations. Empty directed-edge lookup returns
+before constructing a null iterator range.
+
+Final validation with the existing build-mason and installed dependencies:
+
+- Complete Geometry: **1,282 cases / 379,177 assertions**, seed 1367353702.
+- Complete Map GUI: **786 cases / 168,345 assertions**, same seed.
+- Native macOS Cocoa viewport input: **26 cases / 7,539 assertions**, covering
+  Sculpt transaction/cancellation together with repaired selection, Clip and Knife.
+- Mason application geometry/navigation: **5 cases / 211 assertions**.
+- Focused boundary/slice/raycast: **73 cases / 19,391 assertions**.
+- Focused Sculpt and neighboring gesture checks: **31 cases / 7,730 assertions**.
+
+New Sculpt checks use actual Camera/Top input, adjacent targets, a locked brush
+and mesh, foreign-pane release, interruption/late input/fresh retry, both document
+and GUI allocator refusal, one-step history, no-effect discard, all six modes,
+metadata preservation and save/reload. Earlier extracted-grid/two-step fixtures
+were updated to require connected in-place preparation. The final build contains
+no compiler warnings/errors. App and standalone signatures verify, both Mach-O
+UUID `7A38308F-5670-4CE7-94EB-C8F38FD24596`. No running editor was restarted.
+Ignored `build-mason/artifacts/mason_sculpt_transaction_*` records preserve the
+baseline, intermediate diagnostic failures, final logs, owned patch and hashes.
+
+Two self-contained library increments have been committed and pushed to main:
+`3bde9ed0` (authoring raycast and original-closed-shell cap policies) and
+`b89d8c2a` (exact replacement shell planning). The first CI run was superseded
+by the second push; its cancellation is not a passing result. CI for the latest
+commit is tracked separately. The GUI/Core integrations still depend on local
+unpublished editor/V11/hierarchy adapters, so these library commits alone do not
+publish all Mason changes. Unrelated files and live maps were not staged.
+
+Limits: Sculpt surface placement still uses average polygon planes rather than
+a triangle hit for warped faces. Evaluated modifier results do not continuously
+re-evaluate during cage dabs; they update on publication. Process-global standard
+allocations are caught where staged, but GUI/document allocator first-refusal
+checks are not an exhaustive process OOM sweep. Semantic modelling repeat,
+component selection history, local axes, connected-region operations, hollow
+curved sweeps and broader assembly/export workflows remain open. No complete
+modelling gate, renderer integration or runtime subsystem is declared finished.
+
+
+## Component selection history and semantic modelling repeat — 2026-10-17
+
+The curved-corridor audit identified two connected defects. Pointer transforms
+bypassed Command History, so Shift+G could just reactivate Rotate. Component
+extension selected its new rim only after history had already captured the
+result, so adding component snapshots alone would still record the wrong rim.
+These findings were source-confirmed; no new pre-fix runtime failure is claimed
+for this wave because the coordinated history/API work was already underway.
+
+History now owns fallible before/after snapshots of stable vertex IDs, canonical
+edge pairs and seed, mesh face set and active face, and relevant projected vertex
+column axes. Arrays are included in the journal's owned-byte charge. Current
+selection mode and session locks remain user choices: history does not switch
+the mode or revive incompatible/locked component highlights. Removed component
+identities are pruned. Restoring a history state prepares document, wire and
+selection before its allocation-free publication.
+
+A narrow prepared-selection descriptor lets a tool construct its new rim inside
+the private edit callback. It is then checked against the resulting mesh and
+copied before history admission. Geometry, selection and history are published
+once. Direct component drags, gizmo/numeric transforms, vertex-edit commands,
+edge Extend/Extrude commands and Snap Edge use that path. Snap Edge intentionally
+selects only its target in the after-state. Redundant surviving-component and
+face reselections were removed from operations, including dedicated Extrude and
+Arc, so they cannot change the active set after the after-snapshot is captured.
+
+The repeat record is a value operation: transform kind, affine transform already
+including the absolute pivot, delta, extension intent, object and component
+category. It stores no obsolete source vertex/edge IDs. Repeat resolves the
+current selection on that mesh; a successful extension selects its new rim before
+recording the next repeat. No-op/failure retains the prior operation. Read-only,
+locked/hidden, stale or incompatible targets and unfinished gestures refuse.
+New/Open/Shutdown discard recipes. Ordinary document publication invalidates the
+expected source; fully prepared Undo/Redo explicitly rebinds the recipe just
+before publication, without suppressing normal gesture cancellation.
+
+Physical Shift+G gives explicitly selected successful Command History rows
+precedence, then a present modelling recipe, then ordinary command repetition.
+An invalid modelling recipe refuses rather than falling through to an unrelated
+UI command. A later successful repeatable command supersedes it. Tool/mode
+activation is no longer considered repeatable. The Command History selection
+query/filter changes are a self-contained framework increment; the Mason routing
+and modelling adapters remain a separate local integration. Numeric transforms
+also capture recipes. Component-target allocation exceptions are caught before
+reaching noexcept gizmo/readiness callers. Paint's command label now truthfully
+says Vertex Paint and mesh corner colours.
+
+**Prefab failure recovery, bounded B4 repair.** Finish records a successful
+QSaveFile replacement immediately. If a subsequent map edit cannot publish, it
+reports that the asset was saved, the editing group remains, and Finish may be
+retried or Cancel used without undoing the saved file. Cancel retains this fact
+instead of saying the file is unchanged. Edit Prefab prepares its inactive
+session table entry before map publication and refuses failed override capture;
+failed admission removes the pending entry. Group enumeration OOM is no longer
+interpreted as a legitimately deleted group. Temp-file tests trigger a real
+changed file followed by map allocation refusal, checking exact map/history,
+notices, retry/Cancel and history. This does not make two resources atomic.
+Create Instance's independent file-before-map path and external-file Undo remain
+unfinished, so B4 and the assembly gate remain open.
+
+Validation, without new dependencies or another build tree:
+
+- Complete Map GUI: **799 cases / 170,481 assertions**, seed 1367353702.
+- Complete editor GUI framework: **151 cases / 20,916 assertions**, same seed.
+- Focused new GUI: **14 cases / 3,075 assertions**.
+- Command History: **4 cases / 39 assertions**.
+- Explicit QT_QPA_PLATFORM=cocoa combined viewport run: **40 cases / 10,614
+  assertions**, including selection, mixed-shell Clip, Knife, Sculpt, component
+  history, repeat and prefab tests.
+- Explicit Cocoa Mason run: **6 cases / 410 assertions**, including physical
+  Shift+G, geometry edits and neutral navigation. After the final help-text-only
+  edit/relink, the repeat app case passed again (**199 assertions**).
+
+The multi-edge doorway fixture now tests one real ring drag followed by five
+semantic repeats, as well as its earlier six-manual-drags path. Every step
+expects four connected faces sharing five new rim vertices, exact rotated 3D
+positions, unchanged earlier vertices and retained pivot. Midway Undo/Redo must
+restore exactly the active rim before repetition continues. A separate full
+Mason case sends actual shortcut events twice and checks selected-history-row
+precedence, tool switching and Undo/Redo continuation. Other tests cover the
+before-edge versus new after-rim, full face sets/seed/columns, allocator refusal
+and retry, invalid output descriptors, stale source/session and no-effect edits.
+
+**Platform-attribution correction:** the shared GUI TestMain defaults an unset
+QT_QPA_PLATFORM to offscreen. Earlier logs named native that were launched
+without explicitly setting Cocoa are headless widget runs, regardless of their
+filename. The explicit Cocoa runs above now cover the repaired selection/Clip/
+Knife/Sculpt paths as well as this milestone. Their commands and fresh logs are
+retained; old evidence is not silently relabelled as a native pass.
+
+Final app and standalone signatures verify with Mach-O UUID
+`0F6D97BD-8417-4825-9195-4C7F8260DBEE`. No running editor or user map was changed.
+Ignored mason_modelling_history_* artifacts retain exact baselines, logs, source
+hashes and owned patches; the first app compile caught a missing direct header
+include, which was fixed. A mistyped command-history test tag ran no cases and
+was corrected before the reported four-case and full-framework passes.
+
+Limits: modelling recipes are session state, not saved macros. They cover
+component transforms/extensions rather than arbitrary weld/Knife/Sculpt actions
+or mouse command chains. The complete G2 project still requires the subsequent
+straight continuation, bridge/cap, persistence and surfacing checks. Local axes,
+connected-region inset/extrusion, hollow curved sweeps, complete asset/map
+publication and broader assembly/export work remain. This is substantial
+interaction repair, not a declaration that the whole editor is finished.
+
+
+## Edge Arc and Shear held-capture safety — 2026-10-17
+
+This closes the next scoped A2 lifetime paths after the selection, Extrude,
+Paint, Knife and Sculpt work. Source inspection confirmed that Arc used the
+current selection with an old drag plane, and Shear used current roots with old
+bounds. Neither held gesture belonged to a pane or shared its cancellation
+boundary. Their pre-fix source is preserved; no pre-fix native failure run is
+claimed for this wave.
+
+Both now capture initiating pane, document, geometry and selection epochs,
+mode and tool intent. Arc retains ordered source IDs and original chain
+positions. Shear retains its selected roots, bounds, grabbed side, texture-lock
+choice and exact affected hierarchy. That hierarchy is prepared fallibly once
+at pickup; synchronous notification validation only checks captured arrays and
+current visibility/layers. Hidden children can follow a visible parent, while
+locking any affected child cancels the capture. Unsupported prefab/terrain
+Shear targets are refused rather than previewing a transform Core cannot apply.
+
+Owner focus/projection/navigation interruption, tool/mode/context changes,
+hidden/locked targets and lost-button movement cancel the preview. Other panes
+cannot press/move/release it. Final release is sampled again; invalid final rays
+cannot commit a previous preview. Shear's Alt constraint remains live after
+pickup, preserving vertical dragging without competing with Alt camera pickup.
+Nonfinite snapped displacement clears its preview. Both retire capture before
+Apply publishes and notifies observers. Arc vector allocation propagates to
+its event/paint catches rather than crossing noexcept helpers; memory failure
+on publication reports an error without changing the map. Pivot, workplane
+and the separate modelling recipe are not discarded by owner cancellation.
+
+Validation with build-mason/installed dependencies only:
+
+- Eight new native Cocoa cases: **5,709 assertions**.
+- Combined explicit Cocoa viewport run: **48 cases / 16,323 assertions**.
+- Complete Map GUI, offscreen, seed 1367353702: **807 cases / 176,190 assertions**.
+- Six full-Mason geometry/navigation/repeat cases: **410 assertions**, on both
+  explicit Cocoa and offscreen platforms.
+
+Native tests cover Top and Camera successful previews/commits with exact
+Undo/Redo and continued editing; focus/navigation/tool/lock/selection/document
+and lost-button interruption; foreign-pane input; locked admission; attached
+child locking; publication allocator refusal and retry. A specific Camera Shear
+case presses without Alt, adds Alt during movement and releases farther in Z
+without another MOVE, checking vertical-only geometry and unchanged unrelated
+objects. The hierarchy fixture derives its side from the selected parent
+entity's actual helper bounds. Artificial invalid camera rays and exhaustive
+process-global allocation failures are not claimed by those native cases.
+
+One final full-Mason run failed an existing toolbar-cancellation fixture before
+key dispatch: focusWidget was null. A fresh focused run reproduced that failure.
+The test relied on activateWindow synchronously foregrounding a background
+macOS executable. The routing test now explicitly establishes the Qt active
+window and focused-control precondition, as the existing modal Welcome fixture
+already does. Exact-focus, cancellation, text-field and popup assertions remain.
+The focused case passes 44 assertions, then both six-case application runs pass.
+This is a test-precondition repair, not evidence about OS foreground activation
+or an A2 production focus defect. Intermediate failing logs are retained.
+
+Final build logs contain no compiler warnings/errors. App and standalone strict
+signatures verify, both Mach-O UUID `5AC3C1DF-09FE-4F49-9BF9-3867C986DFF6`.
+Ignored mason_arc_shear_capture_* artifacts preserve exact source baselines,
+checksums, owned patch and validation. No renderer, dependencies, running Mason
+session or user-map changes were part of this milestone.
+
+Publication: Geometry commits `3bde9ed0` and `b89d8c2a` passed all 15 CI jobs at
+https://github.com/KarloSiric/CypherEngine/actions/runs/38979979871 . The separate
+Command History framework increment `bea36280` is now pushed; its CI run is
+https://github.com/KarloSiric/CypherEngine/actions/runs/38983317807 . That latest
+run is tracked separately rather than reported green from the preceding run.
+The Mason integrations remain local with unpublished editor dependencies.
+
+Limits: Shear's ghost overlay still draws selected-root wires/bounds rather than
+every affected descendant wire. Modifier-stack preview/commit agreement remains
+D6. Arc supports valid open chains and its non-memory rejection text still
+broadly describes planarity. No complete modelling gate is declared closed;
+local axes, connected-region modelling, hollow curved sweeps, fully coordinated
+asset/map publication, broader assembly/export and the rest of G2 remain open.
+
+
+## Connected face regions, vertex targets and corridor continuation — 2026-10-17
+
+The next checkpoint is implemented locally and tested in the existing build-mason
+configuration. It covers three previously separate authoring failures.
+
+Direct vertex drags now search stationary authored handles on the same mesh
+within nine logical pixels and on the captured movement constraint. This runs
+before ordinary grid snapping. Shift absolute-grid snapping and Ctrl/Command
+bypass take precedence; exact coincident coordinates may still weld with bypass.
+Projected Top columns keep their depth layers. Camera horizontal, vertical and
+near-parallel upright-plane movement retain the captured plane. A target marker
+shows acquisition, and release samples again even without a final MOVE. The
+selected target retains its identity. Partial/ambiguous welds refuse the edit;
+container allocation exceptions are caught at the component event boundary.
+The older implicit brush conversion fallback is not newly made atomic here.
+
+Dedicated Extrude and numeric Extrude Faces now use one connected coplanar
+region operation, rather than independent per-face extrusions. Shared translated
+vertices are allocated once; the cap retains face IDs and corresponding UV0,
+UV1, colours, smoothing and edge information. Only edges with exactly one
+selected incident face generate walls. Walls get local edge/distance charts for
+both UV sets; degenerate source-edge charts use a 128-world-unit repeat fallback.
+These charts are not a continuous unwrap or packed lightmaps. Inward dedicated
+dragging moves each unique source vertex once. Disconnected and noncoplanar
+regions refuse as a whole. The transform-gizmo one-face path is unchanged.
+
+Pickup performs a private full-map clone and positive-distance domain probe
+before publishing selection. Movement uses the captured region normal and
+boundary guides. Release uses a pure distance sampler rather than a nested MOVE
+notification, retires capture before publication and discards invalid final
+rays. This avoids a reentrant cancellation/commit race. The one-time probe can
+be expensive on a large map and can conservatively reject near ID/coordinate
+limits even when an inward-only edit might fit. This is not a per-MOVE clone.
+Corner Inset now explicitly admits one face through API, command and panel;
+constant-width or connected-region Inset remains unimplemented.
+
+The new single-face control exposed a real Geometry Inset bug: an open boundary
+has no external twin, so replacement ring half-edges never acquired their edge
+and the retained edge representative referenced deleted topology. The repair
+always reuses the perimeter edge and updates its representative; external twins
+are optional. Isolated sheets and a face beside an open neighbour now validate,
+preserving surrounding topology and attributes. This isolated kernel repair is
+published as 5d4abbc5. Its CI run is tracked independently at
+https://github.com/KarloSiric/CypherEngine/actions/runs/38987245819 .
+
+The G2 reference now exercises six actual 15-degree pivoted Rotate-Extend drags,
+straight extension, Camera selection of both complete floor rails, registered
+Bridge, exit Fill Hole, Undo/Redo and Save/Open. A separate variant tests one
+manual bend followed by semantic repeat. After reopening, actual Camera clicks
+select the five entrance edges; the visible Extend action and Top Y handle add
+another strip: 45 vertices / 41 faces become 50 / 46. All original 45 positions,
+ownership, layer and original surfacing remain; Undo/Redo restores the old/new
+rim. Cross-document material IDs are normalized only by persistent material
+paths in the comparison. Face corner correspondence is matched by retained face
+identity and physical position, since canonical rings can rotate their starting
+corner after new IDs. Floor UVs are finite/inherited, not a new seamless unwrap.
+
+Validation (seed 1367353702): complete Geometry 1,285 cases / 379,767 assertions;
+complete Map Core 249 / 163,790; complete Map GUI offscreen 820 / 181,770;
+explicit Cocoa combined regression 68 / 23,064; later saved-map corridor case
+1 / 6,428; Mason application routing six / 410 on Cocoa and again offscreen.
+The later G2 addition changes tests only. Cocoa cases dispatch actual Qt widget
+mouse/key events; they are not manual OS-pointer or live-map performance tests.
+Early red logs retain the weld acquisition failure, open Inset defect and test
+fixture corrections: session command registration, UV ring correspondence and
+five obsolete panel help-copy expectations. No behavior assertions were removed.
+
+Mason and the smoke target were rebuilt at this checkpoint. App and standalone
+strict ad-hoc signatures verify; both arm64 Mach-O UUIDs are
+94B0FFEF-EC8B-4668-94D3-83CF0C6C486E. The running Mason and user maps were not
+restarted or changed. Baseline hashes, frozen source snapshots, isolated owned
+patches and result logs are under ignored mason_vertex_target_acquisition_*,
+mason_region_inset_*, mason_open_boundary_inset_* and
+mason_curved_corridor_* artifacts. Editor integration is still local with its
+unpublished dependencies; kernel publication is not whole-editor publication.
+
+The preceding Command History commit bea36280 passed all 15 CI jobs at
+https://github.com/KarloSiric/CypherEngine/actions/runs/38983317807 . Remaining
+work includes local/workplane axes, per-axis component Scale, constant-width
+region Inset, hollow curved sweeps, modifier/assembly propagation and delivery.
+No whole-editor completion or renderer change follows from this checkpoint.
+
+### Hollow pipes, modifier refusal and delivery preservation — 2026-10-17
+
+The coordinated local editor checkpoint adds explicit Hollow Pipe authoring to
+Curve. The open Catmull-Rom path uses a shared rotation-minimizing frame for its
+outer/inner rings and annular ends. Radius, radial wall thickness and integer
+side count are visible properties. Closed paths, Patch output, invalid wall
+sizes, sampled folds/intersections and more than 2,048 faces refuse; the click
+chain remains available for correction/retry. Confirm is consumed even on a
+refused path, avoiding fallthrough into another tool. Allocation refusal has a
+specific error notice. This is ordinary editable mesh output, not a retained
+procedural curve recipe. The current domain is circular constant-wall open
+paths, not tapered/junction/closed-loop pipes. UV0/UV1 use generated distance
+charts and seams; UV1 is not packed for light baking.
+
+Map creation prepares materials and placement before adding the new mesh. An
+actual allocator assertion during testing exposed moving prepared vectors onto
+initialized destinations: the successful adoption now releases their old
+storage before moving into canonical empty vectors. All earlier failure paths
+retain existing content, identity cursors and output IDs. The curve position
+oracle uses the analytical two-point Catmull-Rom curve and a proved chord-table
+error bound; it does not falsely require exact arc inversion at 1e-9.
+
+D3 now preflights the expanded whole-object target list. Live modifiers follow
+only transforms their serialized parameters can represent; other transforms
+produce MODIFIER_TRANSFORM_UNSUPPORTED and a GUI warning, with no published
+cage/history change. Mirror planes, signed Bend axes/origins, Taper origin,
+array steps/axes/origins and weld thresholds follow their supported affine
+rules. Unknown enabled stages, unsupported subdivision schemes and overlong
+stacks refuse. Existing known-stage custom data/comments survive parameter
+rewrites. This is explicit refusal, not arbitrary local modifier frames or
+implicit baking. Nonuniform scaling of a welded mirror cannot preserve one
+Euclidean weld distance; two existing Facility-based tests now verify that
+refusal, then retain their original transform/UV/persistence checks on private
+nonwelded fixture clones. The example document was not changed.
+
+D5's Hollow path replaces each source root with only that source's appended
+fragment range in its existing nested group. Original group IDs/names/unknown
+fields and members-array comments survive along with fragment owner/layer and
+root/face surfacing. One batch tests two brushes with distinct nested groups,
+owners and layers; twelve fragments are classified by spatial source ancestry
+rather than relying on output order. Conflict-parent and final CloneInto
+allocation failures retain the old members node and allow retry. Individual
+member-entry comment persistence remains a separate follow-up. This does not
+close Join modifier policy or every other geometry replacement path.
+
+D6's OBJ path never substitutes the source cage after failed known modifier
+execution. It also checks raw retained stage names/schemes and refuses enabled
+unsupported stages. Anonymous generated parts receive private export-only
+identities; neither live nor cloned map cursors advance. Core reports unresolved
+instances and unsupported terrain separately. GUI collapses prefab instances on
+a private map, refusing unresolved files, and exports transformed contents.
+Both OBJ/MTL temporary files are opened and written before committing either;
+preparation refusal preserves existing destinations. The two final renames are
+not pair atomic. If MTL commit fails after OBJ succeeds, feedback names the
+partial output. Export text/report are unchanged on Core failure.
+
+Validation, seed1367353702: complete Geometry 1,290/383,414, Map Core
+263/211,059, Map GUI offscreen 834/184,669; focused Cocoa15/2,066;
+supplemental Core9/5,644; Mason routing6/410 on Cocoa and again offscreen.
+Native checks dispatch real Qt widget input, not manual OS pointers or a
+large-map performance benchmark. The initial red logs retain production bugs,
+fixture corrections and the two welded-mirror expectation failures. Final
+sources, baseline hashes, owned patches and logs are under ignored
+mason_hollow_sweep_*, mason_modifier_transform_safety_*,
+mason_hollow_group_replacement_*, mason_obj_evaluation_* and
+mason_authoring_preservation_* artifacts.
+
+Mason and smoke binaries were rebuilt. Strict ad-hoc signatures verify for app
+and standalone; arm64 UUID49E73715-AE86-46D2-B0A9-B656BF4E6F4E. No user map
+or running application was restarted. Kernel4f0c776d passed all15 CI jobs:
+https://github.com/KarloSiric/CypherEngine/actions/runs/38988851367 . The
+independent Loop Cut direction/open-border split closure is published as
+bb01aa21; all 15 CI jobs passed at
+https://github.com/KarloSiric/CypherEngine/actions/runs/38992495790 . Current
+editor files depend on the unpublished V11 single-file map migration and Common
+comment-preservation APIs, so a kernel publication is not whole-editor
+publication. No renderer or runtime completion is claimed. G4 measured inset,
+prefab scale/clipboard consistency, local/workplane axes, component per-axis
+scale and broader assembly/delivery combinations remain distinct work.
+
+### Measured inset, linked placement and publication — 2026-10-17
+
+The next coordinated checkpoint adds Inset Face (Width) to one planar, strictly
+convex authored mesh face. The separate width setting offsets each edge
+perpendicularly: 256 x 128 at width 16 yields a 224 x 96 cap. The old Corner Inset
+retains its radial definition. A position plan checks convexity, all inward
+half-planes, positive cap/ring areas, preserved corner correspondence and
+coordinate/numeric limits before topology publication. The kernel is exact-
+unchanged on failure; the source adapter retains its existing disposable-
+candidate contract for later attribute/provenance allocation. Map wraps that
+operation in its private geometry transaction and full workspace publication.
+Existing modelling tests now cover the new metric through all six box sides,
+UV0/UV1/materials/colours/retained records, identity limits and every measured
+allocation refusal. The real property control test clicks the new button,
+checks all four independent cap corners, collapse refusal, cap selection,
+Undo/Redo, region refusal, read-only state and authored-mesh eligibility.
+This is not connected-region Inset or a live width gizmo, so G4 remains partial.
+
+The new command deliberately does not use the legacy generic brush adapter.
+Review established that AdaptedExecute publishes conversion, then the requested
+operation; refusal rolls back through fallible Undo and can discard an existing
+Redo branch. A new width command must not inherit that defect. Brush users can
+explicitly Convert to Mesh before invoking it. The existing adapter routes need
+a separate combined candidate callback: capture targets/settings, convert only
+the private document, run the operation there, prepare resulting root/component
+selection and publish once. Swapping the live workspace document temporarily
+would recurse into history/listeners and is not the proposed repair.
+
+D4 prefab Scale now distinguishes real layer-prefab records from ordinary
+entities. For an instance with linear transform R diag(s), a positive world
+scale A=diag(f) is representable with unchanged Euler rotation only when
+C=transpose(R) A R is diagonal. Accepted output uses diag(C)*s and transforms
+origin around the requested pivot. This correctly permutes factors at signed
+quarter turns and supports equal factors within an arbitrarily rotated plane.
+Other scales refuse before any expanded target changes. Missing/scalar/vector
+scale forms, numeric types, reference paths and overrides retain their meaning;
+malformed or nonpositive scales refuse. No linked asset is loaded or baked by
+this Core placement check, so it does not validate external bounds.
+
+Review caught a bad initial error bound: a single epsilon*maxFactor admitted
+near-axis shear amplified by an unrelated 1e16 factor. Admission now bounds each
+dot product by its own term magnitudes and checks each reconstructed entry
+relatively. Exact authored multiples of 90 degrees get exact zero/one trigonometry
+in Core and instance placement; nearby angles remain real rotations. Tests
+reject amplified near-zero/near-quarter shear and accept exact signed quarters.
+Actual native input exposed another production mismatch: preview creation used
+CanTurnSelection, but synchronous workspace notification used CanEditSelection
+and immediately erased prefab Rotate/Scale previews. Notification now mirrors
+Translate/resize/other-transform eligibility. Numeric controls use the same
+root eligibility. Actual custom-pivot gizmo and numeric controls verify placed
+points, preserved references, Undo/Redo, Save/Open, mixed refusal and retry.
+Unsupported placement can still be refused at commit after a candidate preview.
+Prefab Copy/Cut remains a separate unsupported clipboard kind; D4 is not fully
+closed by Scale.
+
+Group-member notes now persist individually. Unchanged entries are cloned with
+their comments; source notes transfer once to the lowest fresh replacement ID,
+independent of input order/duplicates. Reusing existing group members refuses.
+The sorted writer retains each ID's original node/comments. A prefab Save/Open
+case found an actual null dereference in the first writer patch: root-level
+output intentionally has no map in its writer context. CloneSortedIds now uses
+the initialized save-plan allocator. The preserved red log/backtrace and green
+reruns establish the repair; it was not hidden by changing the fixture. Group
+comment tests include save/reopen and every measured helper failure with exact
+old-state checks and retry.
+
+Publication requires the already-present CYKV2/comment composition and history
+prerequisites, not just the latest adapter files. All nine relevant Common suites
+pass. Review of that coupled existing writer found a second actual defect:
+FormatF64 cast a finite value to i64 before checking its fast-path range. Bounds
+and finiteness now precede the cast. A targeted float-cast-overflow instrumented
+writer reproduces the old 1e30 abort and passes the fixed writer’s 1 case / 376 assertions.
+Only before/after writer objects were rebuilt using the current test objects and
+archives; no new build tree, packages or dependencies were created.
+
+Coordinated results: Geometry 1,298 / 387,701; Editor Core 60 / 1,170; framework 151 / 20,916;
+default Map Core 265 / 215,638; Map GUI offscreen 838 / 185,014; native Cocoa 28 / 3,655;
+full Mason offscreen 71 / 4,394; application Cocoa 6 / 410; Common 9 suites. The earlier
+Core 267 / 215,649 run also included two private showcase-map checks. Those are in
+an unpublished map-generator test file referencing user demo assets; the default
+contract target now omits that translation unit while retaining the default
+REAP game-definition fixture. Its bounded timeout increases 120→600 after the
+successful full local run took 365 seconds. Native means Qt widget events.
+Mason is rebuilt and strict app/standalone signatures verify with arm64 UUID
+64BEFCC2-D72D-44CB-AF65-A65E5240EA37. Maps and user application sessions were
+not modified/restarted. Frozen hashes, source patches, red/green logs and
+publication manifests are under ignored mason_measured_inset_*,
+mason_prefab_scale_*, mason_group_member_comments_*,
+mason_common_writer_range_* and mason_editor_publication_* artifacts.
+
+Measured-width kernel 38f218d7 passed all 15 CI jobs at
+https://github.com/KarloSiric/CypherEngine/actions/runs/38996367210 . The source
+publication manifest explicitly excludes active maps, private demo maps,
+renderer/compiler edits and the separate shader/texture-schema database UI.
+The V11 documented fixture, default game definition and all necessary editor
+modules are included together. No availability of gameplay, physics, audio or
+runtime rendering follows from entity definitions. Remaining gates include
+region Inset/bevel, local/workplane axes, component per-axis Scale, linked
+clipboard and legacy combined brush-adapter transactions.

@@ -188,7 +188,7 @@ QString CommandId( const command_desc_t &command )
     return QString::fromUtf8( command.pId );
 }
 
-void UpdateToolTip( QAction *pAction, const command_desc_t &command )
+void UpdateToolTip( QAction *pAction, const command_desc_t &command, const char *( *pfnNeeds )( const char * ) noexcept = nullptr )
 {
     QString tip = QStringLiteral( "<b>%1</b>" ).arg( QString::fromUtf8( command.pLabel ).toHtmlEscaped() );
     QStringList bindings;
@@ -201,7 +201,11 @@ void UpdateToolTip( QAction *pAction, const command_desc_t &command )
     }
     // A disabled command may merely need a selection or an open document.
     // Only its owning module can explain missing implementation in its description.
-    if ( !pAction->isEnabled() ) { tip += QStringLiteral( "<br/><i>Currently unavailable.</i>" ); }
+    if ( !pAction->isEnabled() ) {
+        const char *pNeeds = pfnNeeds != nullptr && command.pId != nullptr ? pfnNeeds( command.pId ) : nullptr;
+        tip += pNeeds != nullptr && pNeeds[0] != '\0' ? QStringLiteral( "<br/><i>Needs %1.</i>" ).arg( QString::fromUtf8( pNeeds ).toHtmlEscaped() )
+                                                      : QStringLiteral( "<br/><i>Currently unavailable.</i>" );
+    }
     pAction->setToolTip( tip );
 }
 
@@ -274,7 +278,7 @@ QAction *EditorActions_Get( editor_actions_t *pActions, const char *pCommand )
         const QSignalBlocker blocker( pAction );
         pAction->setChecked( ( state & COMMAND_STATE_CHECKED ) != 0u );
     }
-    UpdateToolTip( pAction, *pDesc );
+    UpdateToolTip( pAction, *pDesc, pActions->pfnNeeds );
     return pAction;
 }
 
@@ -317,7 +321,7 @@ void EditorActions_ApplyKeymapStack(
             CY_LOG_WRITE( Warning, Editor, "Keymap has chords that could not be read; they were skipped" );
         }
         pAction->setShortcuts( shortcuts );
-        UpdateToolTip( pAction, *pDesc );
+        UpdateToolTip( pAction, *pDesc, pActions->pfnNeeds );
     }
 }
 
@@ -467,7 +471,7 @@ void EditorActions_RefreshStates( editor_actions_t *pActions )
         pAction->setEnabled( ( state & COMMAND_STATE_ENABLED ) != 0u );
         if ( enabledChanged ) {
             const command_desc_t *pDesc = EditorCommands_Find( pActions->pRegistry, { id.constData(), static_cast<usize>( id.size() ) } );
-            if ( pDesc != nullptr ) { UpdateToolTip( pAction, *pDesc ); }
+            if ( pDesc != nullptr ) { UpdateToolTip( pAction, *pDesc, pActions->pfnNeeds ); }
         }
         if ( pAction->isCheckable() ) {
             // Blocked so reflecting state never re-runs the command.

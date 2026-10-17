@@ -44,8 +44,10 @@ namespace cypher::editor
 
 inline constexpr common::usize EDITOR_SETTINGS_MAX_SCOPES = 4u;
 // Mason's cached projections, Tool Properties and persistent Settings page
-// can own 41 subscriptions together. Keep registration bounded with headroom.
-inline constexpr common::usize EDITOR_SETTINGS_MAX_LISTENERS = 64u;
+// own one subscription per shown setting; the Select tool's panel (mode
+// sections, modifiers, displacement, texture) brought that past 64. Keep
+// registration bounded with headroom.
+inline constexpr common::usize EDITOR_SETTINGS_MAX_LISTENERS = 128u;
 
 // Scopes, most specific first (CYSETTINGS.md 1).
 enum class settings_scope_t : common::u8 {

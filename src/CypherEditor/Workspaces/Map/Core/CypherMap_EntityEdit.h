@@ -26,9 +26,9 @@ CYPHER_NODISCARD bool MapEntityEdit_ValuesEqual( const common::key_value_t *pLef
 // Validated top-level entity lookup for inspectors, including read-only maps.
 // Returns null for an unknown/unusable entity or invalid map. Borrowed node
 // remains usable only until mutation or replacement of the owning document.
-// Optional chunk output is cleared first and assigned only on success.
+// Optional layer store output is cleared first and assigned only on success.
 CYPHER_NODISCARD const common::key_value_t *MapEntityEdit_FindEntity(
-    const map_document_t *pMap, common::u64 entityId, map_chunk_t **ppChunkOut = nullptr ) noexcept;
+    const map_document_t *pMap, common::u64 entityId, map_layer_store_t **ppStoreOut = nullptr ) noexcept;
 
 // Selection may contain entities or their live owned brushes/meshes/patches.
 // World geometry and unusable records reject the whole selection. Owners are

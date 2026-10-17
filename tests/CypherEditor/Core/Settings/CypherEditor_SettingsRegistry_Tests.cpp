@@ -85,7 +85,7 @@ TEST_CASE( "The framework catalogue registers once with valid defaults", "[edito
     usize nFramework = 0u;
     const setting_descriptor_t *pFramework = EditorSettings_FrameworkCatalogue( &nFramework );
     CHECK( EditorSettings_Count( &r.registry ) == nFramework );
-    CHECK( nFramework == 100u ); // Includes geometry alignment; the retired 2D bounds display is absent.
+    CHECK( nFramework == 98u ); // Includes geometry alignment; the retired 2D bounds display and the selection vertex cues (Hammer has none) are absent.
     CHECK( EditorSettings_Register( &r.registry, pFramework, 1u ) == settings_registry_status_t::DUPLICATE );
     // With no scopes everything is its default.
     CHECK( EditorSettings_Integer( &r.registry, "editor.grid.size", 0 ) == 16 );

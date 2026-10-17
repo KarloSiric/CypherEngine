@@ -285,9 +285,9 @@ TEST_CASE( "A failed eligible mesh query uses scene fallback instead of a partia
     snapshot_t original( session.ws ); const auto fallback = MapBounds_Center( session.ws.wire.bounds );
     {
         allocator_scope_t scope( session.ws.pDocument, bytes );
-        // Ordinary picking can report the deeper brush after failing this
-        // nearer mesh. Navigation requires a complete physical query first.
-        REQUIRE( MapCameraView_Pick( session.camera.get(), press ) == session.target ); REQUIRE( scope.audit.rejected > 0u );
+        // Selection and navigation both refuse a partially known deeper
+        // brush when the nearer physical surface cannot be queried.
+        REQUIRE( MapCameraView_Pick( session.camera.get(), press ) == 0u ); REQUIRE( scope.audit.rejected > 0u );
         Orbit( session.camera.get(), press, fallback ); CHECK( scope.audit.rejected >= 2u ); CHECK( scope.audit.live == 0u ); original.Check( session.ws );
     }
     CHECK( session.ws.pDocument->pAllocator == Allocator_GetSystem() );

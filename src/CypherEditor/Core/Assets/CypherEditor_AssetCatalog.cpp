@@ -164,6 +164,12 @@ editor_asset_status_t ParseRecipe( string_view_t text, const allocator_t *pAlloc
 
 editor_asset_status_t WritePath( const key_value_t *pValue, text_buffer_t *pPathOut ) noexcept
 {
+    // A schema 1 material names its texture directly; schema 2 wraps it in an
+    // object whose `resource` is the texture (and may be absent when only the
+    // sampler or UVs override an inherited texture).
+    if ( pValue != nullptr && KeyValue_Type( pValue ) == key_value_type_t::OBJECT ) {
+        pValue = KeyValue_Find( pValue, StringView_FromCString( "resource" ) );
+    }
     string_view_t path{};
     if ( pValue == nullptr || !KeyValue_GetString( pValue, &path ) || !IsVirtualPath( path ) ) { return editor_asset_status_t::NOT_FOUND; }
     TextBuffer_Clear( pPathOut );
@@ -393,6 +399,16 @@ editor_asset_status_t EditorAssets_MaterialTexture( string_view_t materialText, 
     return editor_asset_status_t::NOT_FOUND;
 }
 
+editor_asset_status_t EditorAssets_MaterialBase( string_view_t materialText, const allocator_t *pAllocator, text_buffer_t *pPathOut ) noexcept
+{
+    if ( pAllocator == nullptr || pPathOut == nullptr ) { return editor_asset_status_t::INVALID_ARGUMENT; }
+    document_t document{};
+    const key_value_t *pRoot = nullptr;
+    const editor_asset_status_t status = ParseRecipe( materialText, pAllocator, "cypher.material", &document, &pRoot );
+    if ( status != editor_asset_status_t::OK ) { return status; }
+    return WritePath( KeyValue_Find( pRoot, StringView_FromCString( "base" ) ), pPathOut );
+}
+
 editor_asset_status_t EditorAssets_TextureSource( string_view_t textureText, const allocator_t *pAllocator, text_buffer_t *pPathOut ) noexcept
 {
     if ( pAllocator == nullptr || pPathOut == nullptr ) { return editor_asset_status_t::INVALID_ARGUMENT; }
@@ -400,7 +416,15 @@ editor_asset_status_t EditorAssets_TextureSource( string_view_t textureText, con
     const key_value_t *pRoot = nullptr;
     const editor_asset_status_t status = ParseRecipe( textureText, pAllocator, "cypher.texture", &document, &pRoot );
     if ( status != editor_asset_status_t::OK ) { return status; }
-    return WritePath( KeyValue_Find( pRoot, StringView_FromCString( "source" ) ), pPathOut );
+    if ( const key_value_t *pSource = KeyValue_Find( pRoot, StringView_FromCString( "source" ) ) ) { return WritePath( pSource, pPathOut ); }
+    // A packed (schema 3) texture shows its first channel image.
+    const key_value_t *pChannels = KeyValue_Find( pRoot, StringView_FromCString( "channels" ) );
+    for ( const char *pChannel : { "r", "g", "b", "a" } ) {
+        const key_value_t *pEntry = pChannels != nullptr ? KeyValue_Find( pChannels, StringView_FromCString( pChannel ) ) : nullptr;
+        const key_value_t *pImage = pEntry != nullptr ? KeyValue_Find( pEntry, StringView_FromCString( "source" ) ) : nullptr;
+        if ( pImage != nullptr && WritePath( pImage, pPathOut ) == editor_asset_status_t::OK ) { return editor_asset_status_t::OK; }
+    }
+    return editor_asset_status_t::NOT_FOUND;
 }
 
 editor_asset_status_t EditorAssets_References( string_view_t recipeText, const allocator_t *pAllocator, editor_asset_reference_fn pfnReference,

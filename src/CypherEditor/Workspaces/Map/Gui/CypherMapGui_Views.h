@@ -94,6 +94,8 @@ CYPHER_NODISCARD QWidget *MapCameraView_Create( QWidget *pParent, map_workspace_
 
 // Camera position and facing, for tests.
 CYPHER_NODISCARD math::vec3d_t MapCameraView_Position( const QWidget *pView );
+// Places the 3D camera at `position` looking at `target` (camera bookmarks, scripted shots).
+void MapCameraView_LookAt( QWidget *pView, math::vec3d_t position, math::vec3d_t target );
 CYPHER_NODISCARD math::vec3d_t MapCameraView_Forward( const QWidget *pView );
 // Current held-key velocity in world units/second, used by the flight tick
 // and diagnostics. Command modifiers suppress movement; diagonals normalize.

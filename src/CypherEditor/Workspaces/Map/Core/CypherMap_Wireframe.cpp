@@ -18,9 +18,12 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherMap_Wireframe.h"
+#include "CypherMap_Modifiers.h"
 
 #include "CypherGeometry_BrushBoundary.h"
 #include "CypherGeometry_DocumentBrushAttributes.h"
+#include "CypherGeometry_PolygonSoup.h"
+#include "CypherGeometry_Sanitation.h"
 
 #include "CypherCommon/Tier0/CypherCommon_Assert.h"
 #include "CypherCommon/Tier0/CypherCommon_Log.h"
@@ -28,6 +31,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <new>
 
 namespace cypher::editor::map
 {
@@ -218,6 +222,89 @@ void AddBrushes( builder_t &builder, const map_document_t &map ) noexcept
     geo::BrushBoundary_Shutdown( &boundary );
 }
 
+void FreeMeshSurface( const allocator_t *allocator, map_wire_mesh_surface_t *surface ) noexcept
+{
+    if ( surface == nullptr ) { return; }
+    geo::EditableMesh_Shutdown( &surface->mesh );
+    Vector_Shutdown( &surface->faceSourceIds );
+    surface->~map_wire_mesh_surface_t();
+    Allocator_Free( allocator, surface, sizeof( map_wire_mesh_surface_t ), alignof( map_wire_mesh_surface_t ) );
+}
+
+void ClearMeshSurfaces( map_wireframe_t &wire ) noexcept
+{
+    for ( usize i = 0u; i < wire.meshSurfaces.nCount; ++i ) { FreeMeshSurface( wire.pAllocator, wire.meshSurfaces.pData[i] ); }
+    Vector_Clear( &wire.meshSurfaces );
+}
+
+geo::geometry_status_t BuildMeshSurface( map_wire_mesh_surface_t &surface, const geo::modifier_result_t &evaluated,
+    const geo::mesh_source_description_t &cage, const allocator_t *allocator ) noexcept
+{
+    const auto &result = evaluated.mesh;
+    if ( evaluated.faceSources.nCount != result.faces.nCount || evaluated.faceCopies.nCount != result.faces.nCount ) {
+        return geo::geometry_status_t::CORRUPT_STATE;
+    }
+    geo::polygon_soup_t soup{};
+    auto status = geo::PolygonSoup_Init( &soup, allocator );
+    vector_t<geo::geometry_mesh_face_handle_t> faceMap{};
+    if ( status == geo::geometry_status_t::OK && !Vector_Init( &faceMap, allocator ) ) { status = geo::geometry_status_t::ALLOCATION_FAILED; }
+    for ( usize i = 0u; status == geo::geometry_status_t::OK && i < result.vertices.nCount; ++i ) {
+        status = geo::PolygonSoup_TryAddVertex( &soup, result.vertices.pData[i].position, nullptr );
+    }
+    u32 corners[geo::kMeshSourceCornersPerFaceMax]{};
+    for ( usize i = 0u; status == geo::geometry_status_t::OK && i < result.faces.nCount; ++i ) {
+        const auto &face = result.faces.pData[i];
+        if ( face.cCorners > geo::kMeshSourceCornersPerFaceMax || face.iFirstCorner > result.corners.nCount ||
+             face.cCorners > result.corners.nCount - face.iFirstCorner ) { status = geo::geometry_status_t::CORRUPT_STATE; break; }
+        for ( u32 c = 0u; c < face.cCorners; ++c ) { corners[c] = result.corners.pData[face.iFirstCorner + c].iVertex; }
+        // Anonymous evaluated faces are legitimate soup input; no document
+        // identity allocator is involved in this presentation cache.
+        status = geo::PolygonSoup_TryAddFace( &soup, { corners, face.cCorners }, {}, 0u, nullptr );
+    }
+    if ( status == geo::geometry_status_t::OK ) {
+        geo::sanitation_policy_t policy{};
+        policy.bWeld = false; policy.bRequireClosed = false; policy.bDropDegenerateFaces = false;
+        status = geo::Sanitation_TryPolygonSoupToMesh( &soup, policy, allocator, &surface.mesh, &faceMap ).status;
+    }
+    geo::PolygonSoup_Shutdown( &soup );
+    if ( status == geo::geometry_status_t::OK && faceMap.nCount != result.faces.nCount ) { status = geo::geometry_status_t::CORRUPT_STATE; }
+    if ( status == geo::geometry_status_t::OK && !Vector_Resize( &surface.faceSourceIds, surface.mesh.faces.cSlots ) ) {
+        status = geo::geometry_status_t::ALLOCATION_FAILED;
+    }
+    if ( status == geo::geometry_status_t::OK ) {
+        for ( usize slot = 0u; slot < surface.faceSourceIds.nCount; ++slot ) { surface.faceSourceIds.pData[slot] = 0u; }
+        for ( usize i = 0u; i < faceMap.nCount; ++i ) {
+            const auto face = faceMap.pData[i];
+            const u32 source = evaluated.faceSources.pData[i];
+            if ( !GenerationPool_Contains( &surface.mesh.faces, face ) || face.nSlot >= surface.faceSourceIds.nCount ||
+                 ( source != CY_U32_MAX && source >= cage.faces.nCount ) ) {
+                status = geo::geometry_status_t::CORRUPT_STATE; break;
+            }
+            if ( evaluated.faceCopies.pData[i] == 0u && source != CY_U32_MAX ) {
+                surface.faceSourceIds.pData[face.nSlot] = cage.faces.pData[source].sourceId.value;
+            }
+        }
+    }
+    if ( status != geo::geometry_status_t::OK ) { geo::EditableMesh_Shutdown( &surface.mesh ); Vector_Clear( &surface.faceSourceIds ); }
+    return status;
+}
+
+void AddMeshSurface( builder_t &builder, u64 id, const geo::modifier_result_t *evaluated,
+    const geo::mesh_source_description_t &cage, geo::geometry_status_t status ) noexcept
+{
+    const auto *allocator = builder.pWire->pAllocator;
+    void *memory = Allocator_AllocateZeroed( allocator, sizeof( map_wire_mesh_surface_t ), alignof( map_wire_mesh_surface_t ) );
+    if ( memory == nullptr ) { builder.bFailed = CY_TRUE; return; }
+    auto *surface = new ( memory ) map_wire_mesh_surface_t{};
+    surface->id = id;
+    if ( !Vector_Init( &surface->faceSourceIds, allocator ) ) { status = geo::geometry_status_t::ALLOCATION_FAILED; }
+    if ( status == geo::geometry_status_t::OK && evaluated != nullptr ) { status = BuildMeshSurface( *surface, *evaluated, cage, allocator ); }
+    surface->status = status;
+    if ( status == geo::geometry_status_t::ALLOCATION_FAILED || !Vector_PushBack( &builder.pWire->meshSurfaces, surface ) ) {
+        FreeMeshSurface( allocator, surface ); builder.bFailed = CY_TRUE;
+    }
+}
+
 void AddMeshes( builder_t &builder, const map_document_t &map ) noexcept
 {
     for ( usize i = 0u; i < map.geometry.meshes.nCount && !builder.bFailed; ++i ) {
@@ -231,6 +318,22 @@ void AddMeshes( builder_t &builder, const map_document_t &map ) noexcept
             continue;
         }
         const u64 id = pMesh->sourceId.value;
+        // A modifier stack (subdivision levels, mirror, arrays...) shows its
+        // result: the cage's points and lines stay (they are what is edited),
+        // the faces come from the evaluated surface.
+        geo::modifier_result_t evaluated{};
+        const auto initStatus = geo::ModifierResult_Init( &evaluated, builder.pWire->pAllocator );
+        const auto evaluateStatus = initStatus == geo::geometry_status_t::OK ? MapModifiers_Evaluate( &map, id, &evaluated ) : map_status_t::OUT_OF_MEMORY;
+        if ( evaluateStatus == map_status_t::OUT_OF_MEMORY ) {
+            geo::ModifierResult_Shutdown( &evaluated ); geo::MeshSourceDescription_Shutdown( &desc ); builder.bFailed = CY_TRUE; break;
+        }
+        const bool modified = evaluateStatus == map_status_t::OK;
+        if ( modified || evaluateStatus != map_status_t::UNKNOWN_OBJECT ) {
+            AddMeshSurface( builder, id, modified ? &evaluated : nullptr, desc,
+                modified ? geo::geometry_status_t::OK : evaluateStatus == map_status_t::LIMIT_EXCEEDED ?
+                geo::geometry_status_t::LIMIT_EXCEEDED : geo::geometry_status_t::INVALID_ARGUMENT );
+        }
+        if ( builder.bFailed ) { geo::ModifierResult_Shutdown( &evaluated ); geo::MeshSourceDescription_Shutdown( &desc ); break; }
         Begin( builder, id, map_wire_kind_t::MESH, RecordFor( map, id ) );
         const u32 iBase = static_cast<u32>( builder.pWire->points.nCount );
         for ( usize v = 0u; v < desc.vertices.nCount; ++v ) {
@@ -251,8 +354,57 @@ void AddMeshes( builder_t &builder, const map_document_t &map ) noexcept
                 if ( !Vector_PushBack( &indices, iBase + iA ) ) { builder.bFailed = CY_TRUE; }
             }
             // Open meshes (a ramp, a sheet) are seen from both sides.
+            const usize nFaces = builder.pWire->faces.nCount;
+            if ( modified ) { continue; }
             AddFace( builder, indices.pData, static_cast<u32>( indices.nCount ), face.attributes.material.value, CY_TRUE, nullptr, 0u, face.sourceId.value );
+            if ( builder.pWire->faces.nCount > nFaces && face.cCorners != 0u ) {
+                // Painted corner colours show as the face's average tint.
+                u32 sum[4]{};
+                for ( u32 c = 0u; c < face.cCorners; ++c ) {
+                    const u32 rgba = desc.corners.pData[face.iFirstCorner + c].attributes.colorRgba;
+                    for ( u32 ch = 0u; ch < 4u; ++ch ) { sum[ch] += ( rgba >> ( 24u - 8u * ch ) ) & 0xFFu; }
+                }
+                u32 average = 0u;
+                for ( u32 ch = 0u; ch < 4u; ++ch ) { average |= ( ( sum[ch] + face.cCorners / 2u ) / face.cCorners ) << ( 24u - 8u * ch ); }
+                builder.pWire->faces.pData[builder.pWire->faces.nCount - 1u].colorRgba = average;
+            }
         }
+        if ( modified && !builder.bFailed ) {
+            // The evaluated surface's points carry no authored identity (0):
+            // handles and picking stay on the cage. Its faces name the cage
+            // face they came from (copies made by a mirror or array name
+            // none), and copies get outlines so they show in 2D.
+            const auto &result = evaluated.mesh;
+            const u32 iResult = static_cast<u32>( builder.pWire->points.nCount );
+            for ( usize v = 0u; v < result.vertices.nCount; ++v ) { ( void )AddPoint( builder, result.vertices.pData[v].position, 0u ); }
+            for ( usize f = 0u; f < result.faces.nCount && !builder.bFailed; ++f ) {
+                const geo::mesh_source_face_t &face = result.faces.pData[f];
+                const bool copy = f < evaluated.faceCopies.nCount && evaluated.faceCopies.pData[f] != 0u;
+                const u32 source = f < evaluated.faceSources.nCount ? evaluated.faceSources.pData[f] : CY_U32_MAX;
+                const u64 cageFace = !copy && source < desc.faces.nCount ? desc.faces.pData[source].sourceId.value : 0u;
+                Vector_Clear( &indices );
+                if ( !Vector_Reserve( &indices, face.cCorners ) ) { builder.bFailed = CY_TRUE; break; }
+                for ( u32 c = 0u; c < face.cCorners; ++c ) {
+                    const u32 iA = result.corners.pData[face.iFirstCorner + c].iVertex;
+                    const u32 iB = result.corners.pData[face.iFirstCorner + ( c + 1u ) % face.cCorners].iVertex;
+                    ( void )Vector_PushBack( &indices, iResult + iA );
+                    if ( copy ) { AddLine( builder, iResult + std::min( iA, iB ), iResult + std::max( iA, iB ) ); }
+                }
+                const usize nFaces = builder.pWire->faces.nCount;
+                AddFace( builder, indices.pData, static_cast<u32>( indices.nCount ), face.attributes.material.value, CY_TRUE, nullptr, 0u, cageFace );
+                if ( builder.pWire->faces.nCount > nFaces && face.cCorners != 0u ) {
+                    u32 sum[4]{};
+                    for ( u32 c = 0u; c < face.cCorners; ++c ) {
+                        const u32 rgba = result.corners.pData[face.iFirstCorner + c].attributes.colorRgba;
+                        for ( u32 ch = 0u; ch < 4u; ++ch ) { sum[ch] += ( rgba >> ( 24u - 8u * ch ) ) & 0xFFu; }
+                    }
+                    u32 average = 0u;
+                    for ( u32 ch = 0u; ch < 4u; ++ch ) { average |= ( ( sum[ch] + face.cCorners / 2u ) / face.cCorners ) << ( 24u - 8u * ch ); }
+                    builder.pWire->faces.pData[builder.pWire->faces.nCount - 1u].colorRgba = average;
+                }
+            }
+        }
+        geo::ModifierResult_Shutdown( &evaluated );
         if ( !builder.bFailed && builder.pWire->lines.nCount > builder.object.iFirstLine ) {
             // Describe orders vertices by source ID. Normalized point pairs
             // therefore also sort by authored endpoint identities. Compact in
@@ -370,6 +522,33 @@ void AddTerrains( builder_t &builder, const map_document_t &map ) noexcept
     }
 }
 
+// The positions AddTerrains adds, in the same order: grid rows, grid
+// columns, then the filled lattice. MapWireframe_RefreshTerrain depends on
+// the two staying in step (CypherMap_Wireframe_Tests compares them).
+template <typename Emit>
+void TerrainPositions( const geo::heightfield_t *pField, Emit emit ) noexcept
+{
+    const u32 nX = geo::HeightField_SamplesX( pField ), nY = geo::HeightField_SamplesY( pField );
+    if ( nX < 2u || nY < 2u ) { return; }
+    const u32 stepX = std::max( 1u, ( nX - 1u + MAP_WIRE_TERRAIN_LINES - 1u ) / MAP_WIRE_TERRAIN_LINES );
+    const u32 stepY = std::max( 1u, ( nY - 1u + MAP_WIRE_TERRAIN_LINES - 1u ) / MAP_WIRE_TERRAIN_LINES );
+    auto next = []( u32 index, u32 step, u32 count ) noexcept { return index + step < count ? index + step : count - 1u; };
+    for ( u32 y = 0u;; y = next( y, stepY, nY ) ) {
+        emit( geo::HeightField_SamplePosition( pField, 0u, y ) );
+        for ( u32 x = next( 0u, stepX, nX );; x = next( x, stepX, nX ) ) { emit( geo::HeightField_SamplePosition( pField, x, y ) ); if ( x == nX - 1u ) { break; } }
+        if ( y == nY - 1u ) { break; }
+    }
+    for ( u32 x = 0u;; x = next( x, stepX, nX ) ) {
+        emit( geo::HeightField_SamplePosition( pField, x, 0u ) );
+        for ( u32 y = next( 0u, stepY, nY );; y = next( y, stepY, nY ) ) { emit( geo::HeightField_SamplePosition( pField, x, y ) ); if ( y == nY - 1u ) { break; } }
+        if ( x == nX - 1u ) { break; }
+    }
+    for ( u32 y = 0u;; y = next( y, stepY, nY ) ) {
+        for ( u32 x = 0u;; x = next( x, stepX, nX ) ) { emit( geo::HeightField_SamplePosition( pField, x, y ) ); if ( x == nX - 1u ) { break; } }
+        if ( y == nY - 1u ) { break; }
+    }
+}
+
 void CopyDisplayText( char ( &destination )[MAP_WIRE_TEXT_CAPACITY], const key_value_t *pValue ) noexcept
 {
     string_view_t text{};
@@ -405,16 +584,15 @@ CYPHER_NODISCARD bool_t ReadOrigin( const key_value_t *pValue, math::vec3d_t &ou
     return CY_TRUE;
 }
 
-// Entities are read from the chunk trees: the document keeps them there
+// Entities are read from the layer stores: the document keeps them there
 // rather than in a parallel structure, so this reflects exactly what saves.
 void AddEntities( builder_t &builder, const map_document_t &map ) noexcept
 {
-    for ( usize iChunk = 0u; iChunk < map.chunks.nCount && !builder.bFailed; ++iChunk ) {
-        const map_chunk_t *pChunk = map.chunks.pData[iChunk];
-        if ( pChunk->bDamaged ) { continue; }
-        const key_value_t *pRoot = KeyValue_Root( static_cast<const key_value_document_t *>( pChunk->store.pDocument ) );
+    for ( usize iStore = 0u; iStore < map.layerStores.nCount && !builder.bFailed; ++iStore ) {
+        const map_layer_store_t *pStore = map.layerStores.pData[iStore];
+        const key_value_t *pRoot = KeyValue_Root( static_cast<const key_value_document_t *>( pStore->store.pDocument ) );
         const key_value_t *pEntities = KeyValue_Find( pRoot, SV( "entities" ) );
-        const u32 iLayer = LayerIndex( map, pChunk->layer );
+        const u32 iLayer = LayerIndex( map, pStore->layer );
         for ( usize i = 0u; i < KeyValue_ChildCount( pEntities ) && !builder.bFailed; ++i ) {
             const key_value_t *pRecord = KeyValue_ChildAt( pEntities, i );
             map_wire_entity_t entity{};
@@ -458,10 +636,9 @@ void AddConnections( builder_t &builder, const map_document_t &map ) noexcept
         builder.bFailed = CY_TRUE;
         return;
     }
-    for ( usize c = 0u; c < map.chunks.nCount; ++c ) {
-        const map_chunk_t &chunk = *map.chunks.pData[c];
-        if ( chunk.bDamaged ) { continue; }
-        const key_value_t *pRoot = KeyValue_Root( static_cast<const key_value_document_t *>( chunk.store.pDocument ) );
+    for ( usize c = 0u; c < map.layerStores.nCount; ++c ) {
+        const map_layer_store_t &layerStore = *map.layerStores.pData[c];
+        const key_value_t *pRoot = KeyValue_Root( static_cast<const key_value_document_t *>( layerStore.store.pDocument ) );
         const key_value_t *pRecords = KeyValue_Find( pRoot, SV( "entities" ) );
         for ( usize i = 0u; i < KeyValue_ChildCount( pRecords ); ++i ) {
             const key_value_t *pRecord = KeyValue_ChildAt( pRecords, i );
@@ -470,7 +647,7 @@ void AddConnections( builder_t &builder, const map_document_t &map ) noexcept
             entity.id = ReadId( KeyValue_Find( pRecord, SV( "id" ) ) );
             if ( entity.id == 0u ) { continue; }
             ( void )KeyValue_GetString( KeyValue_Find( pRecord, SV( "name" ) ), &entity.name );
-            entity.iLayer = LayerIndex( map, chunk.layer );
+            entity.iLayer = LayerIndex( map, layerStore.layer );
             entity.bHasOrigin = ReadOrigin( KeyValue_Find( pRecord, SV( "origin" ) ), entity.origin );
             entity.pOutputs = KeyValue_Find( pRecord, SV( "outputs" ) );
             if ( !Vector_PushBack( &entities, entity ) ) { builder.bFailed = CY_TRUE; return; }
@@ -580,12 +757,14 @@ bool_t MapWireframe_Init( map_wireframe_t *pWire, const allocator_t *pAllocator 
     return Vector_Init( &pWire->points, pAllocator ) && Vector_Init( &pWire->pointSourceIds, pAllocator ) && Vector_Init( &pWire->lines, pAllocator ) &&
            Vector_Init( &pWire->objects, pAllocator ) && Vector_Init( &pWire->entities, pAllocator ) &&
            Vector_Init( &pWire->connections, pAllocator ) && Vector_Init( &pWire->faces, pAllocator ) &&
-           Vector_Init( &pWire->faceIndices, pAllocator );
+           Vector_Init( &pWire->faceIndices, pAllocator ) && Vector_Init( &pWire->meshSurfaces, pAllocator );
 }
 
 void MapWireframe_Shutdown( map_wireframe_t *pWire ) noexcept
 {
     if ( pWire == nullptr ) { return; }
+    ClearMeshSurfaces( *pWire );
+    Vector_Shutdown( &pWire->meshSurfaces );
     Vector_Shutdown( &pWire->points );
     Vector_Shutdown( &pWire->pointSourceIds );
     Vector_Shutdown( &pWire->lines );
@@ -601,6 +780,7 @@ void MapWireframe_Shutdown( map_wireframe_t *pWire ) noexcept
 map_status_t MapWireframe_Build( map_wireframe_t *pWire, const map_document_t &map ) noexcept
 {
     if ( pWire == nullptr || pWire->pAllocator == nullptr ) { return map_status_t::INVALID_ARGUMENT; }
+    ClearMeshSurfaces( *pWire );
     Vector_Clear( &pWire->points );
     Vector_Clear( &pWire->pointSourceIds );
     Vector_Clear( &pWire->lines );
@@ -622,6 +802,7 @@ map_status_t MapWireframe_Build( map_wireframe_t *pWire, const map_document_t &m
     if ( !builder.bFailed ) { AddConnections( builder, map ); }
     if ( builder.bFailed ) {
         CY_LOG_WRITE( Error, Editor, "Map wireframe build ran out of memory" );
+        ClearMeshSurfaces( *pWire );
         Vector_Clear( &pWire->points );
         Vector_Clear( &pWire->pointSourceIds );
         Vector_Clear( &pWire->lines );
@@ -640,6 +821,10 @@ map_status_t MapWireframe_Build( map_wireframe_t *pWire, const map_document_t &m
         []( const map_wire_entity_t &a, const map_wire_entity_t &b ) noexcept { return a.id < b.id; } );
     std::sort( pWire->objects.pData, pWire->objects.pData + pWire->objects.nCount,
         []( const map_wire_object_t &a, const map_wire_object_t &b ) noexcept { return a.id < b.id; } );
+    if ( pWire->meshSurfaces.nCount > 1u ) {
+        std::sort( pWire->meshSurfaces.pData, pWire->meshSurfaces.pData + pWire->meshSurfaces.nCount,
+            []( const map_wire_mesh_surface_t *a, const map_wire_mesh_surface_t *b ) noexcept { return a->id < b->id; } );
+    }
     map_wire_entity_t *pEntitiesEnd = pWire->entities.pData + pWire->entities.nCount;
     for ( usize i = 0u; i < pWire->objects.nCount; ++i ) {
         const u64 owner = pWire->objects.pData[i].owner;
@@ -659,6 +844,16 @@ const map_wire_object_t *MapWireframe_FindObject( const map_wireframe_t &wire, u
     const map_wire_object_t *pFound = std::lower_bound( pBegin, pEnd, id,
         []( const map_wire_object_t &object, u64 key ) noexcept { return object.id < key; } );
     return pFound != pEnd && pFound->id == id ? pFound : nullptr;
+}
+
+const map_wire_mesh_surface_t *MapWireframe_FindMeshSurface( const map_wireframe_t &wire, u64 id ) noexcept
+{
+    if ( wire.meshSurfaces.nCount == 0u ) { return nullptr; }
+    const auto *begin = wire.meshSurfaces.pData;
+    const auto *end = begin + wire.meshSurfaces.nCount;
+    const auto *found = std::lower_bound( begin, end, id,
+        []( const map_wire_mesh_surface_t *surface, u64 key ) noexcept { return surface->id < key; } );
+    return found != end && ( *found )->id == id ? *found : nullptr;
 }
 
 const map_wire_entity_t *MapWireframe_FindEntity( const map_wireframe_t &wire, u64 id ) noexcept
@@ -700,6 +895,38 @@ u64 MapWireframe_Pick2D( const map_wireframe_t &wire, u32 axisU, u32 axisV, f64 
         }
     }
     return best;
+}
+
+map_status_t MapWireframe_RefreshTerrain( map_wireframe_t *pWire, const geo::heightfield_t &field ) noexcept
+{
+    if ( pWire == nullptr ) { return map_status_t::INVALID_ARGUMENT; }
+    map_wire_object_t *object = nullptr;
+    for ( usize i = 0u; i < pWire->objects.nCount && object == nullptr; ++i ) {
+        if ( pWire->objects.pData[i].id == field.sourceId.value && pWire->objects.pData[i].kind == map_wire_kind_t::TERRAIN ) { object = &pWire->objects.pData[i]; }
+    }
+    if ( object == nullptr ) { return map_status_t::UNKNOWN_OBJECT; }
+    u32 k = 0u;
+    bool fits = true;
+    TerrainPositions( &field, [&]( math::vec3d_t p ) {
+        if ( k >= object->nPoints ) { fits = false; return; }
+        pWire->points.pData[object->iFirstPoint + k++] = p;
+    } );
+    if ( !fits || k != object->nPoints ) { return map_status_t::INVALID_ARGUMENT; } // A different footprint: rebuild instead.
+    object->bounds = {};
+    for ( u32 i = 0u; i < object->nPoints; ++i ) { MapBounds_AddPoint( object->bounds, pWire->points.pData[object->iFirstPoint + i] ); }
+    for ( usize f = 0u; f < pWire->faces.nCount; ++f ) {
+        auto &face = pWire->faces.pData[f];
+        if ( face.id != object->id ) { continue; }
+        math::vec3d_t n{};
+        for ( u32 c = 0u; c < face.nIndices; ++c ) {
+            const auto a = pWire->points.pData[pWire->faceIndices.pData[face.iFirstIndex + c]];
+            const auto b = pWire->points.pData[pWire->faceIndices.pData[face.iFirstIndex + ( c + 1u ) % face.nIndices]];
+            n.x += ( a.y - b.y ) * ( a.z + b.z ); n.y += ( a.z - b.z ) * ( a.x + b.x ); n.z += ( a.x - b.x ) * ( a.y + b.y );
+        }
+        const f64 length = std::sqrt( n.x * n.x + n.y * n.y + n.z * n.z );
+        if ( length > 1e-12 ) { face.normal = { n.x / length, n.y / length, n.z / length }; }
+    }
+    return map_status_t::OK;
 }
 
 } // namespace cypher::editor::map

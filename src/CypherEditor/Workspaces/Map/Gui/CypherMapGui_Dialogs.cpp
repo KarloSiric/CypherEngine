@@ -148,7 +148,6 @@ public:
                                                   : QString::number( info.nConnections ) );
         row( QStringLiteral( "Materials" ), Count( info.nMaterials, "material", "materials" ) );
         row( QStringLiteral( "Layers" ), QString::number( info.nLayers ) );
-        row( QStringLiteral( "Chunk files" ), QString::number( info.nChunkFiles ) );
         row( QStringLiteral( "Extent" ), Extent( info.bounds ) );
         if ( info.nProblems != 0 || info.nBrokenBrushes != 0 ) {
             row( QStringLiteral( "Problems" ), QStringLiteral( "%1 load problems, %2 brushes that could not be rebuilt" ).arg( info.nProblems ).arg( info.nBrokenBrushes ) );
@@ -235,6 +234,7 @@ map_info_t MapInfo_Compute( const map_workspace_t *pWorkspace )
             case map_wire_kind_t::PATCH: ++info.nPatches; break;
             case map_wire_kind_t::TERRAIN: ++info.nTerrains; break;
             case map_wire_kind_t::ENTITY: break; // Counted from the entity list below.
+            case map_wire_kind_t::PREFAB: break;
         }
         if ( object.kind != map_wire_kind_t::ENTITY && object.owner != 0u ) { ++info.nTiedObjects; }
     }
@@ -258,7 +258,6 @@ map_info_t MapInfo_Compute( const map_workspace_t *pWorkspace )
     if ( const map_document_t *pDocument = pWorkspace->pDocument ) {
         info.nLayers = static_cast<int>( pDocument->layers.nCount );
         info.nMaterials = static_cast<int>( pDocument->materials.entries.nCount );
-        info.nChunkFiles = static_cast<int>( pDocument->chunks.nCount );
         info.nProblems = static_cast<int>( pDocument->problems.nCount );
     }
     return info;
@@ -274,12 +273,11 @@ QString MapInfo_Text( const map_workspace_t *pWorkspace )
                 .arg( info.nPointEntities )
                 .arg( info.nBrushEntities )
                 .arg( info.nTiedObjects );
-    text += QStringLiteral( "Connections %1 (%2 without a target), materials %3, layers %4, chunk files %5\n" )
+    text += QStringLiteral( "Connections %1 (%2 without a target), materials %3, layers %4\n" )
                 .arg( info.nConnections )
                 .arg( info.nBrokenConnections )
                 .arg( info.nMaterials )
-                .arg( info.nLayers )
-                .arg( info.nChunkFiles );
+                .arg( info.nLayers );
     text += QStringLiteral( "Extent %1\n\n" ).arg( Extent( info.bounds ) );
     for ( const map_info_class_t &entry : info.classes ) { text += QStringLiteral( "%1  %2\n" ).arg( entry.className.leftJustified( 36, QLatin1Char( ' ' ) ) ).arg( entry.nCount ); }
     return text;

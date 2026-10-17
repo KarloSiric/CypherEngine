@@ -7,6 +7,7 @@
 #pragma once
 
 #include "CypherMap_Document.h"
+#include "CypherGeometry_MeshAttributeTransfer.h"
 
 namespace cypher::editor::map
 {
@@ -73,6 +74,14 @@ CYPHER_NODISCARD map_status_t MapMeshEdit_InsetFace(
     common::u64 faceId,
     common::f64 margin ) noexcept;
 
+// Insets exactly one planar, strictly convex face by a perpendicular edge
+// width. The cap retains its ID; source lineage transfers surfacing/residuals
+// onto the ring. Collapsed offsets, concavity, holes and warped faces refuse.
+// This is a separate operation from radial Corner Inset; no face regions.
+// Identity and private transaction rules match ExtrudeFace.
+CYPHER_NODISCARD map_status_t MapMeshEdit_InsetFaceByEdgeWidth(
+    map_document_t *pMap, common::u64 meshId, common::u64 faceId, common::f64 width ) noexcept;
+
 // Slices one authored quad into cU x cV cells. Counts are 1..64; 1 x 1
 // is an unchanged success even when identity/revision cursors are exhausted.
 // U follows corner 0 -> 1 and V corner 1 -> 2 in the source face's winding.
@@ -87,6 +96,29 @@ CYPHER_NODISCARD map_status_t MapMeshEdit_QuadSliceFace(
     common::u64 faceId,
     common::u32 cU,
     common::u32 cV ) noexcept;
+
+// Runs one identity-addressed source edit on an authored mesh through the
+// same transaction as the face operations above: fresh IDs start above both
+// high-water marks, residual face records follow backend lineage, and the
+// change commits once. pfnEdit edits the transaction's working copy and
+// passes pReport to the source operation it calls; any status but OK
+// cancels. Faces created without a parent (a filled hole, a bridge) carry
+// no residual record. An edit that changes nothing is a successful no-op.
+// PRIVATE working-copy rules match ExtrudeFace.
+using map_mesh_source_edit_fn = geometry::geometry_status_t ( * )(
+    void *pContext, geometry::mesh_source_t *pWorking, geometry::mesh_edit_report_t *pReport );
+// Optional pre-publication observer after fresh IDs have been assigned. It
+// resolves operation-local handles into persistent IDs while those handles
+// still belong to the working mesh. A failure cancels the transaction; any
+// prepared result must remain private until MapMeshEdit_Apply returns OK.
+using map_mesh_source_assigned_fn = geometry::geometry_status_t ( * )(
+    void *pContext, const geometry::mesh_source_t *pWorking );
+CYPHER_NODISCARD map_status_t MapMeshEdit_Apply(
+    map_document_t *pMap,
+    common::u64 meshId,
+    map_mesh_source_edit_fn pfnEdit,
+    void *pContext,
+    map_mesh_source_assigned_fn pfnAssigned = nullptr ) noexcept;
 
 } // namespace cypher::editor::map
 #endif

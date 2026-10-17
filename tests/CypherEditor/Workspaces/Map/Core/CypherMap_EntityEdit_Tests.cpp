@@ -43,26 +43,19 @@ struct value_t {
     key_value_t *Get() { return KeyValue_Find( KeyValue_Root( document.get() ), SV( "value" ) ); }
 };
 struct files_t {
-    std::string root; std::map<std::string, std::string> chunks;
-    map_save_sink_t Sink()
+    std::string root;
+    map_status_t Save( map_document_t *pMap )
     {
-        return { this,
-            []( void *ctx, string_view_t path, string_view_t text ) noexcept -> bool_t {
-                static_cast<files_t *>( ctx )->chunks[std::string( path.pData, path.cchLength )] = std::string( text.pData, text.cchLength ); return CY_TRUE;
-            },
-            []( void *ctx, string_view_t path ) noexcept -> bool_t {
-                static_cast<files_t *>( ctx )->chunks.erase( std::string( path.pData, path.cchLength ) ); return CY_TRUE;
-            },
-            []( void *ctx, string_view_t text ) noexcept -> bool_t {
-                static_cast<files_t *>( ctx )->root.assign( text.pData, text.cchLength ); return CY_TRUE;
-            } };
+        text_buffer_t text{};
+        if ( !TextBuffer_Init( &text, Allocator_GetSystem() ) ) { return map_status_t::OUT_OF_MEMORY; }
+        const map_status_t status = MapDocument_Save( pMap, &text );
+        if ( status == map_status_t::OK ) { root.assign( TextBuffer_Data( &text ), TextBuffer_Length( &text ) ); }
+        return status;
     }
 };
 void Load( map_document_t &map, const files_t &files )
 {
-    std::vector<map_chunk_input_t> chunks;
-    for ( const auto &[path, text] : files.chunks ) { chunks.push_back( { SV( path ), SV( text ) } ); }
-    REQUIRE( MapDocument_Load( &map, Allocator_GetSystem(), SV( files.root ), { chunks.data(), chunks.size() } ) == map_status_t::OK );
+    REQUIRE( MapDocument_Load( &map, Allocator_GetSystem(), SV( files.root ) ) == map_status_t::OK );
 }
 struct allocation_audit_t {
     usize calls{}, failAt{ CY_USIZE_MAX }, bytes{};
@@ -117,14 +110,14 @@ TEST_CASE( "Typed entity property changes preserve nested data identity and orde
     CHECK( MapEntityEdit_ValuesEqual( Property( map, ids[0], "light_settings" ), nested.Get() ) );
     REQUIRE( MapEntityEdit_SetProperty( &map, { ids, 2 }, SV( "light_settings" ), nested.Get(), &changed ) == map_status_t::OK ); CHECK_FALSE( changed );
     value_t outputs( "[ { output = \"on_trigger\" target = \"door\" input = \"open\" parameter = \"\" delay = 0.0 times = -1 }, { output = \"on_trigger\" target = \"sound\" input = \"play\" parameter = \"\" delay = 0.5 times = 1 } ]" );
-    map_chunk_t *chunk{}; auto *entity = MapDocument_FindObject( &map, ids[0], &chunk );
+    map_layer_store_t *chunk{}; auto *entity = MapDocument_FindObject( &map, ids[0], &chunk );
     auto *outputMember = KeyValue_ObjectInsert( chunk->store.pDocument, entity, SV( "outputs" ), key_value_type_t::ARRAY ); REQUIRE( outputMember );
     for ( usize i = 0; i < KeyValue_ChildCount( outputs.Get() ); ++i ) { REQUIRE( KeyValue_CloneInto( chunk->store.pDocument, outputMember, KeyValue_ChildAt( outputs.Get(), i ) ) ); }
     REQUIRE( MapEntityEdit_SetIdentityField( &map, { ids, 2 }, SV( "name" ), SV( "shared_light" ), &changed ) == map_status_t::OK ); CHECK( changed );
     REQUIRE( MapEntityEdit_SetIdentityField( &map, { ids, 2 }, SV( "class" ), SV( "light_spot" ), &changed ) == map_status_t::OK ); CHECK( changed );
     REQUIRE( MapEntityEdit_RenameProperty( &map, { ids, 2 }, SV( "light_settings" ), SV( "settings" ), &changed ) == map_status_t::OK ); CHECK( changed );
     CHECK( map.geometry.revision == revision ); CHECK( map.nextId == nextId );
-    files_t files; REQUIRE( MapDocument_Save( &map, files.Sink() ) == map_status_t::OK );
+    files_t files; REQUIRE( files.Save( &map ) == map_status_t::OK );
     map_document_t reloaded; Load( reloaded, files );
     for ( const u64 id : ids ) {
         CHECK( Property( reloaded, id, "light_settings" ) == nullptr );
@@ -150,7 +143,7 @@ TEST_CASE( "Property setters replace one key and safely stage aliased nested val
     for ( int repeat = 0; repeat < 4; ++repeat ) { REQUIRE( MapEntityEdit_SetProperty( &map, { &id, 1 }, SV( "settings" ), string.Get(), &changed ) == map_status_t::OK ); }
     const auto *properties = KeyValue_Find( MapDocument_FindObject( &map, id, nullptr ), SV( "properties" ) );
     REQUIRE( KeyValue_ChildCount( properties ) == 1 );
-    files_t files; REQUIRE( MapDocument_Save( &map, files.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, files );
+    files_t files; REQUIRE( files.Save( &map ) == map_status_t::OK ); map_document_t loaded; Load( loaded, files );
     CHECK( MapEntityEdit_ValuesEqual( Property( loaded, id, "settings" ), string.Get() ) );
 }
 
@@ -185,7 +178,7 @@ TEST_CASE( "Rename collisions and invalid batches are rejected before any owner 
 TEST_CASE( "Malformed duplicate properties and excessive value depth cannot be edited into a map", "[map][entity-edit][validation]" )
 {
     map_document_t map; Create( map ); const u64 id = AddEntity( map ); bool changed{}; value_t value( "true" );
-    map_chunk_t *chunk{}; auto *entity = MapDocument_FindObject( &map, id, &chunk );
+    map_layer_store_t *chunk{}; auto *entity = MapDocument_FindObject( &map, id, &chunk );
     auto *properties = KeyValue_ObjectInsert( chunk->store.pDocument, entity, SV( "properties" ), key_value_type_t::STRING ); REQUIRE( properties );
     CHECK( MapEntityEdit_SetProperty( &map, { &id, 1 }, SV( "enabled" ), value.Get(), &changed ) == map_status_t::INVALID_ARGUMENT ); CHECK_FALSE( changed );
     REQUIRE( KeyValue_SetContainerType( chunk->store.pDocument, properties, key_value_type_t::OBJECT ) );
@@ -243,7 +236,7 @@ TEST_CASE( "Read-only child cursors preserve authored order for arrays objects r
 TEST_CASE( "Entity lookup traverses dense entity arrays and validates borrowed records on read-only maps", "[map][entity-edit][lookup]" )
 {
     map_document_t map; Create( map ); const u64 first = AddEntity( map );
-    map_chunk_t *chunk{}; REQUIRE( MapDocument_FindObject( &map, first, &chunk ) );
+    map_layer_store_t *chunk{}; REQUIRE( MapDocument_FindObject( &map, first, &chunk ) );
     auto *entities = KeyValue_Find( KeyValue_Root( chunk->store.pDocument ), SV( "entities" ) ); REQUIRE( entities );
     u64 last = first;
     // Append directly so setup does not exercise the old indexed map lookup.
@@ -264,7 +257,7 @@ TEST_CASE( "Entity lookup traverses dense entity arrays and validates borrowed r
 TEST_CASE( "Entity record growth is rejected before adding properties or identity fields past its bound", "[map][entity-edit][limit][preflight]" )
 {
     map_document_t map; Create( map ); const u64 ids[]{ AddEntity( map ), AddEntity( map ) };
-    map_chunk_t *chunk{}; auto *full = MapDocument_FindObject( &map, ids[1], &chunk ); REQUIRE( full );
+    map_layer_store_t *chunk{}; auto *full = MapDocument_FindObject( &map, ids[1], &chunk ); REQUIRE( full );
     while ( KeyValue_ChildCount( full ) < MAP_ENTITY_RECORD_MEMBERS_MAX ) {
         const std::string key = "future_" + std::to_string( KeyValue_ChildCount( full ) );
         REQUIRE( KeyValue_ObjectInsert( chunk->store.pDocument, full, SV( key ), key_value_type_t::NULL_VALUE ) );
@@ -281,9 +274,9 @@ TEST_CASE( "Entity record growth is rejected before adding properties or identit
 TEST_CASE( "Validated entity lookup returns its chunk only on successful read-only inspection", "[map][entity-edit][lookup][ownership]" )
 {
     map_document_t map; Create( map ); const u64 id = AddEntity( map );
-    map_chunk_t *expected{}; auto *entity = MapDocument_FindObject( &map, id, &expected ); REQUIRE( entity ); REQUIRE( expected );
+    map_layer_store_t *expected{}; auto *entity = MapDocument_FindObject( &map, id, &expected ); REQUIRE( entity ); REQUIRE( expected );
     map.bReadOnly = CY_TRUE;
-    map_chunk_t *chunk{}; CHECK( MapEntityEdit_FindEntity( &map, id, &chunk ) == entity ); CHECK( chunk == expected );
+    map_layer_store_t *chunk{}; CHECK( MapEntityEdit_FindEntity( &map, id, &chunk ) == entity ); CHECK( chunk == expected );
     CHECK( MapEntityEdit_FindEntity( &map, id + 1u, &chunk ) == nullptr ); CHECK( chunk == nullptr );
     chunk = expected; CHECK( MapEntityEdit_FindEntity( nullptr, id, &chunk ) == nullptr ); CHECK( chunk == nullptr );
     chunk = expected; CHECK( MapEntityEdit_FindEntity( &map, 0u, &chunk ) == nullptr ); CHECK( chunk == nullptr );

@@ -216,6 +216,8 @@
         <file alias="icons/color/shape-spike.svg">Icons/cypher/shape-spike.svg</file>
         <file alias="icons/color/shape-stairs.svg">Icons/cypher/shape-stairs.svg</file>
         <file alias="icons/color/shape-torus.svg">Icons/cypher/shape-torus.svg</file>
+        <file alias="icons/color/shape-spiral-stairs.svg">Icons/cypher/shape-spiral-stairs.svg</file>
+        <file alias="icons/color/shape-pipe.svg">Icons/cypher/shape-pipe.svg</file>
         <file alias="icons/color/shape-wedge.svg">Icons/cypher/shape-wedge.svg</file>
         <file alias="icons/color/show-all.svg">Icons/cypher/show-all.svg</file>
         <file alias="icons/color/snap-angle.svg">Icons/cypher/snap-angle.svg</file>
@@ -253,6 +255,7 @@
         <file alias="icons/color/tool-rotate.svg">Icons/cypher/tool-rotate.svg</file>
         <file alias="icons/color/tool-scale.svg">Icons/cypher/tool-scale.svg</file>
         <file alias="icons/color/tool-select.svg">Icons/cypher/tool-select.svg</file>
+        <file alias="icons/color/tool-shear.svg">Icons/cypher/tool-shear.svg</file>
         <file alias="icons/color/tool-terrain.svg">Icons/cypher/tool-terrain.svg</file>
         <file alias="icons/color/tool-texture.svg">Icons/cypher/tool-texture.svg</file>
         <file alias="icons/color/tool-translate.svg">Icons/cypher/tool-translate.svg</file>
@@ -289,6 +292,9 @@
         <file alias="icons/color/view-properties.svg">Icons/cypher/view-properties.svg</file>
         <file alias="icons/color/view-quad.svg">Icons/cypher/view-quad.svg</file>
         <file alias="icons/color/view-selection-sets.svg">Icons/cypher/view-selection-sets.svg</file>
+        <file alias="icons/color/selection-set-new.svg">Icons/cypher/selection-set-new.svg</file>
+        <file alias="icons/color/selection-set-add.svg">Icons/cypher/selection-set-add.svg</file>
+        <file alias="icons/color/selection-set-remove.svg">Icons/cypher/selection-set-remove.svg</file>
         <file alias="icons/color/view-side.svg">Icons/cypher/view-side.svg</file>
         <file alias="icons/color/view-tool-properties.svg">Icons/cypher/view-tool-properties.svg</file>
         <file alias="icons/color/view-top.svg">Icons/cypher/view-top.svg</file>

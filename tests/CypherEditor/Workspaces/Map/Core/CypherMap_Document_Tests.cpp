@@ -8,15 +8,15 @@
 //  Details: The map is the one file format every level lives in, so these
 //           pin what must never regress: saving an unchanged map reproduces
 //           the same bytes; every object kind is written readably and read
-//           back exactly; objects land in the chunk their layer and position
-//           select; nothing unknown or unreadable is ever dropped; hand
-//           edits (missing IDs, odd layout, comments) are accepted; damage
-//           never spreads to files the editor did not understand; and IDs
-//           are never reused.
+//           back exactly; objects stay in their layer; nothing unknown or
+//           unreadable is ever dropped; hand edits (missing IDs, odd
+//           layout, comments) are accepted; a file that cannot be read says
+//           why and where; and IDs are never reused.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-09-27
 //  - Rewritten on 2026-09-27 for map-owned readable geometry
+//  - Rewritten on 2026-10-12 for V11: one file, objects nested in layers
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -32,9 +32,11 @@
 
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 #include "CypherCommon/Tier1/CypherCommon_KeyValueParser.h"
+#include "CypherCommon/Tier1/CypherCommon_KeyValueWriter.h"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -56,70 +58,23 @@ string_view_t SV( const std::string &text )
     return { text.data(), text.size() };
 }
 
-// Collects save output the way a directory would look afterwards.
+// The saved map: the whole level is one text.
 struct saved_files_t {
-    std::map<std::string, std::string> chunks;
     std::string root;
-    std::vector<std::string> written;
-    std::vector<std::string> removed;
-    usize nCalls{ 0u };
-    usize iFailAt{ ~usize{ 0u } }; // Fail the n-th callback.
-    const usize *pAllocationCalls{ nullptr };
-    usize allocationsAtFirstSink{ CY_USIZE_MAX };
-
-    bool_t Call() noexcept
-    {
-        if ( nCalls == 0u && pAllocationCalls != nullptr ) { allocationsAtFirstSink = *pAllocationCalls; }
-        return nCalls++ != iFailAt;
-    }
-
-    map_save_sink_t Sink()
-    {
-        map_save_sink_t sink{};
-        sink.pContext = this;
-        sink.pfnWriteChunk = []( void *pContext, string_view_t path, string_view_t text ) noexcept -> bool_t {
-            auto *pFiles = static_cast<saved_files_t *>( pContext );
-            if ( !pFiles->Call() ) { return CY_FALSE; }
-            pFiles->chunks[std::string( path.pData, path.cchLength )] = std::string( text.pData, text.cchLength );
-            pFiles->written.emplace_back( path.pData, path.cchLength );
-            return CY_TRUE;
-        };
-        sink.pfnRemoveChunk = []( void *pContext, string_view_t path ) noexcept -> bool_t {
-            auto *pFiles = static_cast<saved_files_t *>( pContext );
-            if ( !pFiles->Call() ) { return CY_FALSE; }
-            pFiles->chunks.erase( std::string( path.pData, path.cchLength ) );
-            pFiles->removed.emplace_back( path.pData, path.cchLength );
-            return CY_TRUE;
-        };
-        sink.pfnWriteRoot = []( void *pContext, string_view_t text ) noexcept -> bool_t {
-            auto *pFiles = static_cast<saved_files_t *>( pContext );
-            if ( !pFiles->Call() ) { return CY_FALSE; }
-            pFiles->root.assign( text.pData, text.cchLength );
-            return CY_TRUE;
-        };
-        return sink;
-    }
-
-    void ClearLog()
-    {
-        written.clear();
-        removed.clear();
-        nCalls = 0u;
-        allocationsAtFirstSink = CY_USIZE_MAX;
-    }
 };
 
 map_status_t Save( map_document_t *pMap, saved_files_t &files )
 {
-    files.ClearLog();
-    return MapDocument_Save( pMap, files.Sink() );
+    text_buffer_t text{};
+    if ( !TextBuffer_Init( &text, Allocator_GetSystem() ) ) { return map_status_t::OUT_OF_MEMORY; }
+    const map_status_t status = MapDocument_Save( pMap, &text );
+    if ( status == map_status_t::OK ) { files.root.assign( TextBuffer_Data( &text ), TextBuffer_Length( &text ) ); }
+    return status;
 }
 
-map_status_t Load( map_document_t *pMap, const std::string &root, const std::map<std::string, std::string> &chunks, u32 flags = MAP_LOAD_FLAG_NONE )
+map_status_t Load( map_document_t *pMap, const std::string &text, u32 flags = MAP_LOAD_FLAG_NONE )
 {
-    std::vector<map_chunk_input_t> inputs;
-    for ( const auto &[path, text] : chunks ) { inputs.push_back( { SV( path ), SV( text ) } ); }
-    return MapDocument_Load( pMap, Allocator_GetSystem(), SV( root ), span_t<const map_chunk_input_t>{ inputs.data(), inputs.size() }, flags );
+    return MapDocument_Load( pMap, Allocator_GetSystem(), SV( text ), flags );
 }
 
 usize CountProblems( const map_document_t &map, map_problem_code_t code )
@@ -265,21 +220,41 @@ u64 AddTerrain( map_document_t *pMap )
     return fieldId.value;
 }
 
-// A hand-written root for tests that exercise reading.
-std::string Root( const char *pNextId = "100u", const char *pExtra = "" )
+// A hand-written map for tests that exercise reading: root members, then
+// each layer with the body written inside it. Without layers the map has
+// one empty "default" layer.
+using layer_bodies_t = std::vector<std::pair<std::string, std::string>>;
+
+std::string Hand( const layer_bodies_t &layers = {}, const char *pNextId = "100u", const char *pExtra = "" )
 {
-    return std::string( "@cykv 1\n@schema \"cypher.map\" 10\n{\n"
-                        "    map_id = \"4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b\"\n"
-                        "    name = \"Hand\"\n"
-                        "    game = \"reap\"\n"
-                        "    next_id = " ) +
-           pNextId + "\n    layers = [ { id = \"default\" } ]\n" + pExtra + "}\n";
+    std::string text = std::string( "@cykv 1\n@schema \"cypher.map\" 11\n{\n"
+                                    "    map_id = \"4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b\"\n"
+                                    "    name = \"Hand\"\n"
+                                    "    game = \"reap\"\n"
+                                    "    next_id = " ) +
+                       pNextId + "\n" + pExtra + "    layers = [\n";
+    if ( layers.empty() ) { text += "        { id = \"default\" }\n"; }
+    for ( usize i = 0u; i < layers.size(); ++i ) {
+        text += "        { id = \"" + layers[i].first + "\"\n" + layers[i].second + "        }" + ( i + 1u < layers.size() ? ",\n" : "\n" );
+    }
+    return text + "    ]\n}\n";
 }
 
-std::string Chunk( const char *pLayer, const char *pCell, const std::string &body, const char *pMapId = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b" )
+std::string Root( const char *pNextId = "100u", const char *pExtra = "" )
 {
-    return std::string( "@cykv 1\n@schema \"cypher.map_chunk\" 10\n{\n    map_id = \"" ) + pMapId + "\"\n    layer = \"" + pLayer +
-           "\"\n    cell = " + pCell + "\n" + body + "}\n";
+    return Hand( {}, pNextId, pExtra );
+}
+
+// The part of a saved map that belongs to one layer: from its `id` to the
+// next layer's, so checks can say which layer an object landed in.
+std::string LayerText( const std::string &text, const char *pLayer )
+{
+    const std::string key = std::string( "id = \"" ) + pLayer + "\"";
+    const usize layers = text.find( "\n    layers = [" );
+    const usize begin = layers == std::string::npos ? std::string::npos : text.find( key, layers );
+    if ( begin == std::string::npos ) { return {}; }
+    const usize next = text.find( "\n        {", begin );
+    return text.substr( begin, next == std::string::npos ? std::string::npos : next - begin );
 }
 
 // Six faces of an axis-aligned box in the readable brush format; IDs left
@@ -303,17 +278,15 @@ std::string BoxFaces( f64 minX, f64 minY, f64 minZ, f64 maxX, f64 maxY, f64 maxZ
 void RequireStable( const saved_files_t &first, bool bProblemsExpected = false )
 {
     map_document_t loaded{};
-    REQUIRE( Load( &loaded, first.root, first.chunks ) == map_status_t::OK );
+    REQUIRE( Load( &loaded, first.root ) == map_status_t::OK );
     for ( usize i = 0u; !bProblemsExpected && i < loaded.problems.nCount; ++i ) {
-        INFO( MapDocument_ProblemName( loaded.problems.pData[i].code ) << " " << loaded.problems.pData[i].path << " "
+        INFO( MapDocument_ProblemName( loaded.problems.pData[i].code ) << " " << loaded.problems.pData[i].layer << " "
                                                                        << loaded.problems.pData[i].member );
         CHECK( false );
     }
     saved_files_t second;
     REQUIRE( Save( &loaded, second ) == map_status_t::OK );
     CHECK( second.root == first.root );
-    CHECK( second.chunks == first.chunks );
-    CHECK( second.removed.empty() );
 }
 
 } // namespace
@@ -322,7 +295,7 @@ void RequireStable( const saved_files_t &first, bool bProblemsExpected = false )
 // Writing and reading every object kind
 // ---------------------------------------------------------------------------
 
-TEST_CASE( "A new map saves a readable root and one chunk per occupied cell", "[map][document]" )
+TEST_CASE( "A new map saves one readable file with its objects nested in their layer", "[map][document]" )
 {
     map_document_t map{};
     CreateMap( &map );
@@ -332,16 +305,19 @@ TEST_CASE( "A new map saves a readable root and one chunk per occupied cell", "[
     CHECK( id == 1u );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    CHECK( Contains( files.root, "@schema \"cypher.map\" 10" ) );
-    CHECK( Contains( files.root, "\n    next_id = 2u\n" ) );
-    CHECK( Contains( files.root, "layers = [ { id = \"default\" } ]" ) );
-    REQUIRE( files.chunks.size() == 1u );
-    const std::string &chunk = files.chunks["default/x0_y-1.cymapchunk"];
-    CHECK( Contains( chunk, "@schema \"cypher.map_chunk\" 10" ) );
-    CHECK( Contains( chunk, "\n    layer = \"default\"\n" ) );
-    CHECK( Contains( chunk, "\n    cell = [ 0, -1 ]\n" ) );
-    CHECK( Contains( chunk, "info = { entities = 1 bounds = [ 128.0, -64.0, 16.0, 128.0, -64.0, 16.0 ] }" ) );
-    CHECK( Contains( chunk, "entities = [ { id = 1u class = \"info_player_start\" origin = [ 128.0, -64.0, 16.0 ] } ]" ) );
+    const std::string &text = files.root;
+    INFO( text );
+    CHECK( text.rfind( "@cykv 1\n@schema \"cypher.map\" 11\n", 0 ) == 0u );
+    CHECK( Contains( text, "\n    next_id = 2u\n" ) );
+    // The level comes last, layer by layer; only layers carry a summary.
+    CHECK_FALSE( Contains( text, "\n    info = " ) );
+    CHECK( text.find( "\n    next_id" ) < text.find( "\n    layers = [" ) );
+    const std::string layer = LayerText( text, "default" );
+    CHECK( Contains( layer, "info = { entities = 1 bounds = [ 128.0, -64.0, 16.0, 128.0, -64.0, 16.0 ] }" ) );
+    CHECK( Contains( layer, "entities = [ { id = 1u class = \"info_player_start\" origin = [ 128.0, -64.0, 16.0 ] } ]" ) );
+    CHECK_FALSE( Contains( text, "cell" ) );
+    CHECK_FALSE( Contains( text, "map_chunk" ) );
+    RequireStable( files );
 }
 
 TEST_CASE( "Brushes are written as planes, materials, and texture mappings", "[map][document][geometry]" )
@@ -352,7 +328,7 @@ TEST_CASE( "Brushes are written as planes, materials, and texture mappings", "[m
     SetFaceMaterial( &map, brushId, 0u, "materials/concrete/floor01.cymat" );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    const std::string &chunk = files.chunks["default/x0_y0.cymapchunk"];
+    const std::string &chunk = files.root;
     INFO( chunk );
     // +X face of a 64-unit box centred at (0, 0, 64): n . p = 32.
     CHECK( Contains( chunk, "plane = [ 1.0, 0.0, 0.0, 32.0 ] material = \"materials/concrete/floor01.cymat\"" ) );
@@ -365,7 +341,7 @@ TEST_CASE( "Brushes are written as planes, materials, and texture mappings", "[m
     RequireStable( files );
 
     map_document_t loaded{};
-    REQUIRE( Load( &loaded, files.root, files.chunks ) == map_status_t::OK );
+    REQUIRE( Load( &loaded, files.root ) == map_status_t::OK );
     const geo::brush_solid_t *pBrush = geo::GeometryDocument_FindBrush( &loaded.geometry, geo::geometry_source_id_t{ brushId } );
     REQUIRE( pBrush != nullptr );
     CHECK( pBrush->sides.nCount == 6u );
@@ -381,9 +357,7 @@ TEST_CASE( "Meshes, patches, and terrains are written readably and read back exa
     const u64 terrainId = AddTerrain( &map );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    REQUIRE( files.chunks.size() == 1u ); // The terrain's footprint is centred on (0, 0), like the mesh and patch.
-    std::string all;
-    for ( const auto &entry : files.chunks ) { all += entry.second; }
+    const std::string &all = files.root;
     INFO( all );
     CHECK( Contains( all, "[ 64.0, 64.0, 8.0 ]" ) );
     CHECK( Contains( all, "material = \"materials/metal/pipe.cymat\"\n" ) );
@@ -397,10 +371,11 @@ TEST_CASE( "Meshes, patches, and terrains are written readably and read back exa
     CHECK( Contains( all, "cells = [ 8, 8 ]" ) );
     CHECK( Contains( all, "holes = [ [ 2, 3 ] ]" ) );
     CHECK( Contains( all, "heights = [\n" ) );
+    CHECK( Contains( all, "info = { meshes = 1 patches = 1 terrains = 1 bounds = " ) );
     RequireStable( files );
 
     map_document_t loaded{};
-    REQUIRE( Load( &loaded, files.root, files.chunks ) == map_status_t::OK );
+    REQUIRE( Load( &loaded, files.root ) == map_status_t::OK );
     CHECK( geo::GeometryDocument_FindMesh( &loaded.geometry, geo::geometry_source_id_t{ meshId } ) != nullptr );
     CHECK( geo::GeometryDocument_FindPatch( &loaded.geometry, geo::geometry_source_id_t{ patchId } ) != nullptr );
     const geo::heightfield_t *pTerrain = geo::GeometryDocument_FindHeightField( &loaded.geometry, geo::geometry_source_id_t{ terrainId } );
@@ -409,7 +384,7 @@ TEST_CASE( "Meshes, patches, and terrains are written readably and read back exa
     CHECK( pTerrain->heights.pData[4] == 16.0 );
 }
 
-TEST_CASE( "Brush entities hold their brushes, which move and go with them", "[map][document][geometry]" )
+TEST_CASE( "Brush entities hold their brushes, which go with them", "[map][document][geometry]" )
 {
     map_document_t map{};
     CreateMap( &map );
@@ -421,26 +396,21 @@ TEST_CASE( "Brush entities hold their brushes, which move and go with them", "[m
     CHECK( MapDocument_SetGeometryOwner( &map, brushId, 99999u ) == map_status_t::UNKNOWN_OBJECT );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    REQUIRE( files.chunks.size() == 1u );
-    const std::string &chunk = files.chunks["default/x0_y0.cymapchunk"];
+    const std::string &chunk = files.root;
     INFO( chunk );
-    // The brush sits inside the entity, not in the chunk's world list.
+    // The brush sits inside the entity, not in the layer's world list.
     CHECK( chunk.find( "class = \"trigger_once\"" ) < chunk.find( "brushes = [" ) );
-    CHECK_FALSE( Contains( chunk, "\n    brushes = [" ) );
-    CHECK( Contains( chunk, "info = { bounds = [ 19968.0, -32.0, -32.0, 20032.0, 32.0, 32.0 ] }" ) );
+    CHECK( Occurrences( chunk, "brushes = [" ) == 1u );
+    // The layer's bounds cover the entity's origin and the brush it owns.
+    CHECK( Contains( LayerText( chunk, "default" ), "info = { entities = 1 bounds = [ 0.0, -32.0, -32.0, 20032.0, 32.0, 32.0 ] }" ) );
     RequireStable( files );
-
-    // The entity moves chunk and its brush follows.
-    REQUIRE( MapDocument_SetEntityOrigin( &map, triggerId, { 9000.0, 0.0, 0.0 } ) == map_status_t::OK );
-    REQUIRE( Save( &map, files ) == map_status_t::OK );
-    CHECK( files.chunks.count( "default/x1_y0.cymapchunk" ) == 1u );
-    CHECK( files.removed == std::vector<std::string>{ "default/x0_y0.cymapchunk" } );
 
     // Removing the entity removes its brush; the IDs are not issued again.
     REQUIRE( MapDocument_RemoveObject( &map, triggerId ) == map_status_t::OK );
     CHECK( geo::GeometryDocument_FindBrush( &map.geometry, geo::geometry_source_id_t{ brushId } ) == nullptr );
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    CHECK( files.chunks.empty() );
+    CHECK_FALSE( Contains( files.root, "entities = [" ) );
+    CHECK_FALSE( Contains( files.root, "brushes = [" ) );
     CHECK( MapDocument_AllocateId( &map ) > triggerId );
 }
 
@@ -461,8 +431,8 @@ TEST_CASE( "Owned geometry with lower and interleaved IDs follows each owner thr
     REQUIRE( earlyA < earlyB ); REQUIRE( earlyB < firstOwner );
     REQUIRE( firstOwner < middle ); REQUIRE( middle < mesh ); REQUIRE( mesh < secondOwner ); REQUIRE( secondOwner < patch );
     for ( const u64 id : { earlyA, earlyB, patch } ) {
-        // A stale geometry layer and distant geometry coordinates must not
-        // override the entity's authoritative layer and cell placement.
+        // A stale geometry layer must not override the entity's
+        // authoritative layer.
         REQUIRE( MapDocument_SetGeometryLayer( &map, id, StringView_FromCString( "gameplay" ) ) == map_status_t::OK );
         REQUIRE( MapDocument_SetGeometryOwner( &map, id, firstOwner ) == map_status_t::OK );
     }
@@ -472,21 +442,19 @@ TEST_CASE( "Owned geometry with lower and interleaved IDs follows each owner thr
     }
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    REQUIRE( files.chunks.size() == 2u );
-    CHECK( files.chunks.count( "default/x1_y1.cymapchunk" ) == 1u );
-    CHECK( files.chunks.count( "gameplay/x-2_y-1.cymapchunk" ) == 1u );
+    CHECK( Occurrences( LayerText( files.root, "default" ), "func_detail" ) == 1u );
+    CHECK( Occurrences( LayerText( files.root, "gameplay" ), "func_detail" ) == 1u );
     RequireStable( files );
     map_document_t loaded{};
-    REQUIRE( Load( &loaded, files.root, files.chunks ) == map_status_t::OK );
+    REQUIRE( Load( &loaded, files.root ) == map_status_t::OK );
     REQUIRE( loaded.geometry.brushes.nCount == 3u );
     REQUIRE( loaded.geometry.meshes.nCount == 1u );
     REQUIRE( loaded.geometry.patches.nCount == 1u );
-    const auto requirePlacement = [&]( u64 id, u64 owner, const char *pLayer, const char *pPath ) {
-        map_chunk_t *chunk{};
-        REQUIRE( MapDocument_FindObject( &loaded, id, &chunk ) != nullptr );
-        REQUIRE( chunk != nullptr );
-        CHECK( std::string( chunk->layer ) == pLayer );
-        CHECK( std::string( chunk->sourcePath ) == pPath );
+    const auto requirePlacement = [&]( u64 id, u64 owner, const char *pLayer ) {
+        map_layer_store_t *store{};
+        REQUIRE( MapDocument_FindObject( &loaded, id, &store ) != nullptr );
+        REQUIRE( store != nullptr );
+        CHECK( std::string( store->layer ) == pLayer );
         bool found = false;
         for ( usize i = 0u; i < loaded.geometryRecords.nCount; ++i ) {
             const auto &record = loaded.geometryRecords.pData[i];
@@ -497,20 +465,18 @@ TEST_CASE( "Owned geometry with lower and interleaved IDs follows each owner thr
         }
         CHECK( found );
     };
-    for ( const u64 id : { earlyA, earlyB, patch } ) { requirePlacement( id, firstOwner, "default", "default/x1_y1.cymapchunk" ); }
-    for ( const u64 id : { middle, mesh } ) { requirePlacement( id, secondOwner, "gameplay", "gameplay/x-2_y-1.cymapchunk" ); }
-    // Moving one owner must move all of its geometry without affecting the
-    // other owner's lower-ID brush and mesh or introducing world records.
+    for ( const u64 id : { earlyA, earlyB, patch } ) { requirePlacement( id, firstOwner, "default" ); }
+    for ( const u64 id : { middle, mesh } ) { requirePlacement( id, secondOwner, "gameplay" ); }
+    // Moving one owner keeps all of its geometry with it without affecting
+    // the other owner's lower-ID brush and mesh or introducing world records.
     REQUIRE( MapDocument_SetEntityOrigin( &loaded, firstOwner, { -9000, 9000, 64 } ) == map_status_t::OK );
     REQUIRE( Save( &loaded, files ) == map_status_t::OK );
-    REQUIRE( files.chunks.size() == 2u );
-    CHECK( files.removed == std::vector<std::string>{ "default/x1_y1.cymapchunk" } );
-    for ( const u64 id : { earlyA, earlyB, patch } ) { requirePlacement( id, firstOwner, "default", "default/x-2_y1.cymapchunk" ); }
-    for ( const u64 id : { middle, mesh } ) { requirePlacement( id, secondOwner, "gameplay", "gameplay/x-2_y-1.cymapchunk" ); }
+    for ( const u64 id : { earlyA, earlyB, patch } ) { requirePlacement( id, firstOwner, "default" ); }
+    for ( const u64 id : { middle, mesh } ) { requirePlacement( id, secondOwner, "gameplay" ); }
     RequireStable( files );
 }
 
-TEST_CASE( "Owned geometry save allocation failures before the sink preserve the map and release the plan", "[map][document][geometry][ownership][save][oom]" )
+TEST_CASE( "Save allocation failures preserve the map, produce no text, and release the plan", "[map][document][geometry][ownership][save][oom]" )
 {
     save_allocation_audit_t audit;
     const auto createOwned = [&]( map_document_t &map ) {
@@ -524,30 +490,31 @@ TEST_CASE( "Owned geometry save allocation failures before the sink preserve the
         REQUIRE( MapDocument_SetGeometryOwner( &map, second, owner ) == map_status_t::OK );
         REQUIRE( MapDocument_SetGeometryOwner( &map, mesh, owner ) == map_status_t::OK );
     };
-    usize preparationAllocations{};
+    usize saveAllocations{};
     {
         map_document_t map{}; createOwned( map );
-        saved_files_t files; files.pAllocationCalls = &audit.calls;
+        saved_files_t files;
         audit.calls = 0u;
         REQUIRE( Save( &map, files ) == map_status_t::OK );
-        preparationAllocations = files.allocationsAtFirstSink;
+        saveAllocations = audit.calls;
     }
-    REQUIRE( audit.bytes == 0u ); REQUIRE( preparationAllocations > 16u );
-    // The file writer refreshes its in-memory chunks after publishing. This
-    // sweep deliberately stops at the first sink call, where failure must
-    // still guarantee that no external file has been written.
-    for ( usize failure = 0u; failure < preparationAllocations; ++failure ) {
-        CAPTURE( failure, preparationAllocations );
+    REQUIRE( audit.bytes == 0u ); REQUIRE( saveAllocations > 16u );
+    // Every allocation of a save happens before the document changes; any
+    // one failing leaves the map as it was and hands back no text.
+    for ( usize failure = 0u; failure < saveAllocations; ++failure ) {
+        CAPTURE( failure, saveAllocations );
         {
             map_document_t map{}; createOwned( map );
             const auto revision = map.geometry.revision, nextId = map.nextId;
+            const usize stores = map.layerStores.nCount;
             const usize baseline = audit.bytes;
             saved_files_t files;
             audit.calls = 0u; audit.failAt = failure;
             CHECK( Save( &map, files ) == map_status_t::OUT_OF_MEMORY );
             audit.failAt = CY_USIZE_MAX;
-            CHECK( files.nCalls == 0u ); CHECK( files.root.empty() ); CHECK( files.chunks.empty() );
+            CHECK( files.root.empty() );
             CHECK( audit.bytes == baseline );
+            CHECK( map.layerStores.nCount == stores );
             CHECK( map.geometry.revision == revision ); CHECK( map.nextId == nextId );
             CHECK( map.geometry.brushes.nCount == 2u ); CHECK( map.geometry.meshes.nCount == 1u ); REQUIRE( map.geometryRecords.nCount == 3u );
             CHECK( map.geometryRecords.pData[0].owner == map.geometryRecords.pData[1].owner );
@@ -580,24 +547,43 @@ TEST_CASE( "Saving a loaded map without changes reproduces the same bytes", "[ma
     RequireStable( first );
 }
 
-TEST_CASE( "Moving an entity across a cell border moves it to another chunk", "[map][document]" )
+TEST_CASE( "Moving an entity changes only its own line and the summaries", "[map][document]" )
 {
     map_document_t map{};
     CreateMap( &map );
-    u64 id = 0u;
-    REQUIRE( MapDocument_AddEntity( &map, StringView_FromCString( "default" ), StringView_FromCString( "light" ), { 10.0, 10.0, 0.0 }, &id ) ==
+    u64 moved = 0u, still = 0u;
+    REQUIRE( MapDocument_AddEntity( &map, StringView_FromCString( "default" ), StringView_FromCString( "light" ), { 10.0, 10.0, 0.0 }, &moved ) ==
              map_status_t::OK );
-    saved_files_t files;
-    REQUIRE( Save( &map, files ) == map_status_t::OK );
-    REQUIRE( files.chunks.count( "default/x0_y0.cymapchunk" ) == 1u );
-    REQUIRE( MapDocument_SetEntityOrigin( &map, id, { 9000.0, 10.0, 0.0 } ) == map_status_t::OK );
-    REQUIRE( Save( &map, files ) == map_status_t::OK );
-    CHECK( files.chunks.count( "default/x0_y0.cymapchunk" ) == 0u );
-    CHECK( files.chunks.count( "default/x1_y0.cymapchunk" ) == 1u );
-    CHECK( files.removed == std::vector<std::string>{ "default/x0_y0.cymapchunk" } );
+    REQUIRE( MapDocument_AddEntity( &map, StringView_FromCString( "default" ), StringView_FromCString( "light" ), { 20.0, 10.0, 0.0 }, &still ) ==
+             map_status_t::OK );
+    ( void )AddBox( &map, { 0.0, 0.0, 0.0 } );
+    saved_files_t before;
+    REQUIRE( Save( &map, before ) == map_status_t::OK );
+    REQUIRE( MapDocument_SetEntityOrigin( &map, moved, { 9000.0, 10.0, 0.0 } ) == map_status_t::OK );
+    saved_files_t after;
+    REQUIRE( Save( &map, after ) == map_status_t::OK );
+    const auto lines = []( const std::string &text ) {
+        std::vector<std::string> out;
+        for ( usize start = 0u, end = 0u; start < text.size(); start = end + 1u ) {
+            end = text.find( '\n', start );
+            if ( end == std::string::npos ) { end = text.size(); }
+            out.push_back( text.substr( start, end - start ) );
+        }
+        return out;
+    };
+    const std::vector<std::string> a = lines( before.root ), b = lines( after.root );
+    REQUIRE( a.size() == b.size() );
+    usize nChanged = 0u;
+    for ( usize i = 0u; i < a.size(); ++i ) {
+        if ( a[i] == b[i] ) { continue; }
+        ++nChanged;
+        INFO( b[i] );
+        CHECK( ( Contains( b[i], "origin = [ 9000.0, 10.0, 0.0 ]" ) || Contains( b[i], "info = {" ) ) );
+    }
+    CHECK( nChanged == 2u ); // The entity and its layer's summary.
 }
 
-TEST_CASE( "Removing the last object in a chunk deletes the chunk file and never frees its ID", "[map][document]" )
+TEST_CASE( "Removing the last object empties its layer and never frees its ID", "[map][document]" )
 {
     map_document_t map{};
     CreateMap( &map );
@@ -609,8 +595,9 @@ TEST_CASE( "Removing the last object in a chunk deletes the chunk file and never
     REQUIRE( MapDocument_RemoveObject( &map, id ) == map_status_t::OK );
     CHECK( MapDocument_RemoveObject( &map, id ) == map_status_t::UNKNOWN_OBJECT );
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    CHECK( files.chunks.empty() );
-    CHECK( files.removed == std::vector<std::string>{ "default/x0_y0.cymapchunk" } );
+    CHECK_FALSE( Contains( files.root, "entities" ) );
+    CHECK_FALSE( Contains( files.root, "info = {" ) );
+    CHECK( Contains( files.root, "layers = [ { id = \"default\" } ]" ) );
     CHECK( Contains( files.root, "next_id = 2u" ) );
     u64 next = 0u;
     REQUIRE( MapDocument_AddEntity( &map, StringView_FromCString( "default" ), StringView_FromCString( "light" ), { 1.0, 1.0, 1.0 }, &next ) ==
@@ -627,10 +614,10 @@ TEST_CASE( "Removing a world brush removes it from the file", "[map][document][g
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
     map_document_t loaded{};
-    REQUIRE( Load( &loaded, files.root, files.chunks ) == map_status_t::OK );
+    REQUIRE( Load( &loaded, files.root ) == map_status_t::OK );
     REQUIRE( MapDocument_RemoveObject( &loaded, drop ) == map_status_t::OK );
     REQUIRE( Save( &loaded, files ) == map_status_t::OK );
-    const std::string &chunk = files.chunks["default/x0_y0.cymapchunk"];
+    const std::string &chunk = files.root;
     CHECK( Contains( chunk, ( std::string( "id = " ) + std::to_string( keep ) + "u" ).c_str() ) );
     CHECK_FALSE( Contains( chunk, ( std::string( "id = " ) + std::to_string( drop ) + "u\n" ).c_str() ) );
     CHECK( Occurrences( chunk, "plane = [" ) == 6u );
@@ -642,21 +629,20 @@ TEST_CASE( "Removing a world brush removes it from the file", "[map][document][g
 
 TEST_CASE( "Hand-added objects and parts without IDs get fresh ones", "[map][document][hand]" )
 {
-    std::map<std::string, std::string> chunks;
-    chunks["default/x0_y0.cymapchunk"] = Chunk(
-        "default", "[ 0, 0 ]",
+    const std::string text = Hand( { { "default",
         "    entities = [ { class = \"light\" origin = [ 8.0, 8.0, 8.0 ] }, { id = 0u class = \"light\" origin = [ 9.0, 9.0, 9.0 ] } ]\n"
         "    brushes = [ { " + BoxFaces( 0, 0, 0, 64, 64, 64, "materials/dev/dev_grid.cymat" ) + " } ]\n"
-        "    meshes = [ { id = 90u vertices = [ [ 0, 0, 0 ], [ 16, 0, 0 ], [ 0, 16, 0 ] ] vertex_ids = [ 91u ] faces = [ { vertices = [ 0, 1, 2 ] } ] } ]\n" );
+        "    meshes = [ { id = 90u vertices = [ [ 0, 0, 0 ], [ 16, 0, 0 ], [ 0, 16, 0 ] ] vertex_ids = [ 91u ] faces = [ { vertices = [ 0, 1, 2 ] } ] } ]\n" } },
+        "100u" );
     map_document_t map{};
-    REQUIRE( Load( &map, Root( "100u" ), chunks ) == map_status_t::OK );
+    REQUIRE( Load( &map, text ) == map_status_t::OK );
     CHECK_FALSE( map.bReadOnly );
     CHECK( map.bIdsAssigned );
     CHECK( CountProblems( map, map_problem_code_t::ID_ASSIGNED ) == 4u ); // Two entities, the brush, the mesh.
     CHECK_FALSE( HasProblem( map, map_problem_code_t::OBJECT_UNREADABLE ) );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    const std::string &chunk = files.chunks["default/x0_y0.cymapchunk"];
+    const std::string &chunk = files.root;
     INFO( chunk );
     // Entities 100 and 101, the brush 102 with faces 103-108, then mesh parts.
     CHECK( Contains( chunk, "{ id = 100u class = \"light\"" ) );
@@ -670,37 +656,77 @@ TEST_CASE( "Hand-added objects and parts without IDs get fresh ones", "[map][doc
 
 TEST_CASE( "Hand-written files with comments, quoted keys, and odd order are canonicalised", "[map][document][hand]" )
 {
-    std::map<std::string, std::string> chunks;
-    chunks["default/x0_y0.cymapchunk"] =
-        "@cykv 1\n@schema \"cypher.map_chunk\" 10\n"
+    const std::string text =
+        "@cykv 1\n@schema \"cypher.map\" 11\n"
         "// A designer's hand edit.\n"
         "{\n"
-        "    \"entities\" = [ { \"origin\" = [ 1, 2, 3 ] \"class\" = \"light\" \"id\" = 7 } ]  /* light */\n"
-        "    \"cell\" = [ 0, 0 ]\n"
-        "    \"layer\" = \"default\"\n"
+        "    \"layers\" = [ { \"entities\" = [ { \"origin\" = [ 1, 2, 3 ] \"class\" = \"light\" \"id\" = 7 } ]  /* light */\n"
+        "                   info = { entities = 99 bounds = [ 0, 0, 0, 1, 1, 1 ] } \"id\" = \"default\" } ]\n"
+        "    \"next_id\" = 100u\n"
+        "    \"game\" = \"reap\"\n"
+        "    \"name\" = \"Hand\"\n"
         "    \"map_id\" = \"4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b\"\n"
-        "    info = { entities = 99 bounds = [ 0, 0, 0, 1, 1, 1 ] }\n"
+        "    info = { brushes = 12 } // A root summary is not part of the format; dropped.\n"
         "}\n";
     map_document_t map{};
-    REQUIRE( Load( &map, Root(), chunks ) == map_status_t::OK );
+    REQUIRE( Load( &map, text ) == map_status_t::OK );
     CHECK( map.problems.nCount == 0u );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    const std::string &chunk = files.chunks["default/x0_y0.cymapchunk"];
+    const std::string &chunk = files.root;
     INFO( chunk );
-    CHECK( chunk.find( "map_id" ) < chunk.find( "layer" ) );
-    CHECK( chunk.find( "cell" ) < chunk.find( "entities" ) );
+    CHECK( chunk.find( "map_id" ) < chunk.find( "name = " ) );
+    CHECK( chunk.find( "next_id" ) < chunk.find( "layers" ) );
     // `info` is recomputed, never taken from the file.
     CHECK( Contains( chunk, "info = { entities = 1 bounds = [ 1.0, 2.0, 3.0, 1.0, 2.0, 3.0 ] }" ) );
+    CHECK_FALSE( Contains( chunk, "entities = 99" ) );
+    CHECK_FALSE( Contains( chunk, "brushes = 12" ) );
     CHECK( Contains( chunk, "entities = [ { id = 7u class = \"light\" origin = [ 1.0, 2.0, 3.0 ] } ]" ) );
-    CHECK_FALSE( Contains( chunk, "//" ) );
+    CHECK( chunk.find( "id = \"default\"" ) < chunk.find( "entities = [" ) );
+    // Comments stay with what they describe; one on a dropped member goes with it.
+    CHECK( chunk.find( "// A designer's hand edit.\n{" ) != std::string::npos );
+    CHECK( Contains( chunk, "] /* light */" ) );
+    CHECK_FALSE( Contains( chunk, "A root summary" ) );
+}
+
+TEST_CASE( "Comments written by hand survive saving", "[map][document][hand][comments]" )
+{
+    const std::string text =
+        "@cykv 1\n@schema \"cypher.map\" 11\n"
+        "// The arena: waves 1-12.\n"
+        "{\n"
+        "    map_id = \"4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b\"\n"
+        "    name = \"Hand\" // shown in the map browser\n"
+        "    game = \"reap\"\n"
+        "    next_id = 100u\n"
+        "    layers = [\n"
+        "        // Everything players stand on.\n"
+        "        { id = \"default\"\n"
+        "          entities = [\n"
+        "              // Spawn sting for wave 1.\n"
+        "              { id = 7u class = \"logic_relay\" name = \"sting\" } // fires once\n"
+        "          ]\n"
+        "        }\n"
+        "    ]\n"
+        "}\n";
+    map_document_t map{};
+    REQUIRE( Load( &map, text ) == map_status_t::OK );
+    saved_files_t files;
+    REQUIRE( Save( &map, files ) == map_status_t::OK );
+    const std::string &saved = files.root;
+    INFO( saved );
+    CHECK( saved.find( "// The arena: waves 1-12.\n{" ) != std::string::npos );
+    CHECK( Contains( saved, "name = \"Hand\" // shown in the map browser\n" ) );
+    CHECK( Contains( saved, "// Everything players stand on.\n" ) );
+    CHECK( saved.find( "// Spawn sting for wave 1." ) < saved.find( "class = \"logic_relay\"" ) );
+    CHECK( Contains( saved, "// fires once" ) );
+    // A second round trip changes nothing.
+    RequireStable( files );
 }
 
 TEST_CASE( "A hand-written plane with a non-unit normal is normalised", "[map][document][hand]" )
 {
-    std::map<std::string, std::string> chunks;
-    chunks["default/x0_y0.cymapchunk"] = Chunk(
-        "default", "[ 0, 0 ]",
+    const std::string text = Hand( { { "default",
         "    brushes = [ { id = 10u faces = [\n"
         "      { id = 11u plane = [ 2, 0, 0, 128 ] uv_u = [ 0, 1, 0 ] uv_v = [ 0, 0, -1 ] },\n"
         "      { id = 12u plane = [ -1, 0, 0, 0 ] uv_u = [ 0, 1, 0 ] uv_v = [ 0, 0, -1 ] },\n"
@@ -708,20 +734,17 @@ TEST_CASE( "A hand-written plane with a non-unit normal is normalised", "[map][d
         "      { id = 14u plane = [ 0, -1, 0, 0 ] uv_u = [ 1, 0, 0 ] uv_v = [ 0, 0, -1 ] },\n"
         "      { id = 15u plane = [ 0, 0, 1, 64 ] uv_u = [ 1, 0, 0 ] uv_v = [ 0, -1, 0 ] },\n"
         "      { id = 16u plane = [ 0, 0, -1, 0 ] uv_u = [ 1, 0, 0 ] uv_v = [ 0, 1, 0 ] }\n"
-        "    ] } ]\n" );
+        "    ] } ]\n" } } );
     map_document_t map{};
-    REQUIRE( Load( &map, Root(), chunks ) == map_status_t::OK );
+    REQUIRE( Load( &map, text ) == map_status_t::OK );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    CHECK( Contains( files.chunks["default/x0_y0.cymapchunk"], "{ id = 11u plane = [ 1.0, 0.0, 0.0, 64.0 ]" ) );
+    CHECK( Contains( files.root, "{ id = 11u plane = [ 1.0, 0.0, 0.0, 64.0 ]" ) );
 }
 
-TEST_CASE( "Unknown members survive in the root, chunks, entities, records, and faces", "[map][document]" )
+TEST_CASE( "Unknown members survive in the root, layers, entities, records, and faces", "[map][document]" )
 {
-    const std::string root = Root( "100u", "    tool_state = { opened_by = \"mason 2\" }\n    visgroups = [ { id = 50u name = \"Lights\" future = 1 } ]\n" );
-    std::map<std::string, std::string> chunks;
-    chunks["default/x0_y0.cymapchunk"] = Chunk(
-        "default", "[ 0, 0 ]",
+    const std::string text = Hand( { { "default",
         "    plugin_data = { weather = \"rain\" }\n"
         "    entities = [ { future_field = [ 1, 2 ] class = \"light\" id = 7u origin = [ 1.0, 2.0, 3.0 ]\n"
         "        outputs = [ { times = 1 input = \"turn_on\" target = \"lamp\" output = \"on_trigger\" note = \"keep\" } ] } ]\n"
@@ -733,13 +756,14 @@ TEST_CASE( "Unknown members survive in the root, chunks, entities, records, and 
                        "      { id = 24u plane = [ 0, -1, 0, 0 ] uv_u = [ 1, 0, 0 ] uv_v = [ 0, 0, -1 ] },\n"
                        "      { id = 25u plane = [ 0, 0, 1, 64 ] uv_u = [ 1, 0, 0 ] uv_v = [ 0, -1, 0 ] },\n"
                        "      { id = 26u plane = [ 0, 0, -1, 0 ] uv_u = [ 1, 0, 0 ] uv_v = [ 0, 1, 0 ] }\n"
-                       "    ] } ]\n" ) );
+                       "    ] } ]\n" ) } },
+        "100u", "    tool_state = { opened_by = \"mason 2\" }\n    visgroups = [ { id = 50u name = \"Lights\" future = 1 } ]\n" );
     map_document_t map{};
-    REQUIRE( Load( &map, root, chunks ) == map_status_t::OK );
+    REQUIRE( Load( &map, text ) == map_status_t::OK );
     CHECK( map.problems.nCount == 0u );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    const std::string &chunk = files.chunks["default/x0_y0.cymapchunk"];
+    const std::string &chunk = files.root;
     INFO( chunk );
     CHECK( Contains( files.root, "tool_state" ) );
     CHECK( Contains( files.root, "future = 1" ) );
@@ -753,10 +777,12 @@ TEST_CASE( "Unknown members survive in the root, chunks, entities, records, and 
     CHECK( chunk.find( "id = 7u" ) < chunk.find( "class = \"light\"" ) );
     CHECK( chunk.find( "class = \"light\"" ) < chunk.find( "future_field" ) );
     CHECK( chunk.find( "output = \"on_trigger\"" ) < chunk.find( "target = \"lamp\"" ) );
-    CHECK( chunk.find( "entities" ) < chunk.find( "plugin_data" ) );
+    CHECK( chunk.find( "entities = [" ) < chunk.find( "plugin_data" ) );
     CHECK( chunk.find( "name = \"pillar\"" ) < chunk.find( "faces = [" ) );
     CHECK( chunk.find( "faces = [" ) < chunk.find( "legacy_flags" ) );
-    CHECK( files.root.find( "visgroups" ) < files.root.find( "tool_state" ) );
+    // Unknown root members follow every known one, the level included.
+    CHECK( files.root.find( "visgroups" ) < files.root.find( "layers = [" ) );
+    CHECK( files.root.find( "layers = [" ) < files.root.find( "tool_state" ) );
     RequireStable( files );
 }
 
@@ -765,13 +791,11 @@ TEST_CASE( "Face lightmap scale and smoothing are kept per face in a fixed order
     std::string faces = BoxFaces( 0, 0, 0, 64, 64, 64, "materials/dev/dev_grid.cymat" );
     // Hand-typed in the wrong order and spelling on the first face.
     faces.replace( faces.find( "uv_size" ), 7u, "note = \"seam here\" smoothing = 3 lightmap_scale = 8 uv_size" );
-    std::map<std::string, std::string> chunks;
-    chunks["default/x0_y0.cymapchunk"] = Chunk( "default", "[ 0, 0 ]", "    brushes = [ { id = 10u " + faces + " } ]\n" );
     map_document_t map{};
-    REQUIRE( Load( &map, Root(), chunks ) == map_status_t::OK );
+    REQUIRE( Load( &map, Hand( { { "default", "    brushes = [ { id = 10u " + faces + " } ]\n" } } ) ) == map_status_t::OK );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    const std::string &chunk = files.chunks["default/x0_y0.cymapchunk"];
+    const std::string &chunk = files.root;
     INFO( chunk );
     // That face no longer fits on a line, so the brush's faces all spread.
     CHECK( chunk.find( "uv_size = [ 128.0, 128.0 ]\n" ) < chunk.find( "lightmap_scale = 8.0\n" ) );
@@ -782,16 +806,15 @@ TEST_CASE( "Face lightmap scale and smoothing are kept per face in a fixed order
 
 TEST_CASE( "Outputs are written whole and in their firing order", "[map][document]" )
 {
-    std::map<std::string, std::string> chunks;
-    chunks["default/x0_y0.cymapchunk"] = Chunk( "default", "[ 0, 0 ]",
-                                                "    entities = [ { id = 7u class = \"trigger_once\" origin = [ 0, 0, 0 ] angles = [ 0, 0, 0 ] scale = 1\n"
-                                                "        outputs = [ { output = \"on_trigger\" target = \"zeta\" input = \"start\" },\n"
-                                                "                    { output = \"on_trigger\" target = \"alpha\" input = \"stop\" delay = 2.5 times = 1 } ] } ]\n" );
+    const std::string text = Hand( { { "default",
+        "    entities = [ { id = 7u class = \"trigger_once\" origin = [ 0, 0, 0 ] angles = [ 0, 0, 0 ] scale = 1\n"
+        "        outputs = [ { output = \"on_trigger\" target = \"zeta\" input = \"start\" },\n"
+        "                    { output = \"on_trigger\" target = \"alpha\" input = \"stop\" delay = 2.5 times = 1 } ] } ]\n" } } );
     map_document_t map{};
-    REQUIRE( Load( &map, Root(), chunks ) == map_status_t::OK );
+    REQUIRE( Load( &map, text ) == map_status_t::OK );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    const std::string &chunk = files.chunks["default/x0_y0.cymapchunk"];
+    const std::string &chunk = files.root;
     INFO( chunk );
     CHECK( Contains( chunk, "{ output = \"on_trigger\" target = \"zeta\" input = \"start\" parameter = \"\" delay = 0.0 times = -1 }" ) );
     CHECK( chunk.find( "zeta" ) < chunk.find( "alpha" ) );
@@ -805,16 +828,17 @@ TEST_CASE( "Outputs are written whole and in their firing order", "[map][documen
 
 TEST_CASE( "Unreadable objects are reported and written back unchanged", "[map][document][damage]" )
 {
-    std::map<std::string, std::string> chunks;
-    chunks["default/x0_y0.cymapchunk"] = Chunk( "default", "[ 0, 0 ]",
-                                                "    entities = [ 42, { id = 3u class = \"light\" origin = [ 1.0, 1.0, 1.0 ] } ]\n"
-                                                "    brushes = [ { id = 30u faces = [ { id = 31u plane = [ 0, 0, 0, 5 ] uv_u = [ 1, 0, 0 ] uv_v = [ 0, 1, 0 ] } ] } ]\n" );
+    const std::string text = Hand( { { "default",
+        "    entities = [ 42, { id = 3u class = \"light\" origin = [ 1.0, 1.0, 1.0 ] } ]\n"
+        "    brushes = [ { id = 30u faces = [ { id = 31u plane = [ 0, 0, 0, 5 ] uv_u = [ 1, 0, 0 ] uv_v = [ 0, 1, 0 ] } ] } ]\n" } } );
     map_document_t map{};
-    REQUIRE( Load( &map, Root(), chunks ) == map_status_t::OK );
+    REQUIRE( Load( &map, text ) == map_status_t::OK );
     CHECK( CountProblems( map, map_problem_code_t::OBJECT_UNREADABLE ) == 2u );
+    REQUIRE( map.problems.nCount >= 1u );
+    CHECK( std::string( map.problems.pData[0].layer ) == "default" );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    const std::string &chunk = files.chunks["default/x0_y0.cymapchunk"];
+    const std::string &chunk = files.root;
     INFO( chunk );
     CHECK( Contains( chunk, "42" ) );
     CHECK( chunk.find( "light" ) < chunk.find( "42" ) ); // Readable first, unreadable after.
@@ -822,75 +846,95 @@ TEST_CASE( "Unreadable objects are reported and written back unchanged", "[map][
     RequireStable( files, true );
 }
 
-TEST_CASE( "Chunks from another map or that do not parse are never touched", "[map][document][damage]" )
+TEST_CASE( "A layer section that is not a list is kept as written and cannot be overwritten", "[map][document][damage]" )
 {
-    std::map<std::string, std::string> chunks;
-    chunks["default/x5_y5.cymapchunk"] = Chunk( "default", "[ 5, 5 ]", "    entities = [ { id = 9u class = \"x\" } ]\n",
-                                                "00000000-0000-4000-8000-000000000001" );
-    chunks["default/x6_y6.cymapchunk"] = "not cykv at all {";
-    chunks["default/x7_y7.cymapchunk"] = Chunk( "default", "[ 7, 7 ]", "    brushes = 5\n" );
-    chunks["default/x0_y0.cymapchunk"] = Chunk( "default", "[ 0, 0 ]", "    entities = [ { id = 3u class = \"light\" origin = [ 1.0, 1.0, 1.0 ] } ]\n" );
+    const std::string text = Hand( { { "default", "    brushes = 5\n    entities = [ { id = 3u class = \"light\" origin = [ 1.0, 1.0, 1.0 ] } ]\n" } } );
     map_document_t map{};
-    REQUIRE( Load( &map, Root(), chunks ) == map_status_t::OK );
-    CHECK( HasProblem( map, map_problem_code_t::CHUNK_FOREIGN_MAP ) );
-    CHECK( CountProblems( map, map_problem_code_t::CHUNK_UNREADABLE ) == 2u );
+    REQUIRE( Load( &map, text ) == map_status_t::OK );
+    REQUIRE( CountProblems( map, map_problem_code_t::SECTION_UNREADABLE ) == 1u );
+    CHECK( std::string( map.problems.pData[0].member ) == "brushes" );
     CHECK_FALSE( map.bReadOnly );
-    CHECK( MapDocument_FindObject( &map, 9u, nullptr ) == nullptr );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    CHECK( files.written == std::vector<std::string>{ "default/x0_y0.cymapchunk" } );
-    CHECK( files.removed.empty() );
-    // Moving an object into a damaged chunk's path refuses the whole save
-    // before anything is written.
-    REQUIRE( MapDocument_SetEntityOrigin( &map, 3u, { 6.0 * 8192.0 + 1.0, 6.0 * 8192.0 + 1.0, 0.0 } ) == map_status_t::OK );
-    CHECK( Save( &map, files ) == map_status_t::SAVE_BLOCKED );
-    CHECK( files.nCalls == 0u );
+    CHECK( Contains( files.root, "brushes = 5" ) );
+    CHECK( Contains( files.root, "class = \"light\"" ) );
+    // A new brush in that layer would need the name the kept value holds:
+    // the save is refused and produces nothing.
+    ( void )AddBox( &map, { 0.0, 0.0, 0.0 } );
+    saved_files_t blocked;
+    CHECK( Save( &map, blocked ) == map_status_t::SAVE_BLOCKED );
+    CHECK( blocked.root.empty() );
+}
+
+TEST_CASE( "A file that is not a V11 map is refused with the reason and line", "[map][document][damage]" )
+{
+    map_document_t broken{};
+    CHECK( Load( &broken, "@cykv 1\n@schema \"cypher.map\" 11\n{\n    name = \n}\n" ) == map_status_t::ROOT_UNREADABLE );
+    REQUIRE( broken.problems.nCount == 1u );
+    CHECK( broken.problems.pData[0].code == map_problem_code_t::TEXT_UNREADABLE );
+    CHECK( std::string( broken.problems.pData[0].member ).rfind( "line 5", 0 ) == 0u );
+    // V10 split a map into `.cymapchunk` files; it is named, not guessed at.
+    map_document_t chunked{};
+    CHECK( Load( &chunked, "@cykv 1\n@schema \"cypher.map\" 10\n{ }\n" ) == map_status_t::ROOT_UNREADABLE );
+    REQUIRE( chunked.problems.nCount == 1u );
+    CHECK( chunked.problems.pData[0].code == map_problem_code_t::VERSION_UNSUPPORTED );
+    CHECK( std::string( chunked.problems.pData[0].member ) == "cypher.map 10" );
+    map_document_t other{};
+    CHECK( Load( &other, "@cykv 1\n@schema \"cypher.settings\" 1\n{ }\n" ) == map_status_t::ROOT_UNREADABLE );
+    CHECK( HasProblem( other, map_problem_code_t::TEXT_UNREADABLE ) );
+}
+
+TEST_CASE( "A map written in CYKV 2 reads its definitions and saves resolved CYKV 1", "[map][document][cykv2]" )
+{
+    std::string text = Hand( { { "default", "    entities = [ { id = 3u class = \"light\" origin = [ $SPAWN_X, 0.0, 0.0 ] } ]\n" } } );
+    text.replace( text.find( "@cykv 1\n@schema \"cypher.map\" 11\n" ), 31u, "@cykv 2\n@schema \"cypher.map\" 11\n#define SPAWN_X 96.0\n" );
+    map_document_t map{};
+    REQUIRE( Load( &map, text ) == map_status_t::OK );
+    saved_files_t files;
+    REQUIRE( Save( &map, files ) == map_status_t::OK );
+    CHECK( files.root.rfind( "@cykv 1\n", 0 ) == 0u );
+    CHECK( Contains( files.root, "origin = [ 96.0, 0.0, 0.0 ]" ) );
 }
 
 TEST_CASE( "Duplicate IDs open the map read-only, and reassigning fixes them", "[map][document][damage]" )
 {
-    std::map<std::string, std::string> chunks;
-    chunks["default/x0_y0.cymapchunk"] = Chunk( "default", "[ 0, 0 ]", "    entities = [ { id = 5u class = \"a\" origin = [ 1.0, 1.0, 1.0 ] } ]\n" );
-    chunks["default/x1_y0.cymapchunk"] = Chunk( "default", "[ 1, 0 ]", "    entities = [ { id = 5u class = \"b\" origin = [ 8200.0, 1.0, 1.0 ] } ]\n" );
+    const std::string text = Hand( { { "default", "    entities = [ { id = 5u class = \"a\" origin = [ 1.0, 1.0, 1.0 ] } ]\n" },
+                                     { "gameplay", "    entities = [ { id = 5u class = \"b\" origin = [ 8200.0, 1.0, 1.0 ] } ]\n" } } );
     {
         map_document_t map{};
-        REQUIRE( Load( &map, Root(), chunks ) == map_status_t::OK );
+        REQUIRE( Load( &map, text ) == map_status_t::OK );
         CHECK( map.bReadOnly );
         CHECK( CountProblems( map, map_problem_code_t::DUPLICATE_ID ) == 2u ); // Both locations.
         saved_files_t files;
         CHECK( Save( &map, files ) == map_status_t::READ_ONLY );
-        CHECK( files.nCalls == 0u );
+        CHECK( files.root.empty() );
     }
     map_document_t map{};
-    REQUIRE( Load( &map, Root(), chunks, MAP_LOAD_FLAG_REASSIGN_DUPLICATES ) == map_status_t::OK );
+    REQUIRE( Load( &map, text, MAP_LOAD_FLAG_REASSIGN_DUPLICATES ) == map_status_t::OK );
     CHECK_FALSE( map.bReadOnly );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    CHECK( Contains( files.chunks["default/x0_y0.cymapchunk"], "id = 5u class = \"a\"" ) ); // First in path order keeps its ID.
-    CHECK( Contains( files.chunks["default/x1_y0.cymapchunk"], "id = 100u class = \"b\"" ) );
+    CHECK( Contains( LayerText( files.root, "default" ), "id = 5u class = \"a\"" ) ); // First in file order keeps its ID.
+    CHECK( Contains( LayerText( files.root, "gameplay" ), "id = 100u class = \"b\"" ) );
 }
 
 TEST_CASE( "An entity ID equal to a brush face ID is a duplicate", "[map][document][damage]" )
 {
-    std::map<std::string, std::string> chunks;
-    chunks["default/x0_y0.cymapchunk"] = Chunk( "default", "[ 0, 0 ]",
-                                                "    entities = [ { id = 21u class = \"a\" origin = [ 1.0, 1.0, 1.0 ] } ]\n"
-                                                "    brushes = [ { id = 20u " + BoxFaces( 0, 0, 0, 8, 8, 8, "m.cymat" ) + " } ]\n" );
+    std::string text = Hand( { { "default",
+        "    entities = [ { id = 21u class = \"a\" origin = [ 1.0, 1.0, 1.0 ] } ]\n"
+        "    brushes = [ { id = 20u " + BoxFaces( 0, 0, 0, 8, 8, 8, "m.cymat" ) + " } ]\n" } } );
     // Give the first face ID 21 by hand.
-    std::string &text = chunks["default/x0_y0.cymapchunk"];
     text.replace( text.find( "{ plane" ), 7u, "{ id = 21u plane" );
     map_document_t map{};
-    REQUIRE( Load( &map, Root(), chunks ) == map_status_t::OK );
+    REQUIRE( Load( &map, text ) == map_status_t::OK );
     CHECK( map.bReadOnly );
     CHECK( HasProblem( map, map_problem_code_t::DUPLICATE_ID ) );
 }
 
 TEST_CASE( "An ID at or above next_id raises next_id", "[map][document][damage]" )
 {
-    std::map<std::string, std::string> chunks;
-    chunks["default/x0_y0.cymapchunk"] = Chunk( "default", "[ 0, 0 ]", "    entities = [ { id = 10u class = \"a\" origin = [ 1.0, 1.0, 1.0 ] } ]\n" );
     map_document_t map{};
-    REQUIRE( Load( &map, Root( "2u" ), chunks ) == map_status_t::OK );
+    REQUIRE( Load( &map, Hand( { { "default", "    entities = [ { id = 10u class = \"a\" origin = [ 1.0, 1.0, 1.0 ] } ]\n" } }, "2u" ) ) == map_status_t::OK );
     CHECK( HasProblem( map, map_problem_code_t::ID_ABOVE_NEXT_ID ) );
     CHECK( map.nextId == 11u );
     saved_files_t files;
@@ -898,134 +942,141 @@ TEST_CASE( "An ID at or above next_id raises next_id", "[map][document][damage]"
     CHECK( Contains( files.root, "next_id = 11u" ) );
 }
 
-TEST_CASE( "Unknown members from two files for one chunk merge only when equal", "[map][document][damage]" )
-{
-    std::map<std::string, std::string> chunks;
-    chunks["default/x0_y0.cymapchunk"] = Chunk( "default", "[ 0, 0 ]", "    plugin = { a = 1 }\n    entities = [ { id = 4u class = \"a\" origin = [ 1.0, 1.0, 1.0 ] } ]\n" );
-    chunks["default/copy.cymapchunk"] = Chunk( "default", "[ 0, 0 ]", "    plugin = { a = 1 }\n    entities = [ { id = 5u class = \"b\" origin = [ 2.0, 2.0, 2.0 ] } ]\n" );
-    {
-        map_document_t map{};
-        REQUIRE( Load( &map, Root(), chunks ) == map_status_t::OK );
-        CHECK( HasProblem( map, map_problem_code_t::CHUNK_PATH_MISMATCH ) );
-        saved_files_t files;
-        REQUIRE( Save( &map, files ) == map_status_t::OK );
-        CHECK( files.written == std::vector<std::string>{ "default/x0_y0.cymapchunk" } );
-        CHECK( files.removed == std::vector<std::string>{ "default/copy.cymapchunk" } );
-        CHECK( Occurrences( files.chunks["default/x0_y0.cymapchunk"], "plugin" ) == 1u );
-    }
-    chunks["default/copy.cymapchunk"] = Chunk( "default", "[ 0, 0 ]", "    plugin = { a = 2 }\n" );
-    map_document_t map{};
-    REQUIRE( Load( &map, Root(), chunks ) == map_status_t::OK );
-    saved_files_t files;
-    CHECK( Save( &map, files ) == map_status_t::SAVE_BLOCKED );
-    CHECK( files.nCalls == 0u );
-}
-
 TEST_CASE( "An invalid root does not open and names the member", "[map][document][damage]" )
 {
-    const std::string root = "@cykv 1\n@schema \"cypher.map\" 10\n{ map_id = \"4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b\" name = \"x\" game = \"reap\" next_id = 1u }\n";
+    const std::string root = "@cykv 1\n@schema \"cypher.map\" 11\n{ map_id = \"4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b\" name = \"x\" game = \"reap\" next_id = 1u }\n";
     map_document_t map{};
-    REQUIRE( Load( &map, root, {} ) == map_status_t::ROOT_INVALID );
+    REQUIRE( Load( &map, root ) == map_status_t::ROOT_INVALID );
     REQUIRE( map.problems.nCount == 1u );
     CHECK( std::string( map.problems.pData[0].member ) == "layers" );
     map_document_t wrong{};
-    CHECK( Load( &wrong, "@cykv 1\n@schema \"cypher.map\" 3\n{ }\n", {} ) == map_status_t::ROOT_UNREADABLE );
+    CHECK( Load( &wrong, "@cykv 1\n@schema \"cypher.map\" 3\n{ }\n" ) == map_status_t::ROOT_UNREADABLE );
     map_document_t garbage{};
-    CHECK( Load( &garbage, "{", {} ) == map_status_t::ROOT_UNREADABLE );
+    CHECK( Load( &garbage, "{" ) == map_status_t::ROOT_UNREADABLE );
     std::string visgroups = "    visgroups = [ ";
     for ( usize i = 0u; i <= MAP_VISGROUPS_MAX; ++i ) { visgroups += ( i == 0u ? "" : ", " ) + std::string( "{ id = " ) + std::to_string( 1000u + i ) + "u }"; }
     visgroups += " ]\n";
     map_document_t many{};
-    CHECK( Load( &many, Root( "100000u", visgroups.c_str() ), {} ) == map_status_t::ROOT_INVALID );
+    CHECK( Load( &many, Root( "100000u", visgroups.c_str() ) ) == map_status_t::ROOT_INVALID );
 }
 
 TEST_CASE( "Optional root members fall back to defaults with a report", "[map][document][damage]" )
 {
     map_document_t map{};
-    REQUIRE( Load( &map, Root( "100u", "    cell_size = [ 100.0, 0.0, 0.0 ]\n    units_per_meter = -1.0\n" ), {} ) == map_status_t::OK );
-    CHECK( CountProblems( map, map_problem_code_t::ROOT_MEMBER_IGNORED ) == 2u );
-    CHECK( map.grid.size[0] == 8192.0 );
+    REQUIRE( Load( &map, Root( "100u", "    units_per_meter = -1.0\n" ) ) == map_status_t::OK );
+    CHECK( CountProblems( map, map_problem_code_t::ROOT_MEMBER_IGNORED ) == 1u );
 }
 
 // ---------------------------------------------------------------------------
 // Placement of the other object kinds
 // ---------------------------------------------------------------------------
 
-TEST_CASE( "Groups, shapes, notes, and prefabs are placed by their rules", "[map][document]" )
+TEST_CASE( "Groups follow their first member's layer; shapes, notes, and prefabs stay in theirs", "[map][document]" )
 {
-    std::map<std::string, std::string> chunks;
-    chunks["default/x0_y0.cymapchunk"] = Chunk( "default", "[ 0, 0 ]",
-                                                "    groups = [ { id = 20u name = \"Wave\" members = [ 5u, 4u ] } ]\n"
-                                                "    prefabs = [ { id = 30u source = \"prefabs/door.cyprefab\" origin = [ 9000.0, 0.0, 0.0 ] } ]\n"
-                                                "    shapes = [ { id = 40u type = \"polyline\" points = [ [ 16400, 0, 0 ], [ 16500, 10, 0 ] ] } ]\n"
-                                                "    notes = [ { id = 50u position = [ -10, -10, 0 ] text = \"Needs cover\" } ]\n" );
-    chunks["gameplay/x0_y0.cymapchunk"] = Chunk( "gameplay", "[ 0, 0 ]",
-                                                 "    entities = [ { id = 4u class = \"a\" origin = [ 1.0, 1.0, 1.0 ] }, { id = 5u class = \"logic_relay\" } ]\n" );
+    const std::string text = Hand( {
+        { "default",
+          "    groups = [ { id = 20u name = \"Wave\" members = [ 5u, 4u ] } ]\n"
+          "    prefabs = [ { id = 30u source = \"prefabs/door.cyprefab\" origin = [ 9000.0, 0.0, 0.0 ] } ]\n"
+          "    shapes = [ { id = 40u type = \"polyline\" points = [ [ 16400, 0, 0 ], [ 16500, 10, 0 ] ] } ]\n"
+          "    notes = [ { id = 50u position = [ -10, -10, 0 ] text = \"Needs cover\" } ]\n" },
+        { "gameplay", "    entities = [ { id = 4u class = \"a\" origin = [ 1.0, 1.0, 1.0 ] }, { id = 5u class = \"logic_relay\" } ]\n" } } );
     map_document_t map{};
-    REQUIRE( Load( &map, Root(), chunks ) == map_status_t::OK );
+    REQUIRE( Load( &map, text ) == map_status_t::OK );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    for ( const auto &entry : files.chunks ) { INFO( entry.first << "\n" << entry.second ); }
-    const std::string &global = files.chunks["gameplay/global.cymapchunk"];
-    CHECK( Contains( global, "logic_relay" ) );
-    CHECK( Contains( global, "members = [ 4u, 5u ]" ) ); // Sorted; first member's layer.
-    CHECK( Contains( files.chunks["default/x1_y0.cymapchunk"], "prefabs" ) );
-    CHECK( Contains( files.chunks["default/x2_y0.cymapchunk"], "info = { bounds = [ 16400.0, 0.0, 0.0, 16500.0, 10.0, 0.0 ] }" ) );
-    CHECK( Contains( files.chunks["default/x-1_y-1.cymapchunk"], "text = \"Needs cover\"" ) );
-    CHECK( files.chunks.count( "default/x0_y0.cymapchunk" ) == 0u );
+    INFO( files.root );
+    const std::string gameplay = LayerText( files.root, "gameplay" );
+    const std::string fallback = LayerText( files.root, "default" );
+    CHECK( Contains( gameplay, "logic_relay" ) );
+    CHECK( Contains( gameplay, "members = [ 4u, 5u ]" ) ); // Sorted; first member's layer.
+    CHECK_FALSE( Contains( fallback, "groups" ) );
+    CHECK( Contains( fallback, "prefabs" ) );
+    CHECK( Contains( fallback, "info = { bounds = [ 16400.0, 0.0, 0.0, 16500.0, 10.0, 0.0 ] }" ) );
+    CHECK( Contains( fallback, "text = \"Needs cover\"" ) );
     RequireStable( files );
 }
 
-TEST_CASE( "Foliage instances go to the chunk of their own position, sorted", "[map][document]" )
+TEST_CASE( "Foliage of one model in one layer is one record, sorted by position", "[map][document]" )
 {
-    std::map<std::string, std::string> chunks;
-    chunks["default/x0_y0.cymapchunk"] = Chunk( "default", "[ 0, 0 ]",
-                                                "    foliage = [ { model = \"models/foliage/pine.cymodel\" instances = [\n"
-                                                "        [ 9000, 5, 0, 0, 10, 0, 1 ], [ 20, 5, 0, 0, 20, 0, 1.1 ], [ 10, 5, 0, 0, 30, 0, 0.9 ] ]\n"
-                                                "        properties = { cast_shadows = true } } ]\n" );
-    chunks["default/x1_y0.cymapchunk"] = Chunk( "default", "[ 1, 0 ]",
-                                                "    foliage = [ { model = \"models/foliage/pine.cymodel\" instances = [ [ 8200, 1, 0, 0, 0, 0, 1 ] ]\n"
-                                                "        properties = { cast_shadows = false } } ]\n" );
+    const std::string text = Hand( { { "default",
+        "    foliage = [ { model = \"models/foliage/pine.cymodel\" instances = [\n"
+        "        [ 9000, 5, 0, 0, 10, 0, 1 ], [ 20, 5, 0, 0, 20, 0, 1.1 ], [ 10, 5, 0, 0, 30, 0, 0.9 ] ]\n"
+        "        properties = { cast_shadows = true } },\n"
+        "      { model = \"models/foliage/pine.cymodel\" instances = [ [ 8200, 1, 0, 0, 0, 0, 1 ] ]\n"
+        "        properties = { cast_shadows = false } } ]\n" } } );
     map_document_t map{};
-    REQUIRE( Load( &map, Root(), chunks ) == map_status_t::OK );
+    REQUIRE( Load( &map, text ) == map_status_t::OK );
     CHECK( HasProblem( map, map_problem_code_t::FOLIAGE_PROPERTIES_DIFFER ) );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    const std::string &near = files.chunks["default/x0_y0.cymapchunk"];
-    const std::string &far = files.chunks["default/x1_y0.cymapchunk"];
-    INFO( near << "\n" << far );
-    CHECK( near.find( "[ 10.0, 5.0, 0.0, 0.0, 30.0, 0.0, 0.9 ]" ) < near.find( "[ 20.0, 5.0, 0.0, 0.0, 20.0, 0.0, 1.1 ]" ) );
-    CHECK( Contains( near, "info = { foliage = 2" ) );
-    CHECK( Contains( far, "[ 8200.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ]" ) );
-    CHECK( Contains( far, "[ 9000.0, 5.0, 0.0, 0.0, 10.0, 0.0, 1.0 ]" ) );
-    CHECK( Contains( far, "cast_shadows = true" ) ); // The first record's properties win.
+    const std::string &all = files.root;
+    INFO( all );
+    CHECK( Occurrences( all, "model = \"models/foliage/pine.cymodel\"" ) == 1u );
+    CHECK( all.find( "[ 10.0, 5.0, 0.0, 0.0, 30.0, 0.0, 0.9 ]" ) < all.find( "[ 20.0, 5.0, 0.0, 0.0, 20.0, 0.0, 1.1 ]" ) );
+    CHECK( all.find( "[ 20.0, 5.0, 0.0, 0.0, 20.0, 0.0, 1.1 ]" ) < all.find( "[ 8200.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ]" ) );
+    CHECK( all.find( "[ 8200.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ]" ) < all.find( "[ 9000.0, 5.0, 0.0, 0.0, 10.0, 0.0, 1.0 ]" ) );
+    CHECK( Contains( all, "info = { foliage = 4" ) );
+    CHECK( Contains( all, "cast_shadows = true" ) ); // The first record's properties win.
+    CHECK_FALSE( Contains( all, "cast_shadows = false" ) );
 }
 
-TEST_CASE( "A chunk on an undeclared layer adopts it, and new layers keep root order", "[map][document]" )
+TEST_CASE( "New layers keep root order", "[map][document]" )
 {
-    std::map<std::string, std::string> chunks;
-    chunks["extra/global.cymapchunk"] = Chunk( "extra", "\"global\"", "    entities = [ { id = 4u class = \"a\" } ]\n" );
+    const std::string text = Hand( { { "default", "" }, { "extra", "    entities = [ { id = 4u class = \"a\" } ]\n" } } );
     map_document_t map{};
-    REQUIRE( Load( &map, Root(), chunks ) == map_status_t::OK );
-    CHECK( HasProblem( map, map_problem_code_t::CHUNK_LAYER_ADOPTED ) );
+    REQUIRE( Load( &map, text ) == map_status_t::OK );
     REQUIRE( MapDocument_AddLayer( &map, StringView_FromCString( "detail" ), StringView_FromCString( "Detail" ) ) == map_status_t::OK );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
     CHECK( files.root.find( "id = \"default\"" ) < files.root.find( "id = \"extra\"" ) );
     CHECK( files.root.find( "id = \"extra\"" ) < files.root.find( "id = \"detail\"" ) );
     CHECK( Contains( files.root, "{ id = \"detail\" name = \"Detail\" }" ) );
+    CHECK( MapDocument_LayerStore( &map, StringView_FromCString( "detail" ) ) != nullptr );
+    CHECK( MapDocument_LayerStore( &map, StringView_FromCString( "nope" ) ) == nullptr );
 }
 
-TEST_CASE( "A failing sink stops the save, and invalid arguments are refused", "[map][document]" )
+TEST_CASE( "The file's tree is built without saving or changing the map", "[map][document]" )
+{
+    map_document_t map{};
+    REQUIRE( Load( &map, Hand( { { "default", "    entities = [ { class = \"light\" origin = [ 1.0, 1.0, 1.0 ] } ]\n" } } ) ) == map_status_t::OK );
+    REQUIRE( map.bIdsAssigned );
+    map_layer_store_t *pStore = map.layerStores.pData[0];
+    key_value_document_t *pTree = nullptr;
+    REQUIRE( MapDocument_BuildTree( &map, &pTree ) == map_status_t::OK );
+    REQUIRE( pTree != nullptr );
+    CHECK( map.layerStores.nCount == 1u );
+    CHECK( map.layerStores.pData[0] == pStore ); // Saving would have replaced it.
+    CHECK( map.bIdsAssigned );                     // Saving would have cleared it.
+    const key_value_t *pLayers = KeyValue_Find( KeyValue_Root( pTree ), StringView_FromCString( "layers" ) );
+    REQUIRE( KeyValue_ChildCount( pLayers ) == 1u );
+    const key_value_t *pEntities = KeyValue_Find( KeyValue_ChildAt( pLayers, 0u ), StringView_FromCString( "entities" ) );
+    CHECK( KeyValue_ChildCount( pEntities ) == 1u );
+    KeyValue_DestroyDocument( pTree );
+    // It is exactly what the save then writes.
+    key_value_document_t *pAgain = nullptr;
+    REQUIRE( MapDocument_BuildTree( &map, &pAgain ) == map_status_t::OK );
+    saved_files_t files;
+    REQUIRE( Save( &map, files ) == map_status_t::OK );
+    key_value_write_options_t options{};
+    options.flags = KEY_VALUE_WRITE_FLAG_PRETTY | KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE | KEY_VALUE_WRITE_FLAG_BARE_KEYS | KEY_VALUE_WRITE_FLAG_SHORTEST_REALS;
+    options.nIndentSpaces = 4u;
+    options.nLineWidth = MAP_LINE_WIDTH;
+    std::string text( KeyValue_WriteText( KeyValue_Root( pAgain ), options, nullptr, 0u ).cchRequired, '\0' );
+    REQUIRE( KeyValue_WriteText( KeyValue_Root( pAgain ), options, text.data(), text.size() + 1u ).status == key_value_write_status_t::OK );
+    CHECK( text == files.root );
+    KeyValue_DestroyDocument( pAgain );
+    CHECK( MapDocument_BuildTree( &map, nullptr ) == map_status_t::INVALID_ARGUMENT );
+}
+
+TEST_CASE( "Invalid arguments are refused", "[map][document]" )
 {
     map_document_t map{};
     CreateMap( &map );
     u64 id = 0u;
     REQUIRE( MapDocument_AddEntity( &map, StringView_FromCString( "default" ), StringView_FromCString( "light" ), {}, &id ) == map_status_t::OK );
-    saved_files_t files;
-    files.iFailAt = 0u;
-    CHECK( MapDocument_Save( &map, files.Sink() ) == map_status_t::SINK_FAILED );
-    CHECK( files.root.empty() );
+    CHECK( MapDocument_Save( &map, nullptr ) == map_status_t::INVALID_ARGUMENT );
+    text_buffer_t uninitialized{};
+    CHECK( MapDocument_Save( &map, &uninitialized ) == map_status_t::INVALID_ARGUMENT );
 
     map_document_t other{};
     map_create_desc_t desc{};
@@ -1039,19 +1090,20 @@ TEST_CASE( "A failing sink stops the save, and invalid arguments are refused", "
     CHECK( MapDocument_SetGeometryOwner( &map, terrain, id ) == map_status_t::INVALID_ARGUMENT );
     CHECK( std::string( MapDocument_StatusName( map_status_t::SAVE_BLOCKED ) ) == "SAVE_BLOCKED" );
     CHECK( std::string( MapDocument_ProblemName( map_problem_code_t::ID_ASSIGNED ) ) == "ID_ASSIGNED" );
+    CHECK( std::string( MapDocument_ProblemName( map_problem_code_t::VERSION_UNSUPPORTED ) ) == "VERSION_UNSUPPORTED" );
 }
 
-TEST_CASE( "A chunk the reader would reject is refused on save", "[map][document][limits]" )
+TEST_CASE( "A map the reader would reject is refused on save", "[.limits]" )
 {
-    // 9,000 box brushes (about 125 values each) in one cell pass the text
-    // limit but not the value budget; saving refuses rather than writing a
-    // chunk the reader would reject.
+    // About 70,000 box brushes (about 125 values each) pass the text limit
+    // but not the value budget; saving refuses rather than writing a map the
+    // reader would reject. Hidden: it builds close to a gigabyte of tree.
     map_document_t map{};
     CreateMap( &map );
-    for ( usize i = 0u; i < 9000u; ++i ) { ( void )AddBox( &map, { static_cast<f64>( i % 95u ) * 80.0, static_cast<f64>( i / 95u ) * 80.0, 64.0 } ); }
+    for ( usize i = 0u; i < 70000u; ++i ) { ( void )AddBox( &map, { static_cast<f64>( i % 260u ) * 80.0, static_cast<f64>( i / 260u ) * 80.0, 64.0 } ); }
     saved_files_t files;
     CHECK( Save( &map, files ) == map_status_t::LIMIT_EXCEEDED );
-    CHECK( files.nCalls == 0u );
+    CHECK( files.root.empty() );
 }
 
 // ---------------------------------------------------------------------------
@@ -1062,12 +1114,12 @@ namespace
 {
 
 // The example is written in the readable hand-edited form, IDs of faces and
-// terrain tiles left out, and then saved by the real writer: the files in
-// docs/formats/examples/cymap are exactly what Mason writes.
-std::map<std::string, std::string> ExampleSources( std::string &rootOut )
+// terrain tiles left out, and then saved by the real writer: the file in
+// docs/formats/examples/cymap is exactly what Mason writes.
+std::string ExampleSource()
 {
-    rootOut =
-        "@cykv 1\n@schema \"cypher.map\" 10\n{\n"
+    const std::string head =
+        "@cykv 1\n@schema \"cypher.map\" 11\n{\n"
         "    map_id = \"4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b\"\n"
         "    name = \"Research Facility (example)\"\n"
         "    game = \"reap\"\n"
@@ -1077,24 +1129,14 @@ std::map<std::string, std::string> ExampleSources( std::string &rootOut )
         "    authors = [ \"Karlo\" ]\n"
         "    tags = [ \"waves\", \"indoor\", \"example\" ]\n"
         "    units_per_meter = 39.37\n"
-        "    cell_size = [ 1024.0, 1024.0, 0.0 ]\n"
-        "    layers = [\n"
-        "        { id = \"structure\" name = \"Structure\" color = \"#6fa8dc\" },\n"
-        "        { id = \"detail\" name = \"Detail\" },\n"
-        "        { id = \"gameplay\" name = \"Gameplay\" },\n"
-        "        { id = \"notes\" name = \"Designer notes\" editor_only = true }\n"
-        "    ]\n"
         "    visgroups = [ { id = 10u name = \"Lights\" color = \"#ffd84a\" } ]\n"
         "    selection_sets = [ { id = 11u name = \"Room shell\" members = [ 1005u, 1004u, 1003u, 1002u, 1001u, 1000u ] } ]\n"
         "    cordons = [ { name = \"Room\" bounds = [ -512, -512, -32, 512, 512, 320 ] } ]\n"
         "    settings = {\n"
         "        map = { sky = \"materials/sky/dusk.cymat\" gravity = 800.0 ambient_color = \"#202028\" fog_color = \"#101820\" fog_start = 2048.0 fog_end = 12000.0 }\n"
         "        game = { wave_count = 12 wave_intermission = 8.0 difficulty = \"normal\" }\n"
-        "    }\n"
-        "}\n";
-    std::map<std::string, std::string> chunks;
-    chunks["structure/x0_y0.cymapchunk"] = Chunk(
-        "structure", "[ 0, 0 ]",
+        "    }\n";
+    const std::string structure =
         "    brushes = [\n"
         "        { id = 1000u name = \"floor\" " + BoxFaces( -512, -512, -32, 512, 512, 0, "materials/concrete/floor01.cymat" ) + " },\n"
         "        { id = 1001u name = \"ceiling\" " + BoxFaces( -512, -512, 288, 512, 512, 320, "materials/concrete/ceiling01.cymat" ) + " },\n"
@@ -1112,9 +1154,8 @@ std::map<std::string, std::string> ExampleSources( std::string &rootOut )
         "            [ 255, 255, 255, 255, 255, 255, 255, 255, 255 ], [ 255, 200, 200, 200, 200, 200, 200, 200, 255 ], [ 255, 200, 90, 90, 90, 90, 90, 200, 255 ],\n"
         "            [ 255, 200, 90, 0, 0, 0, 90, 200, 255 ], [ 255, 200, 90, 0, 0, 0, 90, 200, 255 ], [ 255, 200, 90, 0, 0, 0, 90, 200, 255 ],\n"
         "            [ 255, 200, 90, 90, 90, 90, 90, 200, 255 ], [ 255, 200, 200, 200, 200, 200, 200, 200, 255 ], [ 255, 255, 255, 255, 255, 255, 255, 255, 255 ] ] } ] }\n"
-        "    } ]\n" );
-    chunks["detail/x0_y0.cymapchunk"] = Chunk(
-        "detail", "[ 0, 0 ]",
+        "    } ]\n";
+    const std::string detail =
         "    meshes = [ { id = 1200u name = \"loading ramp\" vertices = [ [ 256, 256, 0 ], [ 384, 256, 0 ], [ 384, 384, 48 ], [ 256, 384, 48 ] ]\n"
         "        vertex_ids = [ 1201u, 1202u, 1203u, 1204u ]\n"
         "        faces = [ { id = 1205u vertices = [ 0, 1, 2, 3 ] material = \"materials/metal/grate01.cymat\" uv = [ [ 0, 0 ], [ 1, 0 ], [ 1, 1 ], [ 0, 1 ] ] } ]\n"
@@ -1127,9 +1168,8 @@ std::map<std::string, std::string> ExampleSources( std::string &rootOut )
         "        control_ids = [ 1301u, 1302u, 1303u, 1304u, 1305u, 1306u, 1307u, 1308u, 1309u ] } ]\n"
         "    foliage = [ { model = \"models/foliage/pine01.cymodel\" instances = [\n"
         "        [ 1100, 40, 0, 0, 132.5, 0, 1.1 ], [ 700, -60, 0, 0, 17, 0, 0.95 ], [ 760, 90, 0, 0, 260, 0, 1.0 ], [ 1180, -90, 0, 0, 75, 0, 1.2 ] ]\n"
-        "        properties = { cast_shadows = true fade_distance = 4000.0 } } ]\n" );
-    chunks["gameplay/x0_y0.cymapchunk"] = Chunk(
-        "gameplay", "[ 0, 0 ]",
+        "        properties = { cast_shadows = true fade_distance = 4000.0 } } ]\n";
+    const std::string gameplay =
         "    entities = [\n"
         "        { id = 101u class = \"info_player_start\" name = \"spawn_a\" origin = [ -256, -256, 16 ] angles = [ 0, 45, 0 ]\n"
         "          properties = { team = \"red\" priority = 10 }\n"
@@ -1158,10 +1198,14 @@ std::map<std::string, std::string> ExampleSources( std::string &rootOut )
         "    ]\n"
         "    shapes = [ { id = 180u name = \"patrol_route_a\" type = \"catmull_rom\" closed = true points = [ [ -400, 300, 16 ], [ 400, 300, 16 ], [ 400, -300, 16 ], [ -400, -300, 16 ] ] } ]\n"
         "    groups = [ { id = 190u name = \"Wave 1\" members = [ 131u, 130u, 120u, 110u ] } ]\n"
-        "    prefabs = [ { id = 200u name = \"yard_gate\" source = \"prefabs/security_door.cyprefab\" origin = [ 600, 0, 0 ] angles = [ 0, 90, 0 ] overrides = { \"door.name\" = \"yard_door\" } } ]\n" );
-    chunks["notes/x0_y0.cymapchunk"] = Chunk( "notes", "[ 0, 0 ]",
-                                              "    notes = [ { id = 300u position = [ 0, 0, 200 ] text = \"Needs cover for wave 4.\" color = \"#ffd84a\" } ]\n" );
-    return chunks;
+        "    prefabs = [ { id = 200u name = \"yard_gate\" source = \"prefabs/security_door.cyprefab\" origin = [ 600, 0, 0 ] angles = [ 0, 90, 0 ] overrides = { \"door.name\" = \"yard_door\" } } ]\n";
+    const std::string notes = "    notes = [ { id = 300u position = [ 0, 0, 200 ] text = \"Needs cover for wave 4.\" color = \"#ffd84a\" } ]\n";
+    return head + "    layers = [\n"
+                  "        { id = \"structure\" name = \"Structure\" color = \"#6fa8dc\"\n" + structure + "        },\n"
+                  "        { id = \"detail\" name = \"Detail\"\n" + detail + "        },\n"
+                  "        { id = \"gameplay\" name = \"Gameplay\"\n" + gameplay + "        },\n"
+                  "        { id = \"notes\" name = \"Designer notes\" editor_only = true\n" + notes + "        }\n"
+                  "    ]\n}\n";
 }
 
 std::string ReadFile( const std::filesystem::path &path )
@@ -1174,22 +1218,13 @@ std::string ReadFile( const std::filesystem::path &path )
 
 TEST_CASE( "Write the documented example map", "[.write-example]" )
 {
-    std::string root;
-    const std::map<std::string, std::string> sources = ExampleSources( root );
     map_document_t map{};
-    REQUIRE( Load( &map, root, sources ) == map_status_t::OK );
+    REQUIRE( Load( &map, ExampleSource() ) == map_status_t::OK );
     CHECK_FALSE( map.bReadOnly );
     saved_files_t files;
     REQUIRE( Save( &map, files ) == map_status_t::OK );
     const std::filesystem::path directory = CYPHER_MAP_EXAMPLE_DIR;
-    std::filesystem::remove_all( directory / "facility" );
-    std::filesystem::create_directories( directory / "facility" );
     std::ofstream( directory / "facility.cymap", std::ios::binary ) << files.root;
-    for ( const auto &[path, text] : files.chunks ) {
-        const std::filesystem::path file = directory / "facility" / path;
-        std::filesystem::create_directories( file.parent_path() );
-        std::ofstream( file, std::ios::binary ) << text;
-    }
 }
 
 TEST_CASE( "The documented example map reproduces byte for byte", "[map][document][example]" )
@@ -1197,27 +1232,23 @@ TEST_CASE( "The documented example map reproduces byte for byte", "[map][documen
     const std::filesystem::path directory = CYPHER_MAP_EXAMPLE_DIR;
     REQUIRE( std::filesystem::exists( directory / "facility.cymap" ) );
     const std::string root = ReadFile( directory / "facility.cymap" );
-    std::map<std::string, std::string> chunks;
-    for ( const auto &entry : std::filesystem::recursive_directory_iterator( directory / "facility" ) ) {
-        if ( entry.is_regular_file() && entry.path().extension() == ".cymapchunk" ) {
-            chunks[std::filesystem::relative( entry.path(), directory / "facility" ).generic_string()] = ReadFile( entry.path() );
-        }
-    }
-    REQUIRE( chunks.size() >= 5u );
     saved_files_t files;
     files.root = root;
-    files.chunks = chunks;
     RequireStable( files );
 
     // The example exercises every section of the format.
-    std::string all = root;
-    for ( const auto &entry : chunks ) { all += entry.second; }
+    const std::string &all = root;
     for ( const char *pSection : { "entities = [", "brushes = [", "meshes = [", "patches = [", "terrains = [", "shapes = [", "foliage = [",
                                    "notes = [", "groups = [", "prefabs = [", "selection_sets = [", "cordons = [", "outputs = [", "paint = {",
-                                   "modifiers = [" } ) {
+                                   "modifiers = [", "info = {" } ) {
         INFO( pSection );
         CHECK( Contains( all, pSection ) );
     }
+    // Every layer holds its own objects.
+    CHECK( Contains( LayerText( all, "structure" ), "name = \"north wall\"" ) );
+    CHECK( Contains( LayerText( all, "detail" ), "name = \"loading ramp\"" ) );
+    CHECK( Contains( LayerText( all, "gameplay" ), "class = \"func_door\"" ) );
+    CHECK( Contains( LayerText( all, "notes" ), "Needs cover for wave 4." ) );
 }
 
 TEST_CASE( "Measure typical object sizes for CYMAP.md section 15", "[.scale]" )
@@ -1231,13 +1262,14 @@ TEST_CASE( "Measure typical object sizes for CYMAP.md section 15", "[.scale]" )
         for ( usize side = 0u; side < 6u; ++side ) { SetFaceMaterial( &map, id, side, "materials/concrete/wall03.cymat" ); }
     }
     REQUIRE( Save( &map, files ) == map_status_t::OK );
-    usize cbBrushes = 0u;
-    for ( const auto &entry : files.chunks ) { cbBrushes += entry.second.size(); }
+    const usize cbBrushes = files.root.size();
     std::printf( "box brush: %.0f bytes\n", static_cast<double>( cbBrushes ) / kCount );
     usize nValues = 0u;
-    for ( const auto &entry : files.chunks ) {
-        key_value_document_t *pParsed = KeyValue_CreateDocument( {} );
-        nValues += KeyValue_ParseText( SV( entry.second ), {}, pParsed ).nNodesParsed;
+    {
+        key_value_document_desc_t desc{};
+        desc.pAllocator = Allocator_GetSystem();
+        key_value_document_t *pParsed = KeyValue_CreateDocument( desc );
+        nValues += KeyValue_ParseText( SV( files.root ), {}, pParsed ).nNodesParsed;
         KeyValue_DestroyDocument( pParsed );
     }
     std::printf( "box brush: %.0f values\n", static_cast<double>( nValues ) / kCount );
@@ -1257,15 +1289,11 @@ TEST_CASE( "Measure typical object sizes for CYMAP.md section 15", "[.scale]" )
     entities += "\n    ]\n";
     instances += " ] } ]\n";
     const auto measure = [&]( const std::string &body ) {
-        std::map<std::string, std::string> chunks;
-        chunks["default/global.cymapchunk"] = Chunk( "default", "\"global\"", body );
         map_document_t hand{};
-        REQUIRE( Load( &hand, Root( "100000u" ), chunks ) == map_status_t::OK );
+        REQUIRE( Load( &hand, Hand( { { "default", body } }, "100000u" ) ) == map_status_t::OK );
         saved_files_t handFiles;
         REQUIRE( Save( &hand, handFiles ) == map_status_t::OK );
-        usize cb = 0u;
-        for ( const auto &entry : handFiles.chunks ) { cb += entry.second.size(); }
-        return cb;
+        return handFiles.root.size();
     };
     const usize cbEntities = measure( entities );
     const usize cbFoliage = measure( instances );
@@ -1283,5 +1311,26 @@ TEST_CASE( "Measure typical object sizes for CYMAP.md section 15", "[.scale]" )
     geo::HeightField_Shutdown( &field );
     saved_files_t terrainFiles;
     REQUIRE( Save( &terrain, terrainFiles ) == map_status_t::OK );
-    std::printf( "terrain: %.1f bytes per height sample\n", static_cast<double>( terrainFiles.chunks.begin()->second.size() ) / ( 65.0 * 65.0 ) );
+    std::printf( "terrain: %.1f bytes per height sample\n", static_cast<double>( terrainFiles.root.size() ) / ( 65.0 * 65.0 ) );
+}
+
+TEST_CASE( "Time saving and loading a large single-layer map", "[.bench-large-map]" )
+{
+    // Not a contract: prints how long a 20,000-brush layer takes to save and
+    // load, so a quadratic walk over a section shows up as seconds.
+    map_document_t map{};
+    CreateMap( &map );
+    for ( usize i = 0u; i < 20000u; ++i ) { ( void )AddBox( &map, { static_cast<f64>( i % 140u ) * 80.0, static_cast<f64>( i / 140u ) * 80.0, 64.0 } ); }
+    const auto now = []() { return std::chrono::steady_clock::now(); };
+    const auto seconds = []( auto a, auto b ) { return std::chrono::duration<double>( b - a ).count(); };
+    saved_files_t files;
+    const auto t0 = now();
+    REQUIRE( Save( &map, files ) == map_status_t::OK );
+    const auto t1 = now();
+    map_document_t loaded{};
+    REQUIRE( Load( &loaded, files.root ) == map_status_t::OK );
+    const auto t2 = now();
+    std::printf( "20000 brushes: %.1f MB, save %.2f s, load %.2f s\n", static_cast<double>( files.root.size() ) / ( 1024.0 * 1024.0 ),
+                 seconds( t0, t1 ), seconds( t1, t2 ) );
+    CHECK( loaded.geometry.brushes.nCount == 20000u );
 }

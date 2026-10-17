@@ -12,6 +12,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherMapGui_ToolPanels.h"
+#include "CypherMapGui_Falloff.h"
 #include "CypherMapGui_Input.h"
 #include "CypherEditorGui_Section.h"
 #include "CypherGeometry_DocumentBrushAttributes.h"
@@ -19,6 +20,7 @@
 #include "CypherCommon/Mathlib/CypherMath_Scalar.h"
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <QApplication>
@@ -32,6 +34,7 @@
 #include <QLineEdit>
 #include <QKeyEvent>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QSpinBox>
 #include <QPushButton>
 #include <QPointer>
@@ -162,6 +165,51 @@ bool SendToolKey( QWidget *control, QEvent::Type type, int key = Qt::Key_Escape 
 }
 
 } // namespace
+
+TEST_CASE( "Curve exposes hollow-pipe dimensions and explains incompatible output settings", "[map][gui][toolpanels][hollow-sweep-gesture]" )
+{
+    session_t session; auto &ws = session.workspace;
+    struct cleanup_t {
+        session_t &session;
+        ~cleanup_t() {
+            MapWorkspace_Shutdown( &session.workspace );
+            EditorSettings_SetScope( &session.gui.settings, settings_scope_t::USER, nullptr );
+            SettingsDocument_Shutdown( &session.settings ); gui::EditorGui_Shutdown( &session.gui );
+        }
+    } cleanup{ session };
+    MapWorkspace_SetTool( &ws, map_tool_t::CURVE ); const usize listeners = session.gui.settings.nListeners;
+    std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &ws ) );
+    panel->resize( 360, 1100 ); panel->show(); QCoreApplication::processEvents();
+    auto *shape = Setting<QComboBox>( *panel, "editor.map.curve_shape" );
+    auto *output = Setting<QComboBox>( *panel, "editor.map.curve_output" );
+    auto *closed = Setting<QCheckBox>( *panel, "editor.map.curve_closed" );
+    auto *radius = Setting<QDoubleSpinBox>( *panel, "editor.map.curve_outer_radius" );
+    auto *wall = Setting<QDoubleSpinBox>( *panel, "editor.map.curve_wall_thickness" );
+    auto *hint = panel->findChild<QLabel *>( QStringLiteral( "MapToolStartHint" ) ); REQUIRE( hint );
+    shape->setCurrentText( QStringLiteral( "hollow_pipe" ) );
+    CHECK( StringView_Equals( EditorSettings_Text( &session.gui.settings, "editor.map.curve_shape", {} ), StringView_FromCString( "hollow_pipe" ) ) );
+    for ( const char *path : { "editor.map.curve_outer_radius", "editor.map.curve_wall_thickness", "editor.map.cylinder_sides", "editor.map.curve_output", "editor.map.curve_closed" } ) {
+        auto *control = panel->findChild<QWidget *>( QString::fromLatin1( path ) ); REQUIRE( control );
+        CHECK( control->isVisibleTo( panel.get() ) ); CHECK( MapToolProperties_Options( panel.get() ).contains( QString::fromLatin1( path ) ) );
+    }
+    for ( const char *path : { "editor.map.curve_profile", "editor.map.curve_width", "editor.map.curve_height", "editor.map.wall_join", "editor.map.lathe_angle" } ) {
+        auto *control = panel->findChild<QWidget *>( QString::fromLatin1( path ) ); REQUIRE( control );
+        CHECK_FALSE( control->isVisibleTo( panel.get() ) ); CHECK_FALSE( MapToolProperties_Options( panel.get() ).contains( QString::fromLatin1( path ) ) );
+    }
+    radius->setValue( 24 ); wall->setValue( 3 );
+    CHECK( EditorSettings_Real( &session.gui.settings, "editor.map.curve_outer_radius", 0 ) == 24 );
+    CHECK( EditorSettings_Real( &session.gui.settings, "editor.map.curve_wall_thickness", 0 ) == 3 );
+    output->setCurrentText( QStringLiteral( "patch" ) ); CHECK( hint->text().contains( QStringLiteral( "needs Mesh output" ) ) );
+    output->setCurrentText( QStringLiteral( "mesh" ) ); closed->setChecked( true );
+    CHECK( hint->text().contains( QStringLiteral( "Closed loop turned off" ) ) ); closed->setChecked( false );
+    CHECK( hint->text().contains( QStringLiteral( "path only" ) ) ); CHECK( hint->text().contains( QStringLiteral( "2048" ) ) );
+    shape->setCurrentText( QStringLiteral( "smooth" ) );
+    CHECK_FALSE( radius->isVisibleTo( panel.get() ) ); CHECK_FALSE( wall->isVisibleTo( panel.get() ) );
+    CHECK( Setting<QComboBox>( *panel, "editor.map.curve_profile" )->isVisibleTo( panel.get() ) );
+    CHECK( Setting<QDoubleSpinBox>( *panel, "editor.map.curve_width" )->isVisibleTo( panel.get() ) );
+    shape->setCurrentText( QStringLiteral( "hollow_pipe" ) ); CHECK( radius->value() == 24 ); CHECK( wall->value() == 3 );
+    panel.reset(); CHECK( session.gui.settings.nListeners == listeners );
+}
 
 TEST_CASE( "Tool properties expose the key reference and execute selection operations", "[map][gui][toolpanels]" )
 {
@@ -820,7 +868,7 @@ TEST_CASE( "A settings notification can replace the tool without calling destroy
     CHECK( registry.nListeners == baseline );
 }
 
-TEST_CASE( "Texture properties expose material assignment while keeping unwired UV commands disabled", "[map][gui][toolpanels]" )
+TEST_CASE( "Texture properties expose material assignment and enable wired UV commands for the selection", "[map][gui][toolpanels]" )
 {
     session_t session;
     REQUIRE( EditorCommands_ExecuteLine( &session.gui.commands, StringView_FromCString( "map.tool.texture" ) ) == command_result_t::OK );
@@ -829,11 +877,21 @@ TEST_CASE( "Texture properties expose material assignment while keeping unwired 
     CHECK( MapToolProperties_Title( panel.get() ) == QStringLiteral( "Texture Application" ) );
     CHECK( panel->findChild<QLabel *>( QStringLiteral( "MapToolUnavailable" ) ) == nullptr );
     MapWorkspace_Select( &session.workspace, 1000u, MAP_SELECT_REPLACE );
+    // Alignment acts on every face of the selected brush (CypherMapGui_GeometryCommands).
+    for ( const char *pId : { "map.texture.fit", "map.texture.align_world", "map.texture.align_face", "map.texture.justify_left", "map.texture.justify_right",
+                            "map.texture.justify_top", "map.texture.justify_bottom", "map.texture.justify_center", "map.texture.rotate", "map.texture.scale",
+                            "map.texture.shift" } ) {
+        CAPTURE( pId ); CHECK( Operation( *panel, pId )->isEnabled() );
+    }
     for ( const char *pId : { "map.tool.apply_material", "map.texture.fit", "map.texture.align_world", "map.texture.align_face",
                             "map.texture.justify_left", "map.texture.justify_right", "map.texture.justify_top", "map.texture.justify_bottom",
                             "map.texture.justify_center", "map.texture.rotate", "map.texture.scale", "map.texture.shift", "map.texture.unwrap", "map.texture.replace" } ) {
         auto *pButton = Operation( *panel, pId );
-        CHECK_FALSE( pButton->isEnabled() );
+        // UV Islands needs a mesh; on object 1000, a brush, it converts it
+        // first. Apply Current Material paints every face of a selected
+        // object, as in Hammer.
+        const bool wired = QByteArray( pId ).startsWith( "map.texture." ) || QByteArray( pId ) == "map.tool.apply_material";
+        CHECK( pButton->isEnabled() == wired );
         CHECK( pButton->toolTip().contains( QString::fromUtf8( pId ) ) );
         CHECK_FALSE( pButton->icon().isNull() );
         CHECK( MapToolProperties_Operations( panel.get() ).contains( QString::fromUtf8( pId ) ) );
@@ -1209,10 +1267,11 @@ TEST_CASE( "Numeric transforms cannot reinterpret a selected face as a whole bru
         REQUIRE( ws.elementMode == map_element_mode_t::FACES );
         REQUIRE( ( mesh ? MapWorkspace_HasMeshFace( &ws ) : MapWorkspace_HasBrushFace( &ws ) ) );
         const auto *document = ws.pDocument;
-        const auto revision = document->geometry.revision;
-        const auto nextId = document->nextId;
-        const auto selectionRevision = ws.selection.revision;
+        auto revision = document->geometry.revision;
+        auto nextId = document->nextId;
+        auto selectionRevision = ws.selection.revision;
         const usize steps = EditorHistory_StepCount( &ws.history );
+        const usize applied = EditorHistory_AppliedStepCount( &ws.history );
         const auto *root = MapWireframe_FindObject( ws.wire, object );
         REQUIRE( root != nullptr ); REQUIRE( root->nPoints == 8u );
         const auto originalBounds = root->bounds;
@@ -1225,7 +1284,7 @@ TEST_CASE( "Numeric transforms cannot reinterpret a selected face as a whole bru
         const auto checkUnchanged = [&]() {
             REQUIRE( ws.pDocument != nullptr ); CHECK( ws.pDocument == document );
             CHECK( ws.pDocument->geometry.revision == revision ); CHECK( ws.pDocument->nextId == nextId );
-            CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+            CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied );
             CHECK( ws.selection.revision == selectionRevision ); CHECK( EditorSelection_Count( &ws.selection ) == 1u );
             CHECK( EditorSelection_At( &ws.selection, 0 ) == object );
             CHECK( ( mesh ? ws.selectedMeshFaceId == face : ws.selectedBrushFaceSide == face ) );
@@ -1244,13 +1303,40 @@ TEST_CASE( "Numeric transforms cannot reinterpret a selected face as a whole bru
             }
             CHECK_FALSE( ws.editPreview.bActive );
         };
-        for ( auto *button : buttons ) {
-            CHECK_FALSE( button->isEnabled() );
-            button->click();
+        // Faces mode goes through the component transform: the face's own
+        // corners may move, the four below it never do, nothing is cloned,
+        // and a brush face only translates. Undo restores the object.
+        const bool expected[]{ true, false, mesh, mesh }; // Move, Clone + Move, Rotate, Scale.
+        for ( usize b = 0; b < std::size( buttons ); ++b ) {
+            CAPTURE( b );
+            auto *button = buttons[b];
+            CHECK( button->isEnabled() == expected[b] );
+            if ( button->isEnabled() ) { button->click(); }
             // A disabled QPushButton suppresses native clicks. Invoke its
             // signal directly as a stale/programmatic caller to require the
             // Apply handler to check the current component mode too.
-            REQUIRE( QMetaObject::invokeMethod( button, "clicked", Qt::DirectConnection, Q_ARG( bool, false ) ) );
+            else { REQUIRE( QMetaObject::invokeMethod( button, "clicked", Qt::DirectConnection, Q_ARG( bool, false ) ) ); }
+            if ( EditorHistory_AppliedStepCount( &ws.history ) == applied ) { checkUnchanged(); continue; }
+            CHECK( expected[b] );
+            CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied + 1u );
+            CHECK( EditorSelection_Count( &ws.selection ) == 1u ); CHECK( EditorSelection_At( &ws.selection, 0 ) == object );
+            CHECK( ( mesh ? ws.selectedMeshFaceId == face : ws.selectedBrushFaceSide == face ) );
+            const auto *edited = MapWireframe_FindObject( ws.wire, object ); REQUIRE( edited != nullptr );
+            for ( u32 point = 0; point < 8; ++point ) {
+                if ( originalPoints[point].z > 0.0 ) { continue; } // The face's own corners.
+                bool kept = false;
+                for ( u32 other = 0; other < edited->nPoints; ++other ) {
+                    const auto current = ws.wire.points.pData[edited->iFirstPoint + other];
+                    // Brush corners are rebuilt from planes: sloped sides round.
+                    kept = kept || ( std::fabs( current.x - originalPoints[point].x ) < 1e-6 && std::fabs( current.y - originalPoints[point].y ) < 1e-6 &&
+                                     std::fabs( current.z - originalPoints[point].z ) < 1e-6 );
+                }
+                CHECK( kept );
+            }
+            CHECK( std::fabs( edited->bounds.box.minimum.z - originalBounds.box.minimum.z ) < 1e-6 );
+            REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+            if ( mesh ) { MapWorkspace_SelectMeshFace( &ws, object, face ); } else { MapWorkspace_SelectBrushFace( &ws, object, face ); }
+            document = ws.pDocument; revision = document->geometry.revision; nextId = document->nextId; selectionRevision = ws.selection.revision;
             checkUnchanged();
         }
         MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS );
@@ -1308,6 +1394,79 @@ TEST_CASE( "Numeric rotation and scale apply about the chosen pivot", "[map][gui
     REQUIRE( MapWorkspace_Undo( &session.workspace ) == editor_history_status_t::OK );
     CHECK( session.workspace.wire.objects.pData[0].bounds.box.minimum.x == 96.0 );
     CHECK( session.workspace.wire.objects.pData[0].bounds.box.maximum.x == 160.0 );
+}
+
+TEST_CASE( "Measured face inset makes a perpendicular border through its real property control", "[map][gui][toolpanels][measured-inset]" )
+{
+    session_t session; auto &ws = session.workspace;
+    REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { 0, 0, 0 } ); MapBounds_AddPoint( box, { 256, 128, 32 } );
+    REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 root = EditorSelection_At( &ws.selection, 0 );
+    REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) );
+    u64 top = 0, other = 0;
+    for ( usize i = 0; i < ws.wire.faces.nCount; ++i ) {
+        const auto &face = ws.wire.faces.pData[i];
+        if ( face.id == root && face.normal.z > 0.99 ) { top = face.faceId; }
+        if ( face.id == root && face.normal.z < -0.99 ) { other = face.faceId; }
+    }
+    REQUIRE( top != 0 ); REQUIRE( other != 0 );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::FACES );
+    MapWorkspace_SelectMeshFace( &ws, root, top ); REQUIRE( MapWorkspace_HasMeshFace( &ws ) ); CHECK( ws.selectedMeshFaceId == top );
+    std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &ws ) );
+    panel->resize( 400, 1100 ); panel->show(); QCoreApplication::processEvents();
+    auto *width = Setting<QDoubleSpinBox>( *panel, "editor.map.mesh_inset_width" );
+    auto *apply = panel->findChild<QPushButton *>( QStringLiteral( "map.mesh.inset_width" ) );
+    REQUIRE( apply ); REQUIRE( apply->isEnabled() ); CHECK_FALSE( apply->icon().isNull() );
+    CHECK( apply->text() == QStringLiteral( "Inset Face (Width)" ) );
+    const auto saved = [&]() {
+        text_buffer_t text{}; REQUIRE( TextBuffer_Init( &text, Allocator_GetSystem() ) );
+        REQUIRE( MapDocument_Save( ws.pDocument, &text ) == map_status_t::OK );
+        return std::string( TextBuffer_Data( &text ), TextBuffer_Length( &text ) );
+    };
+    const auto before = saved(); const usize steps = EditorHistory_StepCount( &ws.history );
+    // Exactly half the short dimension collapses the cap. Failure must not
+    // publish a converted/different face or an undo record.
+    width->setValue( 64 ); apply->click();
+    CHECK( saved() == before ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    CHECK( ws.selectedMeshFaceId == top ); CHECK( MapWorkspace_MeshFaces( &ws ).nCount == 1 );
+    width->setValue( 16 );
+    const QPointF local( apply->rect().center() ), global( apply->mapToGlobal( apply->rect().center() ) );
+    QMouseEvent press( QEvent::MouseButtonPress, local, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+    QMouseEvent release( QEvent::MouseButtonRelease, local, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+    QApplication::sendEvent( apply, &press ); QApplication::sendEvent( apply, &release );
+    CHECK( EditorHistory_StepCount( &ws.history ) == steps + 1 ); CHECK( ws.selectedMeshFaceId == top );
+    const map_wire_face_t *cap = nullptr;
+    for ( usize i = 0; i < ws.wire.faces.nCount; ++i ) {
+        if ( ws.wire.faces.pData[i].id == root && ws.wire.faces.pData[i].faceId == top ) { cap = &ws.wire.faces.pData[i]; }
+    }
+    REQUIRE( cap ); REQUIRE( cap->nIndices == 4 ); unsigned corners = 0;
+    for ( u32 i = 0; i < cap->nIndices; ++i ) {
+        const auto point = ws.wire.points.pData[ws.wire.faceIndices.pData[cap->iFirstIndex + i]];
+        CHECK( ( std::fabs( point.x - 16 ) < 1e-9 || std::fabs( point.x - 240 ) < 1e-9 ) );
+        CHECK( ( std::fabs( point.y - 16 ) < 1e-9 || std::fabs( point.y - 112 ) < 1e-9 ) );
+        CHECK( point.z == Catch::Approx( 32 ) );
+        corners |= 1u << ( ( point.x > 128 ? 1u : 0u ) | ( point.y > 64 ? 2u : 0u ) );
+    }
+    CHECK( corners == 15u ); const auto committed = saved();
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CHECK( saved() == before );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( saved() == committed ); CHECK( ws.selectedMeshFaceId == top );
+    REQUIRE( MapWorkspace_AddMeshFace( &ws, root, other ) );
+    CHECK_FALSE( apply->isEnabled() ); CHECK_FALSE( MapWorkspace_InsetMeshFaceByEdgeWidth( &ws, 4 ) ); CHECK( saved() == committed );
+    MapWorkspace_SelectMeshFace( &ws, root, top ); REQUIRE( MapWorkspace_HasMeshFace( &ws ) ); CHECK( ws.selectedMeshFaceId == top );
+    ws.pDocument->bReadOnly = CY_TRUE; MapWorkspace_Notify( &ws, MAP_CHANGE_DOCUMENT ); CHECK_FALSE( apply->isEnabled() );
+    ws.pDocument->bReadOnly = CY_FALSE; MapWorkspace_Notify( &ws, MAP_CHANGE_DOCUMENT );
+    // This new operation deliberately requires an authored mesh. It must not
+    // enter the legacy two-publication brush-conversion adapter on refusal.
+    REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 brush = EditorSelection_At( &ws.selection, 0 );
+    u64 side = 0;
+    for ( usize i = 0; i < ws.wire.faces.nCount; ++i ) {
+        const auto &face = ws.wire.faces.pData[i]; if ( face.id == brush && face.normal.z > 0.99 ) { side = face.sideId; }
+    }
+    REQUIRE( side != 0 ); MapWorkspace_SelectBrushFace( &ws, brush, side );
+    const auto brushBefore = saved(); const auto brushSteps = EditorHistory_StepCount( &ws.history );
+    CHECK( ( EditorCommands_State( &session.gui.commands, StringView_FromCString( "map.mesh.inset_width" ) ) & COMMAND_STATE_ENABLED ) == 0 );
+    CHECK( EditorCommands_ExecuteLine( &session.gui.commands, StringView_FromCString( "map.mesh.inset_width" ) ) != command_result_t::OK );
+    CHECK( saved() == brushBefore ); CHECK( EditorHistory_StepCount( &ws.history ) == brushSteps );
 }
 
 TEST_CASE( "Brush face controls require explicit selection and apply push pull with undo", "[map][gui][toolpanels][geometry-edit]" )
@@ -1404,7 +1563,7 @@ TEST_CASE( "Numeric clipping applies the enabled retained-half control and norma
     CHECK( MapToolProperties_Options( panel.get() ).contains( QStringLiteral( "editor.map.clip_axis" ) ) );
     CHECK( MapToolProperties_Options( panel.get() ).contains( QStringLiteral( "editor.map.clip_mode" ) ) );
     CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[LeftDrag] 2D: stage clipping plane; release to preview" ) ) );
-    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[LeftDrag] 3D: draw on the plane perpendicular to the 3D plane axis" ) ) );
+    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[LeftDrag] 3D off every surface: draw on the plane perpendicular to the 3D plane axis" ) ) );
     CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[LeftDrag] Staged endpoint: move it; release to preview" ) ) );
     CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[Shift+X] Cycle retained half-space while active" ) ) );
     CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[Enter / NumEnter] Confirm current gesture" ) ) );
@@ -1757,8 +1916,8 @@ TEST_CASE( "Mesh face controls retain persistent selection and live controls acr
 )cykv" ) ) == gui::editor_gui_status_t::OK );
     REQUIRE( gui::EditorGui_SelectKeymap( &session.gui, StringView_FromCString( "mesh_face_panel" ) ) == gui::editor_gui_status_t::OK );
     checkControls(); CHECK( selector->currentData().toULongLong() == face );
-    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[X] Mesh face: extrude along its normal (Faces)" ) ) );
-    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[I] Mesh face: inset corners toward its center (Faces)" ) ) );
+    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[X] Mesh faces: extrude a connected coplanar region (Faces)" ) ) );
+    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[I] One mesh face: inset corners toward its center (Faces)" ) ) );
     ws.pDocument->bReadOnly = CY_TRUE; MapWorkspace_Notify( &ws, MAP_CHANGE_DOCUMENT ); checkControls();
     CHECK_FALSE( extrude->isEnabled() ); CHECK_FALSE( inset->isEnabled() );
     ws.pDocument->bReadOnly = CY_FALSE; MapWorkspace_Notify( &ws, MAP_CHANGE_DOCUMENT );
@@ -1780,6 +1939,7 @@ TEST_CASE( "Mesh face numeric parameters survive settings serialization and tool
     std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &ws ) );
     Setting<QDoubleSpinBox>( *panel, "editor.map.mesh_extrude_distance" )->setValue( 48 );
     Setting<QDoubleSpinBox>( *panel, "editor.map.mesh_inset_distance" )->setValue( 10 );
+    Setting<QDoubleSpinBox>( *panel, "editor.map.mesh_inset_width" )->setValue( 24 );
     text_buffer_t text{}; REQUIRE( TextBuffer_Init( &text, Allocator_GetSystem() ) );
     REQUIRE( SettingsDocument_Write( &session.settings, &text ) == settings_document_status_t::OK );
     settings_document_t restored{};
@@ -1787,15 +1947,18 @@ TEST_CASE( "Mesh face numeric parameters survive settings serialization and tool
     REQUIRE( SettingsDocument_Load( &restored, TextBuffer_View( &text ) ).status == settings_document_status_t::OK );
     Setting<QDoubleSpinBox>( *panel, "editor.map.mesh_extrude_distance" )->setValue( 8 );
     Setting<QDoubleSpinBox>( *panel, "editor.map.mesh_inset_distance" )->setValue( 4 );
+    Setting<QDoubleSpinBox>( *panel, "editor.map.mesh_inset_width" )->setValue( 2 );
     EditorSettings_SetScope( &session.gui.settings, settings_scope_t::USER, &restored );
     for ( map_tool_t tool : { map_tool_t::SELECT, map_tool_t::EXTRUDE, map_tool_t::SELECT } ) {
         MapWorkspace_SetTool( &ws, tool );
         CHECK( Setting<QDoubleSpinBox>( *panel, "editor.map.mesh_extrude_distance" )->value() == 48 );
         CHECK( Setting<QDoubleSpinBox>( *panel, "editor.map.mesh_inset_distance" )->value() == 10 );
+        CHECK( Setting<QDoubleSpinBox>( *panel, "editor.map.mesh_inset_width" )->value() == 24 );
     }
     EditorSettings_SetScope( &session.gui.settings, settings_scope_t::USER, &session.settings );
     CHECK( Setting<QDoubleSpinBox>( *panel, "editor.map.mesh_extrude_distance" )->value() == 8 );
     CHECK( Setting<QDoubleSpinBox>( *panel, "editor.map.mesh_inset_distance" )->value() == 4 );
+    CHECK( Setting<QDoubleSpinBox>( *panel, "editor.map.mesh_inset_width" )->value() == 2 );
     panel.reset(); CHECK( session.gui.settings.nListeners == listeners );
 }
 
@@ -1900,7 +2063,7 @@ TEST_CASE( "Faces expose authored texture state and compact material and push pu
     CHECK( push->toolTip().contains( QStringLiteral( "brush face outline in 2D" ) ) );
     CHECK( push->toolTip().contains( QStringLiteral( "normal points into the 2D view" ) ) );
     CHECK( push->toolTip().contains( QStringLiteral( "use another pane or this distance" ) ) );
-    CHECK( push->toolTip().contains( QStringLiteral( "In-plane face scaling and mesh face dragging are planned" ) ) );
+    CHECK( push->toolTip().contains( QStringLiteral( "drags a picked face with a gizmo" ) ) );
     auto *feedback = panel->findChild<QLabel *>( QStringLiteral( "MapBrushFaceFeedback" ) ); REQUIRE( feedback );
     CHECK( feedback->text().contains( QStringLiteral( "normal handle in 2D or 3D" ) ) );
     CHECK( feedback->text().contains( QStringLiteral( "head-on normal needs another pane" ) ) );
@@ -1947,13 +2110,14 @@ TEST_CASE( "Mesh texture state shows corner UV ranges without fabricated planar 
     MapWorkspace_ClearMeshFace( &ws ); CHECK( rangeU->text().isEmpty() ); CHECK( rangeV->text().isEmpty() );
 }
 
-TEST_CASE( "Unwired UV operations use one collapsed icon group with honest availability", "[map][gui][toolpanels][face-clarity]" )
+TEST_CASE( "UV operations use one icon group with honest availability", "[map][gui][toolpanels][face-clarity]" )
 {
     session_t session; MapWorkspace_SetTool( &session.workspace, map_tool_t::TEXTURE );
     std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &session.workspace ) ); panel->resize( 300, 1000 ); panel->show(); QCoreApplication::processEvents();
-    auto *planned = panel->findChild<QWidget *>( QStringLiteral( "MapTexturePlannedOperations" ) ); REQUIRE( planned );
-    CHECK_FALSE( gui::EditorSection_IsExpanded( planned ) ); CHECK( planned->toolTip().contains( QStringLiteral( "not connected" ) ) );
-    gui::EditorSection_SetExpanded( planned, true );
+    // Wired (CypherMapGui_GeometryCommands): a normal section, disabled until a face or object is selected.
+    CHECK( panel->findChild<QWidget *>( QStringLiteral( "MapTexturePlannedOperations" ) ) == nullptr );
+    auto *planned = panel->findChild<QWidget *>( QStringLiteral( "MapTextureOperations" ) ); REQUIRE( planned );
+    CHECK( gui::EditorSection_IsExpanded( planned ) );
     for ( const char *id : { "map.texture.align_world", "map.texture.align_face", "map.texture.fit", "map.texture.shift", "map.texture.scale", "map.texture.rotate",
                             "map.texture.justify_left", "map.texture.justify_center", "map.texture.justify_right", "map.texture.justify_top", "map.texture.justify_bottom", "map.texture.unwrap" } ) {
         auto *button = Operation( *panel, id ); CHECK( button->toolButtonStyle() == Qt::ToolButtonIconOnly );
@@ -1983,7 +2147,8 @@ TEST_CASE( "Face gesture reference follows brush mesh and no-component selection
     auto *faceSection = panel->findChild<QWidget *>( QStringLiteral( "MapToolModeFaces" ) ); REQUIRE( faceSection );
     auto *availability = faceSection->findChild<QLabel *>( QStringLiteral( "MapToolModeAvailability" ) ); REQUIRE( availability );
     CHECK( availability->text().contains( QStringLiteral( "In 2D, pick a face outline" ) ) );
-    CHECK( availability->text().contains( QStringLiteral( "In-plane face scaling, mesh face dragging and other topology operations are planned" ) ) );
+    CHECK( availability->text().contains( QStringLiteral( "Translate, Rotate and Scale transform picked faces with a gizmo" ) ) );
+    CHECK_FALSE( availability->text().contains( QStringLiteral( "planned" ) ) );
     CHECK_FALSE( MapToolProperties_Options( panel.get() ).contains( QStringLiteral( "editor.map.resize_mode" ) ) );
     const auto checkControls = [&]() {
         REQUIRE( brushSelector ); REQUIRE( meshSelector ); REQUIRE( state );
@@ -1992,8 +2157,8 @@ TEST_CASE( "Face gesture reference follows brush mesh and no-component selection
         CHECK( state.data() == panel->findChild<QLineEdit *>( QStringLiteral( "MapFaceTextureMaterial" ) ) );
     };
     const auto checkMeshReference = [&]( bool shown ) {
-        CHECK( !ReferenceRowsContaining( *panel, "Mesh face: extrude" ).isEmpty() == shown );
-        CHECK( !ReferenceRowsContaining( *panel, "Mesh face: inset" ).isEmpty() == shown );
+        CHECK( !ReferenceRowsContaining( *panel, "Mesh faces: extrude a connected coplanar region" ).isEmpty() == shown );
+        CHECK( !ReferenceRowsContaining( *panel, "One mesh face: inset corners toward its center" ).isEmpty() == shown );
         CHECK( !ReferenceRowsContaining( *panel, "Mesh face: slice a quad" ).isEmpty() == shown );
     };
     // The discovery reference remains available before choosing a component.
@@ -2267,11 +2432,23 @@ TEST_CASE( "Edge editing exposes the named operations without substituting face 
         { "map.mesh.fill_hole", "Fill Hole" }, { "map.mesh.bridge", "Bridge" }, { "map.mesh.normals_hard", "Hard Normals" },
         { "map.mesh.normals_soft", "Soft Normals" }, { "map.mesh.normals_default", "Default Normals" }, { "map.texture.weld_uvs", "Weld UVs" },
         { "map.select.loop", "Select Loop" }, { "map.select.ring", "Select Ring" }, { "map.select.ribs", "Select Ribs" },
-        { "map.pivot.clear", "Clear Pivot" }, { "map.tool.edge_cut", "Edge Cut Tool" }, { "map.tool.edge_arc", "Edge Arc Tool" },
-        { "map.mesh.radial_align", "Radial Align" },
+        { "map.pivot.clear", "Clear Pivot" }, { "map.mesh.radial_align", "Radial Align" }, { "map.mesh.slide_loop", "Slide Edge Loop" },
+        { "map.mesh.offset", "Offset" }, { "map.mesh.flatten", "Flatten" }, { "map.select.connected", "Select Connected" },
+        { "map.select.invert_components", "Invert Component Selection" }, { "map.select.boundary_edges", "Select Open Edges" },
+        { "map.select.sharp_edges", "Select Sharp Edges" }, { "map.select.to_vertices", "Convert to Vertices" },
+        { "map.mesh.seam_mark", "Mark Seam" }, { "map.mesh.seam_clear", "Clear Seam" },
     };
-    REQUIRE( std::size( operations ) == 22 );
-    CHECK( MapToolProperties_Operations( panel.get() ).size() == 24 ); // 22 actions plus the two common view-centering commands.
+    // Edge Cut and Edge Arc are tools: available whatever is selected.
+    const std::pair<const char *, const char *> tools[]{ { "map.tool.edge_cut", "Edge Cut Tool" }, { "map.tool.edge_arc", "Edge Arc Tool" } };
+    REQUIRE( std::size( operations ) + std::size( tools ) == 32 );
+    const char *transforms[]{ "map.tool.translate", "map.tool.rotate", "map.tool.scale", "map.tool.pivot" };
+    CHECK( MapToolProperties_Operations( panel.get() ).size() == 34 + std::size( transforms ) );
+    auto *dragSection = panel->findChild<QWidget *>( QStringLiteral( "MapEdgeDragSection" ) ); REQUIRE( dragSection );
+    for ( const char *id : transforms ) {
+        CAPTURE( id ); auto *button = Operation( *dragSection, id );
+        CHECK( button->isEnabled() ); CHECK_FALSE( button->icon().isNull() );
+        CHECK( MapToolProperties_Operations( panel.get() ).count( QString::fromUtf8( id ) ) == 1 );
+    }
     const usize steps = EditorHistory_StepCount( &ws.history );
     for ( const auto &[id, label] : operations ) {
         CAPTURE( id ); auto *button = Operation( *section, id );
@@ -2284,8 +2461,13 @@ TEST_CASE( "Edge editing exposes the named operations without substituting face 
     CHECK_FALSE( MapToolProperties_Operations( panel.get() ).contains( QStringLiteral( "map.mesh.extrude" ) ) );
     CHECK_FALSE( MapToolProperties_Operations( panel.get() ).contains( QStringLiteral( "map.mesh.inset" ) ) );
     CHECK_FALSE( MapToolProperties_Options( panel.get() ).contains( QStringLiteral( "editor.map.hollow_thickness" ) ) );
+    for ( const auto &[id, label] : tools ) {
+        CAPTURE( id ); auto *button = Operation( *section, id );
+        CHECK( button->text() == QString::fromUtf8( label ) ); CHECK( button->isEnabled() );
+        CHECK_FALSE( button->toolTip().contains( QStringLiteral( "Unavailable" ) ) );
+    }
     auto *note = section->findChild<QLabel *>( QStringLiteral( "MapToolModeAvailability" ) ); REQUIRE( note );
-    CHECK( note->text().contains( QStringLiteral( "planned" ) ) );
+    CHECK_FALSE( note->text().contains( QStringLiteral( "planned" ) ) );
     CHECK( note->text().contains( QStringLiteral( "Select Loop or Select Ring" ) ) );
     CHECK( note->text().contains( QStringLiteral( "Convert brushes to meshes first" ) ) );
     CHECK( panel->findChild<QLabel *>( QStringLiteral( "MapToolSelection" ) )->text() == QStringLiteral( "0 edges selected · Edges mode" ) );
@@ -2390,7 +2572,8 @@ TEST_CASE( "Vertex properties describe working picking and count components with
     auto *note = section->findChild<QLabel *>( QStringLiteral( "MapToolModeAvailability" ) ); REQUIRE( note );
     CHECK( note->text().contains( QStringLiteral( "Pick mesh vertices" ) ) );
     CHECK( note->text().contains( QStringLiteral( "Convert brushes to meshes first" ) ) );
-    CHECK( note->text().contains( QStringLiteral( "topology edits are planned" ) ) );
+    CHECK( note->text().contains( QStringLiteral( "drag them with a gizmo" ) ) );
+    CHECK_FALSE( note->text().contains( QStringLiteral( "planned" ) ) );
     CHECK( panel->findChild<QLabel *>( QStringLiteral( "MapToolTitle" ) )->toolTip().contains( QStringLiteral( "does not move the parent mesh" ) ) );
     CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[LeftClick] Pick an authored mesh vertex" ) ) );
     CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[Shift+LeftClick] Add a vertex on the same mesh" ) ) );
@@ -2447,13 +2630,156 @@ TEST_CASE( "Selection profiles preserve control drafts and refresh contextual ke
 )cykv" ) ) == gui::editor_gui_status_t::OK );
     REQUIRE( gui::EditorGui_SelectKeymap( &session.gui, StringView_FromCString( "edge_profile_keys" ) ) == gui::editor_gui_status_t::OK );
     REQUIRE( EditorCommands_ExecuteLine( &session.gui.commands, StringView_FromCString( "map.select_mode.edges" ) ) == command_result_t::OK );
-    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[F9] Extrude (planned)" ) ) );
+    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[F9] Extrude" ) ) ); // Wired: no "(planned)" suffix.
     CHECK( keys.data() == panel->findChild<QTreeWidget *>( QStringLiteral( "MapToolKeys" ) ) ); CHECK( distance->value() == 48 );
     REQUIRE( gui::EditorGui_AddKeymap( &session.gui, QStringLiteral( R"cykv(@cykv 1
 @schema "cypher.editor_keymap" 2
 { id = "edge_profile_unbound" bindings = { "map.selection.edges" = { "map.mesh.extrude_edges" = [] } } }
 )cykv" ) ) == gui::editor_gui_status_t::OK );
     REQUIRE( gui::EditorGui_SelectKeymap( &session.gui, StringView_FromCString( "edge_profile_unbound" ) ) == gui::editor_gui_status_t::OK );
-    CHECK( ReferenceRowsContaining( *panel, "Extrude (planned)" ).isEmpty() );
+    CHECK( ReferenceRowsContaining( *panel, "[F9] Extrude" ).isEmpty() );
     REQUIRE( keys ); REQUIRE( distance ); REQUIRE( selector ); REQUIRE( edge ); CHECK( distance->value() == 48 );
+}
+
+TEST_CASE( "The Displacement tool shows its brushes as an icon row and its falloff as curves", "[map][gui][toolpanels][displace-panel]" )
+{
+    session_t session;
+    MapWorkspace_SetTool( &session.workspace, map_tool_t::DISPLACE );
+    std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &session.workspace ) );
+    panel->resize( 300, 900 ); panel->show(); QCoreApplication::processEvents();
+    for ( const char *name : { "push_pull", "smooth", "flatten", "inflate", "pinch", "noise", "linear", "sharp", "constant" } ) {
+        CAPTURE( name ); CHECK( panel->findChild<QToolButton *>( QStringLiteral( "MapDisplace.%1" ).arg( QString::fromLatin1( name ) ) ) != nullptr );
+    }
+    auto *pinch = panel->findChild<QToolButton *>( QStringLiteral( "MapDisplace.pinch" ) );
+    REQUIRE( pinch != nullptr ); CHECK_FALSE( pinch->icon().isNull() );
+    pinch->click();
+    CHECK( StringView_Equals( EditorSettings_Text( &session.gui.settings, "editor.map.displace_mode", {} ), StringView_FromCString( "pinch" ) ) );
+    CHECK( pinch->isChecked() );
+    auto *curve = panel->findChild<QWidget *>( QStringLiteral( "MapDisplaceCurve" ) );
+    REQUIRE( curve != nullptr );
+    const QImage smooth = curve->grab().toImage();
+    panel->findChildren<QToolButton *>( QStringLiteral( "MapDisplace.linear" ) ).first()->click();
+    CHECK( StringView_Equals( EditorSettings_Text( &session.gui.settings, "editor.map.displace_falloff", {} ), StringView_FromCString( "linear" ) ) );
+    CHECK( curve->grab().toImage() != smooth ); // The graph shows the new curve.
+}
+
+QString FromSettingView( string_view_t view ) { return QString::fromUtf8( view.pData, static_cast<qsizetype>( view.cchLength ) ); }
+
+TEST_CASE( "The falloff curve runs through its points without overshooting and keeps its ends", "[map][gui][falloff]" )
+{
+    const auto points = MapFalloff_ParseCurve( StringView_FromCString( "0.7:0.2 0.3:0.9" ) );
+    REQUIRE( points.size() == 4u ); // Sorted, with ends at the centre and the edge holding the nearest strength.
+    CHECK( points[0].x == 0.0 ); CHECK( points[0].y == Catch::Approx( 0.9 ) );
+    CHECK( points[1].x == Catch::Approx( 0.3 ) ); CHECK( points[2].x == Catch::Approx( 0.7 ) );
+    CHECK( points[3].x == 1.0 ); CHECK( points[3].y == Catch::Approx( 0.2 ) );
+    CHECK( MapFalloff_ParseCurve( StringView_FromCString( "nonsense" ) ).size() == 3u ); // The default curve.
+    CHECK( MapFalloff_ParseCurve( StringView_FromCString( "2:5 -1:-3" ) ).front().y == 0.0 ); // Clamped to 0..1.
+
+    const std::string text = MapFalloff_FormatCurve( MapFalloff_ParseCurve( StringView_FromCString( "0:1 0.25:0.95 0.6:0.2 1:0" ) ) );
+    CHECK( text == "0:1 0.25:0.95 0.6:0.2 1:0" );
+    const auto custom = MapFalloff_Make( StringView_FromCString( "custom" ), { text.data(), text.size() } );
+    CHECK( MapFalloff_At( custom, 0.0 ) == Catch::Approx( 1.0 ) );
+    CHECK( MapFalloff_At( custom, 0.25 ) == Catch::Approx( 0.95 ) );
+    CHECK( MapFalloff_At( custom, 0.6 ) == Catch::Approx( 0.2 ) );
+    CHECK( MapFalloff_At( custom, 1.0 ) == Catch::Approx( 0.0 ).margin( 1e-12 ) );
+    // Falling points give a falling curve: never above the point before nor below the next.
+    f64 last = 2.0;
+    for ( int i = 0; i <= 200; ++i ) {
+        const f64 y = MapFalloff_At( custom, i / 200.0 );
+        CHECK( y <= last + 1e-12 ); last = y;
+    }
+    // A custom curve is used only when Custom is chosen.
+    CHECK( MapFalloff_At( MapFalloff_Make( StringView_FromCString( "linear" ), { text.data(), text.size() } ), 0.25 ) == Catch::Approx( 0.75 ) );
+    CHECK( MapFalloff_At( MapFalloff_Make( StringView_FromCString( "constant" ), {} ), 0.9 ) == 1.0 );
+    CHECK( MapFalloff_At( MapFalloff_Make( StringView_FromCString( "smooth" ), {} ), 0.5 ) == Catch::Approx( 0.5 ) );
+}
+
+TEST_CASE( "Dragging the Displacement falloff curve draws a Custom falloff", "[map][gui][toolpanels][displace-panel][falloff]" )
+{
+    session_t session;
+    MapWorkspace_SetTool( &session.workspace, map_tool_t::DISPLACE );
+    std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &session.workspace ) );
+    panel->resize( 300, 900 ); panel->show(); QCoreApplication::processEvents();
+    auto *custom = panel->findChild<QToolButton *>( QStringLiteral( "MapDisplace.custom" ) );
+    REQUIRE( custom != nullptr );
+    panel->findChildren<QToolButton *>( QStringLiteral( "MapDisplace.linear" ) ).first()->click();
+    auto *curve = panel->findChild<QWidget *>( QStringLiteral( "MapDisplaceCurve" ) );
+    REQUIRE( curve != nullptr );
+    const auto text = [&]() { return FromSettingView( EditorSettings_Text( &session.gui.settings, "editor.map.displace_curve", {} ) ); };
+    const auto falloff = [&]() { return FromSettingView( EditorSettings_Text( &session.gui.settings, "editor.map.displace_falloff", {} ) ); };
+    // The curve area: 6 px in from the sides and top, 5 from the bottom; the
+    // centre of the brush is in the middle and its edge at either side.
+    const QRectF area = QRectF( curve->rect() ).adjusted( 6, 6, -6, -5 );
+    const auto at = [&]( f64 x, f64 y ) { return QPointF( area.center().x() + area.width() * 0.5 * x, area.bottom() - area.height() * y ).toPoint(); };
+    const auto press = [&]( QEvent::Type type, QPoint point, Qt::MouseButton button = Qt::LeftButton ) {
+        QMouseEvent event( type, QPointF( point ), curve->mapToGlobal( QPointF( point ) ), button,
+            type == QEvent::MouseButtonRelease ? Qt::NoButton : button, Qt::NoModifier );
+        QCoreApplication::sendEvent( curve, &event );
+    };
+    // Drag the linear curve's middle up: it becomes Custom, starting from the linear shape.
+    press( QEvent::MouseButtonPress, at( 0.5, 0.5 ) );
+    CHECK( falloff() == QStringLiteral( "custom" ) );
+    CHECK( custom->isChecked() );
+    press( QEvent::MouseMove, at( 0.5, 0.9 ) );
+    press( QEvent::MouseButtonRelease, at( 0.5, 0.9 ) );
+    auto points = MapFalloff_ParseCurve( StringView_FromCString( text().toUtf8().constData() ) );
+    REQUIRE( points.size() == 5u );
+    CHECK( points[2].x == Catch::Approx( 0.5 ).margin( 0.02 ) ); CHECK( points[2].y == Catch::Approx( 0.9 ).margin( 0.05 ) );
+    CHECK( points[1].y == Catch::Approx( 0.75 ).margin( 0.01 ) ); // Untouched, from the linear preset.
+    // The left half is the mirror: dragging there moves the same points.
+    press( QEvent::MouseButtonPress, at( -0.25, 0.75 ) );
+    press( QEvent::MouseMove, at( -0.25, 0.4 ) );
+    press( QEvent::MouseButtonRelease, at( -0.25, 0.4 ) );
+    points = MapFalloff_ParseCurve( StringView_FromCString( text().toUtf8().constData() ) );
+    REQUIRE( points.size() == 5u ); CHECK( points[1].y == Catch::Approx( 0.4 ).margin( 0.05 ) );
+    // A click away from the points adds one; a double-click on it removes it.
+    press( QEvent::MouseButtonPress, at( 0.62, 0.05 ) );
+    press( QEvent::MouseButtonRelease, at( 0.62, 0.05 ) );
+    points = MapFalloff_ParseCurve( StringView_FromCString( text().toUtf8().constData() ) );
+    REQUIRE( points.size() == 6u ); CHECK( points[3].x == Catch::Approx( 0.62 ).margin( 0.02 ) );
+    QMouseEvent twice( QEvent::MouseButtonDblClick, QPointF( at( 0.62, 0.05 ) ), curve->mapToGlobal( QPointF( at( 0.62, 0.05 ) ) ), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+    QCoreApplication::sendEvent( curve, &twice );
+    CHECK( MapFalloff_ParseCurve( StringView_FromCString( text().toUtf8().constData() ) ).size() == 5u );
+    // The ends stay.
+    press( QEvent::MouseButtonPress, at( 1.0, 0.0 ), Qt::RightButton );
+    CHECK( MapFalloff_ParseCurve( StringView_FromCString( text().toUtf8().constData() ) ).size() == 5u );
+    // Choosing a preset leaves the drawn curve for later.
+    const QString drawn = text();
+    panel->findChildren<QToolButton *>( QStringLiteral( "MapDisplace.sharp" ) ).first()->click();
+    CHECK( falloff() == QStringLiteral( "sharp" ) ); CHECK( text() == drawn );
+}
+
+TEST_CASE( "Edge drag choice is prominent contextual and persists with user settings", "[map][gui][toolpanels][edge-plain-drag][settings]" )
+{
+    session_t session; auto &ws = session.workspace;
+    MapWorkspace_SetTool( &ws, map_tool_t::SELECT ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::EDGES );
+    const usize listeners = session.gui.settings.nListeners;
+    std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &ws ) );
+    panel->resize( 420, 900 ); panel->show(); QCoreApplication::processEvents();
+    auto *section = panel->findChild<QWidget *>( QStringLiteral( "MapEdgeDragSection" ) ); REQUIRE( section );
+    REQUIRE( section->isVisible() );
+    auto *choice = Setting<QComboBox>( *panel, "editor.map.edge_drag_action" );
+    CHECK( choice->isVisible() ); CHECK( choice->currentText() == QStringLiteral( "move" ) );
+    CHECK( section->mapTo( panel.get(), QPoint{} ).y() < 240 );
+    choice->setCurrentText( QStringLiteral( "extend" ) );
+    text_buffer_t text{}; REQUIRE( TextBuffer_Init( &text, Allocator_GetSystem() ) );
+    REQUIRE( SettingsDocument_Write( &session.settings, &text ) == settings_document_status_t::OK );
+    settings_document_t restored{};
+    REQUIRE( SettingsDocument_Init( &restored, Allocator_GetSystem(), EditorSettings_FileIdentity() ) == settings_document_status_t::OK );
+    REQUIRE( SettingsDocument_Load( &restored, TextBuffer_View( &text ) ).status == settings_document_status_t::OK );
+    choice->setCurrentText( QStringLiteral( "move" ) );
+    EditorSettings_SetScope( &session.gui.settings, settings_scope_t::USER, &restored );
+    for ( map_tool_t tool : { map_tool_t::SELECT, map_tool_t::TRANSLATE, map_tool_t::ROTATE, map_tool_t::SCALE } ) {
+        MapWorkspace_SetTool( &ws, tool ); QCoreApplication::processEvents();
+        choice = Setting<QComboBox>( *panel, "editor.map.edge_drag_action" );
+        CHECK( choice->isVisible() ); CHECK( choice->currentText() == QStringLiteral( "extend" ) );
+        CHECK( MapToolProperties_Options( panel.get() ).contains( QStringLiteral( "editor.map.edge_drag_action" ) ) );
+        MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+        CHECK_FALSE( choice->isVisible() );
+        CHECK_FALSE( MapToolProperties_Options( panel.get() ).contains( QStringLiteral( "editor.map.edge_drag_action" ) ) );
+        MapWorkspace_SetElementMode( &ws, map_element_mode_t::EDGES ); CHECK( choice->isVisible() );
+    }
+    panel.reset(); CHECK( session.gui.settings.nListeners == listeners );
+    EditorSettings_SetScope( &session.gui.settings, settings_scope_t::USER, &session.settings );
+    SettingsDocument_Shutdown( &restored ); TextBuffer_Shutdown( &text );
 }

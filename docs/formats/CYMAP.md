@@ -5,10 +5,10 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: docs/formats/CYMAP.md
-//  Purpose: Specifies the CypherEngine map source format: `.cymap` root
-//           documents (cypher.map V10) and `.cymapchunk` chunk documents
-//           (cypher.map_chunk V10) - every object a level can contain, how
-//           it is written, and how editors read, place, and preserve it.
+//  Purpose: Specifies the CypherEngine map source format: one `.cymap`
+//           file per level (cypher.map V11) - every object a level can
+//           contain, how it is written, and how editors read, place, and
+//           preserve it.
 //  Details: Decisions are recorded in ADR 0011; this is the field-level
 //           contract, written so that a person can read any map file and
 //           know what is in the level and where. Source and tests are
@@ -21,21 +21,25 @@
 //  - Rewritten on 2026-09-27: map-owned readable geometry, nested brush
 //    entities, terrain paint, shapes, foliage, notes, selection sets,
 //    modifiers, info annotations, text layout, and hand-editing rules
+//  - V11 on 2026-10-12: the whole level in one file, objects nested in
+//    their layers; `.cymapchunk` files retired (ADR 0012)
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
 //////////////////////////////////////////////////////////////////////////
 -->
 
-# Map Source Format (`.cymap`, V10)
+# Map Source Format (`.cymap`, V11)
 
 A map is the complete source of one level. Everything a level designer
-authors is in its files, in plain text, in a form a person can read: every
+authors is in its one file, in plain text, in a form a person can read: every
 entity with every property and every input/output connection, every brush
 face with its plane, material, and texture mapping, every mesh vertex and
 face, every patch control point, every terrain height and paint weight,
 every path, foliage instance, note, group, and prefab instance. Nothing
-authored lives anywhere else; nothing in the files is compiled or cached.
+authored lives anywhere else; nothing in the file is compiled or cached.
+Opening the file shows the whole level: what the map is first, then every
+layer with its objects, divided into sections by kind.
 
 The format is built for six things:
 
@@ -44,41 +48,35 @@ The format is built for six things:
 | **Complete** | Every authored value is written, including entity property defaults. A map opens and reads correctly without the editor, the game profile, or any cache. |
 | **Readable** | Named members, degrees for angles, material paths on every face, geometry in coordinates, short records on one line, and an `info` block on every object saying where it is. |
 | **Deterministic** | A fixed member order, objects sorted by ID, and one spelling per number, so saving an unchanged map reproduces the same bytes and editing one object changes only that object's lines. |
-| **Mergeable** | The map is split into chunk files by layer and position, and nothing volatile lives in the root, so two people working on different areas never touch the same file. |
-| **Tolerant** | Unknown members are kept; an object that cannot be read is kept verbatim; one damaged file never damages another. |
-| **Live** | Files can be edited in a text editor while Mason runs; a changed chunk is reloaded on the fly (section 12). |
+| **Mergeable** | Objects are sorted by ID inside their layer and section, records are one line where they fit, and nothing volatile sits outside the layer it describes, so two people working in different places change different lines. |
+| **Tolerant** | Unknown members are kept; an object that cannot be read is kept verbatim; a section that cannot be read is kept as written. |
+| **Live** | The file can be edited in a text editor while Mason runs and is reloaded on the fly (section 12). |
 
 ## 1. Files
 
 ```text
-maps/facility.cymap                          root document: identity, layers, visgroups, settings
-maps/facility/structure/x0_y0.cymapchunk     layer "structure", cell (0, 0)
-maps/facility/structure/x0_y-1.cymapchunk    layer "structure", cell (0, -1)
-maps/facility/gameplay/x0_y0.cymapchunk      layer "gameplay", cell (0, 0)
-maps/facility/gameplay/global.cymapchunk     layer "gameplay", objects without a position
+maps/facility.cymap      the whole level: identity, settings, and every layer with its objects
 ```
 
-- The chunk directory is the root's file name without `.cymap`, beside it.
-- A chunk lives at `<layer id>/<cell>.cymapchunk`; `<cell>` is `global` or
-  `x<i>_y<j>` (`_z<k>` added when the z axis is cut).
-- Chunks are found by scanning the chunk directory. The root does not list
-  them, so adding chunks never touches the root. Only files at exactly
-  `<layer>/<name>.cymapchunk` count; anything else in the folder (notes,
-  `.bak` copies, leftover `.tmp` files, a copied subfolder) is ignored, so a
-  stray copy of a chunk can never load as a duplicate. File names are
-  lowercase, as the writer produces them; a renamed file with capitals is not
-  seen.
-- A map with no objects has no chunk directory.
-- Saving writes every file as `<file>.tmp` first and renames them into place
-  only when all of them were written, root last; emptied chunks are deleted
-  after that. A full disk or an unwritable folder leaves the map on disk as
-  it was. Emptied layer folders are left in place.
+- One file per map. It holds everything; nothing is written beside it.
+- `@cykv 1` and `@schema "cypher.map" 11` are its first two lines. They are
+  the file's magic and version: a tool can tell a map and its version from
+  the first bytes, before reading anything else (section 17).
+- Saving writes `<file>.tmp` beside the map and replaces the map with it
+  only once it was written completely, so a full disk or an unwritable
+  folder leaves the map on disk as it was.
 - Personal state (cameras, bookmarks, hidden objects, selection, current
   tool) belongs to the workspace ([CYWORKSPACE.md](CYWORKSPACE.md)), never to
   the map.
 - Compiled output (the `.cyscene` the map compiler writes, lightmaps,
   navigation meshes) lives in the project's build folder, never beside the
   map source.
+
+V10 split a map into a root and `.cymapchunk` files in a folder beside it,
+one per layer and spatial cell. That format is retired: Mason and the map
+compiler read V11 only, and a V10 root is refused with its version named
+(`VERSION_UNSUPPORTED`). The split's reasons - merging, live reload, damage
+isolation - are met inside one file instead (ADR 0012).
 
 ## 2. Conventions
 
@@ -101,7 +99,9 @@ maps/facility/gameplay/global.cymapchunk     layer "gameplay", objects without a
 ## 3. Text layout
 
 Map files are CYKV language 1 ([CYKV.md](CYKV.md)) written with the compact
-layout ([CYKV.md](CYKV.md), writer options) at a width of 200 columns:
+layout ([CYKV.md](CYKV.md), writer options) at a width of 208 columns -
+200 columns of content plus the 8 that nesting objects in layers adds, so a
+record that fit on one line in a V10 chunk still does:
 
 - Keys are written bare when they are CYKV bare keys, quoted otherwise.
 - A container whose one-line form fits within the width (at its
@@ -132,17 +132,24 @@ layout ([CYKV.md](CYKV.md), writer options) at a width of 200 columns:
 - Members equal to their documented default are omitted where a table says
   so; everything else is always written.
 
-Comments in hand-edited files are allowed by the reader and dropped on the
-next save; put lasting notes in `comment` members or `notes` objects.
+Comments in hand-edited files are kept: each stays with the object, member, or
+section it was written beside and is written back on the next save. A comment
+inside geometry Mason regenerates (a brush face, a mesh vertex row) does not
+survive an edit of that geometry; put notes about an object on the object, or
+in its `comment` member, which tools show.
 
-## 4. Root document - `cypher.map` V10
+The file may be written in CYKV 2 by hand ([CYKV_2.md](CYKV_2.md)): its
+definitions (`#define`, `$NAME`) are read. Mason saves the resolved values
+as CYKV 1 and says so in the console.
 
-The root holds what the whole map shares and changes rarely. It is small by
-design: the level itself lives in the chunks.
+## 4. The map file - `cypher.map` V11
+
+The file reads from the top as what the map is - its identity, the shared
+tables, its settings - and ends with the level itself, layer by layer.
 
 ```cykv
 @cykv 1
-@schema "cypher.map" 10
+@schema "cypher.map" 11
 
 {
     map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b"
@@ -155,13 +162,6 @@ design: the level itself lives in the chunks.
     tags = [ "indoor", "waves" ]
     thumbnail = "maps/facility/thumbnail.png"
     units_per_meter = 39.37
-    cell_size = [ 8192.0, 8192.0, 0.0 ]
-    layers = [
-        { id = "structure" name = "Structure" color = "#6fa8dc" },
-        { id = "detail" name = "Detail" },
-        { id = "gameplay" name = "Gameplay" },
-        { id = "notes" name = "Designer notes" editor_only = true }
-    ]
     visgroups = [
         { id = 12u name = "Upper deck" color = "#e69138" },
         { id = 13u name = "Lights" parent = 12u }
@@ -176,6 +176,31 @@ design: the level itself lives in the chunks.
         map = { sky = "materials/sky/dusk.cymat" gravity = 800.0 ambient_color = "#202028" fog_color = "#101820" fog_start = 2048.0 fog_end = 12000.0 }
         game = { wave_count = 12 wave_intermission = 8.0 difficulty = "normal" }
     }
+    layers = [
+        {
+            id = "structure"
+            name = "Structure"
+            color = "#6fa8dc"
+            info = { brushes = 412 terrains = 1 bounds = [ -8192.0, -6144.0, -512.0, 8192.0, 6144.0, 1024.0 ] }
+            brushes = [ ... ]
+            terrains = [ ... ]
+        },
+        {
+            id = "gameplay"
+            name = "Gameplay"
+            info = { entities = 96 shapes = 3 groups = 4 bounds = [ ... ] }
+            entities = [ ... ]
+            shapes = [ ... ]
+            groups = [ ... ]
+        },
+        {
+            id = "notes"
+            name = "Designer notes"
+            editor_only = true
+            info = { notes = 7 bounds = [ ... ] }
+            notes = [ ... ]
+        }
+    ]
 }
 ```
 
@@ -191,44 +216,26 @@ design: the level itself lives in the chunks.
 | `tags` | array of strings | no | stable identifiers for map browsers and server lists, at most 64, sorted |
 | `thumbnail` | string | no | asset path of a preview image |
 | `units_per_meter` | f64 | no | default from the game profile, else 39.37 |
-| `cell_size` | `[f64 x3]` | no | chunk cell size per axis (section 9); default `[ 8192, 8192, 0 ]` |
-| `layers` | array | yes | at least one, in the editor's layer order: `id` (stable identifier, names the chunk folder), `name`, `color`, `editor_only` (never compiled: notes, reference geometry) |
 | `visgroups` | array | no | shared visibility groups: `id` (map ID), `name`, `color`, `parent` (visgroup ID) |
 | `selection_sets` | array | no | named object sets shown in the Selection Sets panel: `id`, `name`, `members` |
 | `cordons` | array | no | named boxes compiles and views can be limited to: `name`, `bounds`; which one is active is personal |
 | `settings` | object | no | `map` (engine settings, section 14) and `game` (defined by the game profile); unknown sections kept |
+| `layers` | array | yes | at least one, in the editor's layer order; each holds its objects (section 5) |
 
-## 5. Chunk document - `cypher.map_chunk` V10
+Members a reader does not know are kept and written after `layers`.
 
-A chunk holds the objects of one layer inside one cell, in sections by kind.
+## 5. Layers - where the level lives
 
-```cykv
-@cykv 1
-@schema "cypher.map_chunk" 10
-
-{
-    map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b"
-    layer = "gameplay"
-    cell = [ 0, 0 ]
-    info = { entities = 3 brushes = 1 bounds = [ -64.0, -128.0, 0.0, 1400.0, 640.0, 280.0 ] }
-    entities = [ ... ]
-    brushes = [ ... ]
-    meshes = [ ... ]
-    patches = [ ... ]
-    terrains = [ ... ]
-    shapes = [ ... ]
-    foliage = [ ... ]
-    notes = [ ... ]
-    groups = [ ... ]
-    prefabs = [ ... ]
-}
-```
+Every object belongs to exactly one layer and is written inside it, in
+sections by kind. A layer is what the Layers panel shows: a name, a colour,
+whether it is compiled, and the objects in it.
 
 | Member | Type | Required | Rules |
 | --- | --- | --- | --- |
-| `map_id` | string | yes | equals the root's `map_id`; a chunk from another map is never read or written |
-| `layer` | string | yes | a layer ID; one the root does not declare is adopted and reported |
-| `cell` | `"global"`, `[i, j]`, or `[i, j, k]` | yes | the cell (section 9) |
+| `id` | string | yes | stable identifier, unique in the map |
+| `name` | string | no | display name |
+| `color` | colour | no | tint in the Layers panel and views |
+| `editor_only` | bool | no | never compiled: notes, reference geometry |
 | `info` | object | no | summary for readers (section 8); ignored on read |
 | `entities` | array | no | section 6.2 |
 | `brushes` | array | no | world brushes (brushes owned by an entity live inside it), section 6.3 |
@@ -241,7 +248,16 @@ A chunk holds the objects of one layer inside one cell, in sections by kind.
 | `groups` | array | no | section 6.10 |
 | `prefabs` | array | no | prefab instances, section 6.11 |
 
-Empty sections are not written. Members in the order of the table.
+Empty sections are not written; a layer with no objects is just its own
+members. Members in the order of the table; members a reader does not know
+follow them and are kept.
+
+**Why nest objects in layers rather than tag each object with its layer:**
+the file then reads the way the editor is organised (the Layers panel, the
+Outliner), a layer can be read, reviewed, or copied as one block, and the
+reader hands each layer's objects to the editor without sorting them. Moving
+an object to another layer moves its lines, which layer moves rarely need to
+avoid. TrenchBroom writes layers the same way.
 
 ## 6. Objects
 
@@ -303,7 +319,7 @@ class from the game profile.
 | `comment`, `visgroups`, `info` | | no | section 6.1 |
 | `properties` | object | no | every property of the class, defaults included (the game profile decides the value types); keys not in the class are kept |
 | `outputs` | array | no | connections, below |
-| `brushes`, `meshes`, `patches` | arrays | no | geometry the entity owns (brush entities: triggers, doors, detail); same members as world geometry. Owned geometry lives in the entity's chunk |
+| `brushes`, `meshes`, `patches` | arrays | no | geometry the entity owns (brush entities: triggers, doors, detail); same members as world geometry. Owned geometry lives in the entity's layer |
 | `editor` | object | no | shared editor data: `logic_position` `[x, y]` (the entity's place in the logic graph view), `color` (overrides the class colour in views) |
 
 **Outputs** fire an input on every entity whose name matches `target` when
@@ -396,9 +412,11 @@ modelling inside the map. From the example map:
 `weld_distance`), `linear_array` (`copies`, `step` `[x, y, z]`, `weld`),
 `radial_array` (`copies`, `origin`, `direction`, `angle` degrees, `weld`),
 `bend` (`axis`, `along`, `origin`, `angle` degrees), `taper` (`along`,
-`factor`), `subdivide` (`levels`, `scheme` `catmull_clark` / `loop`,
-`boundary` `smooth` / `sharp`). Every modifier takes `enabled` (default
-true). Unknown modifier types are kept and skipped when evaluating.
+`factor`), `subdivide` (`levels`, `scheme` `catmull_clark` / `linear` /
+`loop`, `boundary` `smooth` / `sharp`, `hard_edges_crease` - hard edges stay
+sharp, default true). Every modifier takes `enabled` (default true). Unknown
+modifier types are kept and skipped when evaluating; Mason does not evaluate
+`loop` yet and shows such a mesh as its cage.
 
 ### 6.5 Patches
 
@@ -520,7 +538,7 @@ properties of type `shape` ([CYGAME.md](CYGAME.md)).
 ### 6.8 Foliage
 
 Foliage is many copies of a model scattered over the world - grass, trees,
-rocks, debris - stored compactly: one record per model per chunk.
+rocks, debris - stored compactly: one record per model per layer.
 
 ```cykv
 {
@@ -534,13 +552,13 @@ rocks, debris - stored compactly: one record per model per chunk.
 
 | Member | Type | Required | Rules |
 | --- | --- | --- | --- |
-| `model` | string | yes | model asset path; unique within the chunk's `foliage` list |
+| `model` | string | yes | model asset path; unique within the layer's `foliage` list |
 | `instances` | array | yes | one `[ x, y, z, pitch, yaw, roll, scale ]` per instance, sorted by x, then y, then z |
 | `properties` | object | no | per-map settings for this model's instances (`cast_shadows`, `fade_distance`, ...); kept as written |
 
-Instances have no IDs: foliage tools select them by painting and area. Each
-instance is written to the chunk of its own position, so dense forests
-spread over many files.
+Instances have no IDs: foliage tools select them by painting and area.
+Records of one model in one layer are merged into one on save; when their
+`properties` differ, the first one read wins and the difference is reported.
 
 ### 6.9 Notes
 
@@ -558,20 +576,20 @@ A note pins text into the level for other designers - "needs cover here",
 
 A group ties objects together so they select and move as one.
 
-`id`, `name`, `members` (object IDs in any chunk and layer, sorted),
+`id`, `name`, `members` (object IDs in any layer, sorted),
 `comment`, `visgroups`. Nested groups are members of their parent group.
 
 ### 6.11 Prefab instances
 
 A placed copy of a prefab file (`.cyprefab`: the same object sections as a
-chunk, in the prefab's own ID space).
+layer, in the prefab's own ID space).
 
 ```cykv
 { id = 400u name = "arena_door_west" source = "prefabs/security_door.cyprefab" origin = [ 512.0, 0.0, 0.0 ] angles = [ 0.0, 180.0, 0.0 ] overrides = { "door.name" = "arena_door" "door.properties.speed" = 150.0 } }
 ```
 
 `id`, `name`, `comment`, `visgroups`, `info` (nothing yet: the prefab file is
-not loaded to write the chunk), `source` (required), `origin` (required),
+not loaded to write the map), `source` (required), `origin` (required),
 `angles`, `scale`, `overrides` (`<object name or prefab ID>.<member path>` to
 value; changes applied to this instance only).
 
@@ -579,7 +597,7 @@ value; changes applied to this instance only).
 
 A prefab is a reusable piece of a level - a security door with its frame,
 lights, trigger, and wiring - stored once and placed many times. Its file is
-one document with the object sections of a chunk, in the prefab's own ID
+one document with the object sections of a layer, in the prefab's own ID
 space:
 
 ```cykv
@@ -609,7 +627,7 @@ space:
 | `next_id` | u64 | yes | as in a map root, for the prefab's own IDs |
 | `description` | string | no | at most 4096 bytes |
 | `parameters` | array | no | members an instance may override: `key` (`<object name or ID>.<member path>`), `type` and `default` (game-profile property types), `label` |
-| sections | arrays | no | `entities`, `brushes`, `meshes`, `patches`, `terrains`, `shapes`, `foliage`, `notes`, `groups`, as in a chunk, positioned relative to the prefab's origin |
+| sections | arrays | no | `entities`, `brushes`, `meshes`, `patches`, `terrains`, `shapes`, `foliage`, `notes`, `groups`, as in a layer, positioned relative to the prefab's origin |
 
 Instances (section 6.11) keep the prefab's objects out of the map: the map
 stores only the placement and the overrides, and compiling or "Collapse
@@ -617,8 +635,8 @@ Prefab" copies the objects in with fresh map IDs.
 
 ## 7. Material references
 
-Every face, patch, and paint layer names its material by path, so a chunk is
-self-contained and a text search for a material path finds every use. The
+Every face, patch, and paint layer names its material by path, so a layer
+can be read on its own and a text search for a material path finds every use. The
 editor keeps an in-memory table of the paths a map uses; it is never written.
 
 ## 8. `info` annotations
@@ -630,34 +648,27 @@ read. Editing one by hand has no effect and is overwritten.
 
 | Where | Members |
 | --- | --- |
-| chunk | counts per section (`entities`, `brushes`, `meshes`, `patches`, `terrains`, `shapes`, `foliage` (instances), `notes`, `groups`, `prefabs`), `bounds` of everything positioned |
+| layer | counts per section (`entities`, `brushes`, `meshes`, `patches`, `terrains`, `shapes`, `foliage` (instances), `notes`, `groups`, `prefabs`), `bounds` of everything positioned |
 | brush, mesh, patch, terrain, shape | `bounds`; meshes also `vertices`, `faces` |
 | entity with owned geometry | `bounds` of the owned geometry |
-| prefab instance | nothing yet (the prefab file is not loaded to write the chunk) |
+| prefab instance | nothing yet (the prefab file is not loaded to write the map) |
 
-The root carries no `info`: it would change with every edit anywhere and
-make the shared file conflict constantly.
+The map has no `info` of its own: a summary of the whole map would change
+with every edit anywhere and make any two people's changes conflict on that
+line. Tools that want totals (the Asset Browser, Mason's Map Info) add up
+the layers' summaries.
 
-## 9. Chunk assignment
+## 9. Layer placement
 
-Every object belongs to exactly one chunk, decided by its layer and position,
-so every editor writes the same files for the same map.
+Every object belongs to exactly one layer, so every editor writes the same
+file for the same map.
 
-- An entity's position is its `origin`; a brush's, mesh's, patch's, or
-  shape's is the centre of its bounds; a terrain's is the centre of its
-  footprint (heights do not move a terrain between cells as it is
-  sculpted); a note's is its `position`; a prefab instance's is its `origin`;
-  each foliage instance's is its own position.
-- Geometry an entity owns is written inside the entity.
-- Group records go to the `global` chunk of their first member's layer.
-- Entities without an origin go to `global`.
-- An object whose position cannot be read, and any unreadable object, stays
-  in the chunk it was read from.
-- With cell size `s > 0` on an axis, the cell index is `floor(p / s)` for the
-  position component `p`. Axes with `s = 0` are not cut. `cell_size` cuts x
-  and y together; z is optional.
-- Empty chunks are not written; a chunk that becomes empty is deleted when
-  the map is saved.
+- Entities, world geometry, shapes, notes, prefab instances, and foliage
+  stay in the layer they were read from or created in.
+- Geometry an entity owns is written inside the entity, in the entity's
+  layer, whatever layer the geometry was tagged with before it was tied.
+- Group records go to the layer of their first member.
+- Unreadable objects stay where they were read, after the readable ones.
 
 ## 10. Identity
 
@@ -693,37 +704,37 @@ migrations apply on load and are reported ([CYGAME.md](CYGAME.md)).
 
 ## 12. Hand editing and live reload
 
-The files are meant to be edited by hand as well as by Mason:
+The file is meant to be edited by hand as well as by Mason:
 
-- Mason watches the chunk directory and the root. When a file changes on
-  disk and Mason has no unsaved change in it, Mason reloads just that file
-  and updates the views. When both changed, Mason keeps its version, reports
-  the conflict, and offers to reload or to keep editing.
-- A chunk that fails to read after a hand edit is reported with the line and
-  column of the first error and left untouched on disk; the rest of the map
-  stays open, and saving never overwrites the broken file.
+- Mason watches the file. When it changes on disk and Mason has no unsaved
+  change, Mason reloads it and updates the views. When both changed, Mason
+  keeps its version, reports the conflict, and offers to reload or to keep
+  editing.
+- A file that fails to read after a hand edit is reported with the line of
+  the first error and the reason (`TEXT_UNREADABLE`, for example
+  `line 214: EXPECTED_VALUE`); the map is not opened and the file is left
+  untouched.
 - New objects without IDs get IDs (section 10). Moving an object by editing
-  its coordinates is fine: it moves to the right chunk on the next save.
+  its coordinates is fine. Moving it to another layer is cutting its record
+  from one layer's section and pasting it into the other's.
 - Members written by hand in a different order, or with quoted keys or
   comments, are read normally and rewritten in the canonical layout on the
-  next save of that chunk.
+  next save.
 
 ## 13. Validation and damage
 
 | Problem | Outcome |
 | --- | --- |
-| Root not CYKV, wrong schema, or version other than 10 | map not opened |
+| Not CYKV, a syntax error, or another schema | map not opened; `TEXT_UNREADABLE` names the reason and line |
+| `cypher.map` version other than 11 | map not opened; `VERSION_UNSUPPORTED` names the version (V10 is the retired split format) |
 | Required root member invalid (`map_id`, `name`, `game`, `next_id`, `layers`) | map not opened; the diagnostic names the member |
-| Optional root member invalid (`cell_size`, `units_per_meter`, ...) | default used, reported |
-| Chunk from another map (`map_id` mismatch) | file kept untouched and reported; a save that would write that path is refused until the file is resolved |
-| Chunk not CYKV, wrong schema, unreadable `layer`, or a section that is not a list | as above |
-| Chunk `cell` unreadable | objects placed by position on save, reported |
-| Chunk at a path other than its layer and cell | read normally; rewritten at the right path and the old file removed on save |
-| One unreadable object (bad face plane, fewer than 4 faces, mesh index out of range, ...) | object kept verbatim in its chunk, reported, written back unchanged |
+| Optional root member invalid (`units_per_meter`, ...) | default used, reported |
+| A layer section that is not a list (`brushes = 5`) | kept as written and reported (`SECTION_UNREADABLE`); a save that would also write objects of that kind into the layer is refused until the file is fixed |
+| One unreadable object (bad face plane, fewer than 4 faces, mesh index out of range, ...) | object kept verbatim in its layer, reported, written back unchanged |
 | Object or part without an ID | fresh ID assigned, reported |
 | Duplicate ID | map opens read-only; "Reassign Duplicate IDs" fixes it |
 | ID at or above `next_id` | `next_id` raised past it, reported |
-| Two files for the same layer and cell | objects merge on save and the extra file is removed; differing unknown chunk members under one name refuse the save |
+| Foliage records of one model in one layer with different `properties` | merged, the first one's properties kept, reported |
 | Unknown entity class or property | kept; reported by the entity validator |
 
 ## 14. Engine map settings (`settings.map`)
@@ -750,69 +761,71 @@ defined by the game profile.
 
 ## 15. Scale
 
-A map has no total size limit: every chunk is its own file, loaded in
-parallel, and a layer spreads over as many cells as its content covers. The
-per-chunk limits bind instead.
-
-Measured on 2026-09-29 with the compact layout (the `[.scale]` test in the
+Measured on 2026-10-12 with the compact layout (the `[.scale]` test in the
 map tests prints them):
 
 | Object | Text |
 | --- | --- |
-| box brush, 6 faces, a material on each | 1,269 bytes, 127 values |
-| point entity with 5 properties and 1 output | 454 bytes |
-| foliage instance | about 60 bytes |
-| terrain | 8.3 bytes per height sample, plus about 4 per painted sample per layer |
+| box brush, 6 faces, a material on each | 1,362 bytes, 127 values |
+| point entity with 5 properties and 1 output | 526 bytes |
+| foliage instance | about 76 bytes |
+| terrain | 8.9 bytes per height sample, plus about 4 per painted sample per layer |
 
 Meshes cost about 40 bytes per vertex plus 60-220 bytes per face, depending
 on which UV and colour channels are present (from the example map). A
-50,000-brush map is on the order of 65 MB across its chunks.
+50,000-brush map is on the order of 70 MB.
 
-For brushes the value budget binds before the text size: one chunk holds
-about 7,900 box brushes (1,000,000 values) against about 13,000 by text
-(16 MiB). The default 8192-unit cells keep ordinary levels far below either.
-
-A cell that outgrows its chunk is refused on save (`LIMIT_EXCEEDED`) rather
-than written unreadable; the fix is a smaller `cell_size` for the map, or
-moving dense detail onto its own layer.
+For brushes the value budget binds before the text size: the file holds
+about 66,000 box brushes (8,388,608 values) against about 98,000 by text
+(128 MiB). A map that would go over either is refused on save
+(`LIMIT_EXCEEDED`) rather than written unreadable. The limits are bounds
+against corrupt or hostile files, not design targets; levels that approach
+them are better split into several maps.
 
 ## 16. Limits
 
 | Item | Limit |
 | --- | --- |
-| Root document | 1 MiB |
-| One chunk | 16 MiB text and 1,000,000 values; the writer refuses a chunk over either, so it never writes one the reader rejects |
+| The map file | 128 MiB text and 8,388,608 values; the writer refuses a map over either, so it never writes one the reader rejects, and the reader refuses a larger file without reading it |
 | Layers | 256 |
 | Visgroups, selection sets | 4,096 each |
 | Cordons | 256 |
-| Objects per chunk | 65,536 (foliage instances not counted) |
+| Objects per layer | 1,000,000 (foliage instances not counted) |
 | Faces per brush | 256 |
 | Vertices per mesh face | 256 |
 | Entity properties / outputs | 512 / 256 per entity |
-| Foliage instances per chunk | 1,000,000 |
+| Foliage instances per layer | 1,000,000 |
 | World extent | +/-1,048,576 units per axis |
 
 ## 17. Versions
 
-`cypher.map` V1-V3 are the legacy tile-map lineage (now `.cytilemap`) and
-V4-V9 are never used ([ADR 0009](../adr/0009-editor-and-map-file-identities.md)).
-V10 is the first full-map version. Game-side changes (renamed classes or
-properties) migrate through `game_version` without changing the map schema
-version; a future map schema change bumps to V11 with a documented upgrade
-applied on load.
+The version is the number in `@schema "cypher.map" 11`, the file's second
+line. Together with `@cykv 1` on the first line it is the magic a tool
+checks before reading anything else.
+
+| Version | Status |
+| --- | --- |
+| V1-V3 | legacy tile-map lineage, now `.cytilemap` ([ADR 0009](../adr/0009-editor-and-map-file-identities.md)) |
+| V4-V9 | never used |
+| V10 | **retired**: a root plus `.cymapchunk` files per layer and cell. Not read by Mason or the map compiler; refused with `VERSION_UNSUPPORTED` |
+| V11 | current: the whole level in one file, objects nested in their layers |
+
+Game-side changes (renamed classes or properties) migrate through
+`game_version` without changing the map schema version; a future map schema
+change bumps to V12 with a documented upgrade applied on load.
 
 ## 18. Complete example
 
-[`docs/formats/examples/cymap/`](examples/cymap/) holds a small complete
-map written by Mason's own writer: `facility.cymap` and 13 chunk files over
-four layers - a room of six brushes with materials, a terrain with a hole
-and a paint layer, a mesh ramp with a modifier, a patch arch, foliage spread
-over four cells, two player starts, a wave start with outputs, two enemy
-spawns, a light in a visgroup, a trigger and a door that own their brushes, a
-prop, a logic relay without a position (in `global`), a patrol shape, a
-group, a prefab instance, and a designer note. The root adds visgroups, a
-selection set, a cordon, and map and game settings.
+[`docs/formats/examples/cymap/facility.cymap`](examples/cymap/facility.cymap)
+is a small complete map written by Mason's own writer, four layers in one
+file - a room of six brushes with materials, a terrain with a hole and a
+paint layer, a mesh ramp with a modifier, a patch arch, foliage, two player
+starts, a wave start with outputs, two enemy spawns, a light in a visgroup,
+a trigger and a door that own their brushes, a prop, a logic relay without a
+position, a patrol shape, a group, a prefab instance, and a designer note.
+The map also has visgroups, a selection set, a cordon, and map and game
+settings.
 
-The tests load it and require that saving it reproduces every file byte for
+The tests load it and require that saving it reproduces the file byte for
 byte, so it is always a true example of the format. It is generated from the
 hand-written form in the map tests (`[.write-example]`).

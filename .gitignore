@@ -38,6 +38,9 @@ Testing/
 # Local verification captures, generated demo maps, and cleanup reports
 /artifacts/
 
+# Mason autosave copies, kept beside each map (editor.general.autosave_*)
+autosave/
+
 # Ignoring unnecessary MD files
 CLAUDE.md
 CODEX.md

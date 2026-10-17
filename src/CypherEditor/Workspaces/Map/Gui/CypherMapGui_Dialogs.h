@@ -58,7 +58,6 @@ struct map_info_t {
     int nConnections{ 0 };
     int nBrokenConnections{ 0 }; // Outputs with no target.
     int nBrokenBrushes{ 0 };
-    int nChunkFiles{ 0 };
     int nProblems{ 0 };
     map_bounds_t bounds{};
     QVector<map_info_class_t> classes{}; // Most common first, then by name.

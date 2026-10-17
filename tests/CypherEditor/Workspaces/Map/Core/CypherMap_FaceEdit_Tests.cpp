@@ -66,19 +66,13 @@ geo::geometry_brush_side_attributes_t Attributes( const map_document_t &map, u64
 
 struct saved_t {
     std::string root;
-    std::map<std::string, std::string> chunks;
-    map_save_sink_t Sink()
+    map_status_t Save( map_document_t *pMap )
     {
-        return { this,
-            []( void *p, string_view_t path, string_view_t text ) noexcept -> bool_t {
-                static_cast<saved_t *>( p )->chunks[std::string( path.pData, path.cchLength )].assign( text.pData, text.cchLength ); return CY_TRUE;
-            },
-            []( void *p, string_view_t path ) noexcept -> bool_t {
-                static_cast<saved_t *>( p )->chunks.erase( std::string( path.pData, path.cchLength ) ); return CY_TRUE;
-            },
-            []( void *p, string_view_t text ) noexcept -> bool_t {
-                static_cast<saved_t *>( p )->root.assign( text.pData, text.cchLength ); return CY_TRUE;
-            } };
+        text_buffer_t text{};
+        if ( !TextBuffer_Init( &text, Allocator_GetSystem() ) ) { return map_status_t::OUT_OF_MEMORY; }
+        const map_status_t status = MapDocument_Save( pMap, &text );
+        if ( status == map_status_t::OK ) { root.assign( TextBuffer_Data( &text ), TextBuffer_Length( &text ) ); }
+        return status;
     }
 };
 } // namespace
@@ -152,11 +146,9 @@ TEST_CASE( "Face identity and edits survive map serialization and exact ray hits
     REQUIRE( MapFaceEdit_PushPull( &f.map, f.brushId, f.sideId, 16.0 ) == map_status_t::OK );
     REQUIRE( MapFaceEdit_SetMaterial( &f.map, f.brushId, f.sideId, StringView_FromCString( "materials/replacement.cymat" ) ) == map_status_t::OK );
     saved_t saved;
-    REQUIRE( MapDocument_Save( &f.map, saved.Sink() ) == map_status_t::OK );
-    std::vector<map_chunk_input_t> chunks;
-    for ( const auto &[path, text] : saved.chunks ) { chunks.push_back( { { path.data(), path.size() }, { text.data(), text.size() } } ); }
+    REQUIRE( saved.Save( &f.map ) == map_status_t::OK );
     map_document_t loaded;
-    REQUIRE( MapDocument_Load( &loaded, Allocator_GetSystem(), { saved.root.data(), saved.root.size() }, { chunks.data(), chunks.size() } ) == map_status_t::OK );
+    REQUIRE( MapDocument_Load( &loaded, Allocator_GetSystem(), { saved.root.data(), saved.root.size() } ) == map_status_t::OK );
     const auto *pBrush = Brush( loaded, f.brushId );
     REQUIRE( pBrush->sides.pData[f.iFace].sourceId.value == f.sideId );
     CHECK( pBrush->sides.pData[f.iFace].plane.d == -48.0 );

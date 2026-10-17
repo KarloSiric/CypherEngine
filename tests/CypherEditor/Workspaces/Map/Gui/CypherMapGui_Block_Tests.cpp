@@ -10,6 +10,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <QApplication>
+#include <QElapsedTimer>
 #include <QFocusEvent>
 #include <QKeyEvent>
 #include <QLineF>
@@ -17,10 +18,13 @@
 #include <QMenu>
 #include <QTemporaryDir>
 #include <QWheelEvent>
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <memory>
 #include <string>
+#include <vector>
 
 using namespace cypher::common;
 using namespace cypher::editor;
@@ -61,6 +65,13 @@ struct settings_t {
         const auto *descriptor = EditorSettings_Find( registry, StringView_FromCString( path ) );
         REQUIRE( descriptor != nullptr );
         setting_value_t value{}; value.type = setting_type_t::REAL; value.flValue = number;
+        REQUIRE( EditorSettings_Write( registry, settings_scope_t::USER, *descriptor, value ) == settings_registry_status_t::OK );
+    }
+    void Integer( const char *path, i64 number )
+    {
+        const auto *descriptor = EditorSettings_Find( registry, StringView_FromCString( path ) );
+        REQUIRE( descriptor != nullptr );
+        setting_value_t value{}; value.type = setting_type_t::INTEGER; value.nValue = number;
         REQUIRE( EditorSettings_Write( registry, settings_scope_t::USER, *descriptor, value ) == settings_registry_status_t::OK );
     }
 };
@@ -130,6 +141,104 @@ void Free( void *context, void *memory, usize bytes, usize alignment ) noexcept
     if ( memory != nullptr ) { --static_cast<allocation_failure_t *>( context )->live; }
     Allocator_Free( Allocator_GetSystem(), memory, bytes, alignment );
 }
+}
+
+TEST_CASE( "Round Sphere previews match brush and mesh publication undo and persistence", "[map][gui][block][staged-block][sphere-roundness][persistence]" )
+{
+    const auto positions = []( const map_wireframe_t &wire ) {
+        std::vector<std::array<f64, 3>> points;
+        for ( usize i = 0; i < wire.points.nCount; ++i ) {
+            const auto p = wire.points.pData[i];
+            // Plane intersection and direct parametric construction differ
+            // by roundoff near symmetry axes. Compare their point sets on a
+            // sub-microunit lattice rather than ordering by those tiny errors.
+            const auto stable = []( f64 value ) { return std::round( value * 1e7 ) / 1e7; };
+            points.push_back( { stable( p.x ), stable( p.y ), stable( p.z ) } );
+        }
+        std::sort( points.begin(), points.end() ); return points;
+    };
+    for ( const char *output : { "brush", "mesh" } ) {
+        for ( i64 detail : { 0, 1 } ) {
+            CAPTURE( output, detail );
+            session_t session; auto &ws = session.workspace;
+            settings_t settings( &session.gui.settings );
+            settings.Text( "editor.map.new_brush_shape", "sphere" );
+            settings.Text( "editor.map.block_output", output );
+            settings.Integer( "editor.map.sphere_subdivisions", detail );
+            const auto envelope = Box( 64, 64, 128 );
+            QElapsedTimer timer; timer.start();
+            Stage( ws, envelope );
+            const qint64 previewNs = timer.nsecsElapsed();
+            REQUIRE( ws.editPreviewWire.nBrokenBrushes == 0 );
+            CHECK( ws.editPreviewWire.faces.nCount == ( detail == 0 ? 128u : 240u ) );
+            const auto expected = positions( ws.editPreviewWire );
+            REQUIRE( expected.size() == ( detail == 0 ? 114u : 218u ) );
+            for ( const auto &p : expected ) {
+                const f64 x = p[0] / 64.0, y = p[1] / 64.0, z = ( p[2] - 64.0 ) / 64.0;
+                CHECK( x * x + y * y + z * z == Catch::Approx( 1.0 ).margin( 1e-7 ) );
+            }
+            // Creation commits the displayed detail, even when settings
+            // change after staging. It must not silently replace the shape.
+            settings.Integer( "editor.map.sphere_subdivisions", 1 - detail );
+            timer.restart();
+            REQUIRE( MapWorkspace_CommitBlockPreview( &ws ) );
+            const qint64 commitNs = timer.nsecsElapsed();
+            if ( qEnvironmentVariableIsSet( "MASON_SPHERE_TIMING" ) ) {
+                qInfo( "Sphere %s detail %lld: preview %.3f ms, commit %.3f ms", output, static_cast<long long>( detail ),
+                    static_cast<double>( previewNs ) / 1e6, static_cast<double>( commitNs ) / 1e6 );
+            }
+            REQUIRE( ws.selection.ids.nCount == 1u );
+            CHECK( ws.pDocument->geometry.meshes.nCount == ( std::string( output ) == "mesh" ? 1u : 0u ) );
+            CHECK( ws.pDocument->geometry.brushes.nCount == ( std::string( output ) == "brush" ? 1u : 0u ) );
+            const auto checkPositions = [&]( const map_wireframe_t &wire ) {
+                const auto actual = positions( wire ); REQUIRE( actual.size() == expected.size() );
+                for ( usize i = 0; i < actual.size(); ++i ) {
+                    for ( usize axis = 0; axis < 3; ++axis ) { CHECK( actual[i][axis] == Catch::Approx( expected[i][axis] ).margin( 1e-7 ) ); }
+                }
+            };
+            checkPositions( ws.wire );
+            REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CHECK( ws.wire.points.nCount == 0u );
+            REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); checkPositions( ws.wire );
+            QTemporaryDir directory; REQUIRE( directory.isValid() );
+            const auto path = directory.filePath( QStringLiteral( "round-sphere.cymap" ) );
+            REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK );
+            map_document_t loaded{};
+            REQUIRE( MapFiles_Load( &loaded, Allocator_GetSystem(), path.toUtf8().constData() ).status == map_files_status_t::OK );
+            map_wireframe_t wire{}; REQUIRE( MapWireframe_Init( &wire, Allocator_GetSystem() ) );
+            REQUIRE( MapWireframe_Build( &wire, loaded ) == map_status_t::OK );
+            checkPositions( wire ); MapWireframe_Shutdown( &wire );
+            if ( detail == 1 && std::string( output ) == "mesh" ) {
+                if ( const QByteArray shot = qgetenv( "MASON_SPHERE_SHOT" ); !shot.isEmpty() ) {
+                    std::unique_ptr<QWidget> view( MapCameraView_Create( nullptr, &ws ) );
+                    MapCameraView_SetRenderMode( view.get(), map_render_mode_t::SHADED );
+                    MapWorkspace_SetTool( &ws, map_tool_t::NONE ); MapWorkspace_SetSelection( &ws, nullptr, 0 );
+                    Show( view.get() ); MapCameraView_LookAt( view.get(), { 230, -280, 220 }, { 0, 0, 64 } );
+                    QCoreApplication::processEvents(); REQUIRE( view->grab().save( QString::fromUtf8( shot ) ) );
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE( "Fast Sphere preview keeps the chosen brush face budget", "[map][gui][block][sphere-roundness][validation]" )
+{
+    session_t session; auto &ws = session.workspace; settings_t settings( &session.gui.settings );
+    settings.Text( "editor.map.new_brush_shape", "sphere" ); settings.Text( "editor.map.block_output", "brush" );
+    settings.Integer( "editor.map.sphere_subdivisions", 1 );
+    ws.pDocument->geometryPolicy.limits.cBrushSidesPerBrushMax = 128u;
+    MapWorkspace_SetEditPreview( &ws, Box( 64, 64, 128 ) );
+    CHECK( ws.editPreview.status == map_status_t::LIMIT_EXCEEDED ); CHECK( ws.editPreviewWire.points.nCount == 0u );
+    CHECK( ws.pDocument->geometry.brushes.nCount == 0u ); CHECK( EditorHistory_StepCount( &ws.history ) == 0u );
+    settings.Text( "editor.map.block_output", "mesh" );
+    MapWorkspace_SetEditPreview( &ws, Box( 64, 64, 128 ) );
+    REQUIRE( ws.editPreview.status == map_status_t::OK ); CHECK( ws.editPreviewWire.faces.nCount == 240u );
+    settings.Text( "editor.map.block_output", "brush" );
+    MapWorkspace_SetEditPreview( &ws, Box( 64, 64, 128 ) );
+    CHECK( ws.editPreview.status == map_status_t::LIMIT_EXCEEDED );
+    settings.Text( "editor.map.block_output", "mesh" );
+    MapWorkspace_SetEditPreview( &ws, Box( 64, 64, 128 ) );
+    REQUIRE( MapWorkspace_StageBlockPreview( &ws, 2u ) ); REQUIRE( MapWorkspace_CommitBlockPreview( &ws ) );
+    CHECK( ws.pDocument->geometry.meshes.nCount == 1u ); CHECK( ws.pDocument->geometry.brushes.nCount == 0u );
 }
 
 TEST_CASE( "Released Block construction stays private across panes until one confirmation", "[map][gui][block][staged-block][persistence]" )
@@ -466,17 +575,20 @@ TEST_CASE( "Staged Block depth remains attached to its original projection and C
     }
 }
 
-TEST_CASE( "A staged Block corner resize preserves its fixed opposite sides and clamps crossing", "[map][gui][block][staged-block][resize]" )
+TEST_CASE( "A staged Block side resize preserves its fixed opposite sides and clamps crossing", "[map][gui][block][staged-block][resize]" )
 {
     session_t session;
     auto &ws = session.workspace;
     std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::TOP ) );
     Show( top.get() ); Stage( ws );
-    const auto corner = MapOrthoView_WorldToView( top.get(), { 64, 64 } );
-    const auto moved = MapOrthoView_WorldToView( top.get(), { 99, 119 } );
-    Mouse( top.get(), QEvent::MouseButtonPress, corner );
-    Mouse( top.get(), QEvent::MouseMove, moved );
-    Mouse( top.get(), QEvent::MouseButtonRelease, moved );
+    // One side at a time (Hammer 5 has no corner controls): +X, then +Y.
+    const std::pair<cypher::math::vec2d_t, cypher::math::vec2d_t> drags[]{ { { 64, 0 }, { 99, 0 } }, { { 0, 64 }, { 0, 119 } } };
+    for ( const auto &[from, to] : drags ) {
+        const auto press = MapOrthoView_WorldToView( top.get(), { from.x, from.y } ), moved = MapOrthoView_WorldToView( top.get(), { to.x, to.y } );
+        Mouse( top.get(), QEvent::MouseButtonPress, press );
+        Mouse( top.get(), QEvent::MouseMove, moved );
+        Mouse( top.get(), QEvent::MouseButtonRelease, moved );
+    }
     REQUIRE( MapWorkspace_HasBlockPreview( &ws ) );
     CheckPoint( ws.editPreview.bounds.box.minimum, { -64, -64, 0 } );
     CheckPoint( ws.editPreview.bounds.box.maximum, { 96, 112, 64 } );
@@ -718,4 +830,26 @@ TEST_CASE( "Frame Map unions a staged primitive with the committed world", "[map
     MapWorkspace_Select( &ws, ws.wire.objects.pData[0].id, MAP_SELECT_REPLACE );
     Stage( ws ); MapWorkspace_Frame( &ws, CY_TRUE );
     CheckPoint( ws.frameBounds.box.maximum, { 64, 64, 64 } ); CHECK( MapWorkspace_HasBlockPreview( &ws ) );
+}
+
+TEST_CASE( "The Block tool stages and creates Hammer 5's mesh shapes with their parameters", "[map][gui][block][staged-block][block-shapes]" )
+{
+    for ( const char *shape : { "arch", "stairs", "spiral_stairs", "pipe", "torus" } ) {
+        CAPTURE( shape );
+        session_t session;
+        auto &ws = session.workspace;
+        settings_t settings( &session.gui.settings );
+        settings.Text( "editor.map.new_brush_shape", shape );
+        settings.Real( "editor.map.arch_thickness", 24.0 );
+        CHECK( MapWorkspace_PrimitiveDefaults( &ws, Box() ).wallThickness == 24.0 );
+        Stage( ws, Box( 192, 192, 128 ) );
+        CHECK( MapPrimitive_IsMesh( ws.editPreview.primitive.kind ) );
+        CHECK( ws.editPreviewWire.faces.nCount > 6u ); // The staged preview is the real shape.
+        CHECK( EditorHistory_StepCount( &ws.history ) == 0u );
+        REQUIRE( MapWorkspace_CommitBlockPreview( &ws ) );
+        CHECK( EditorHistory_StepCount( &ws.history ) == 1u );
+        REQUIRE( ws.pDocument->geometry.meshes.nCount == 1u ); // One mesh, no brushes.
+        CHECK( ws.pDocument->geometry.brushes.nCount == 0u );
+        CHECK( MapWorkspace_IsSelected( &ws, ws.pDocument->geometry.meshes.pData[0]->sourceId.value ) );
+    }
 }

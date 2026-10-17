@@ -1,7 +1,12 @@
 # ADR 0011: Map Source Format
 
-**Status:** Accepted
+**Status:** Accepted; file layout superseded by [ADR 0012](0012-single-file-maps.md)
 **Date:** 2026-09-27, revised 2026-09-29 (see "Revision 1")
+
+> Since 2026-10-12 a map is one file (`cypher.map` V11) with its objects
+> nested in their layers; the root-plus-chunks layout and chunk assignment
+> below describe the retired V10 and are kept as history. Everything else in
+> this record still applies.
 
 ## Context
 

@@ -27,10 +27,18 @@
 #include "CypherMason_Branding.h"
 
 #include "CypherMapGui_Check.h"
+#include "CypherMapGui_EntityIo.h"
+#include "CypherMapGui_GeometryCommands.h"
+#include "CypherMapGui_Notice.h"
+#include "CypherMapGui_Autosave.h"
+#include "CypherMapGui_Hotspots.h"
+#include "CypherMapGui_Game.h"
 #include "CypherMapGui_Dialogs.h"
 #include "CypherMapGui_Panels.h"
 #include "CypherMapGui_ToolPanels.h"
+#include "CypherMapGui_ToolGestures.h"
 #include "CypherMapGui_Views.h"
+#include "CypherMapGui_UvEditor.h"
 
 #include "CypherEditorGui_Actions.h"
 #include "CypherEditorGui_AppearancePage.h"
@@ -75,8 +83,12 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QDir>
+#include <QDirIterator>
+#include <QSet>
+#include <cstring>
 #include <QStandardPaths>
 #include <QStatusBar>
+#include <QTabWidget>
 #include <QSysInfo>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -110,6 +122,13 @@ struct mason_t {
     editor_docking_t docking{};
     layout_t defaultLayout{};
     mason_window_t *pWindow{ nullptr }; // Owned; deleted first in Mason_Destroy.
+    QLabel *pNotice{ nullptr };          // Hammer 5's coloured notice bar, left of the status bar.
+    QTimer *pNoticeTimer{ nullptr };
+    bool bMapNoticeThisTurn{ false }; // The map posted a notice in this event-loop turn.
+    u64 mapEditSerialSeen{ 0u };      // map.lastEdit.serial when the last command finished.
+    QTimer *pAutosaveTimer{ nullptr };  // Ticks each minute; autosaves every editor.general.autosave_minutes.
+    i64 autosaveMinutes{ 0 };           // Minutes since the last autosave attempt.
+    map_autosave_t autosave{};
     QLabel *pStatusTool{ nullptr };
     QLabel *pStatusSelection{ nullptr };
     QLabel *pStatusSize{ nullptr };      // Hammer's "64w 96l 32h @(x y z)" for the selection.
@@ -232,10 +251,26 @@ private:
 namespace
 {
 
+// The notice bar: green for done (saved, applied), red for what could not
+// run and why, amber for warnings. It fades back to plain text after a few
+// seconds; the console keeps every notice.
+void ShowNotice( mason_t &mason, map_notice_t kind, const QString &text )
+{
+    if ( mason.pNotice == nullptr ) { return; }
+    const char *pMark = kind == map_notice_t::SUCCESS ? "\u2714  " : kind == map_notice_t::ERROR ? "\u2716  " : kind == map_notice_t::WARNING ? "\u26A0  " : "";
+    const char *pStyle = kind == map_notice_t::SUCCESS ? "background:#2f9e44;color:white;" : kind == map_notice_t::ERROR ? "background:#c92a2a;color:white;" :
+                         kind == map_notice_t::WARNING ? "background:#e67700;color:white;" : "";
+    mason.pNotice->setText( QString::fromUtf8( pMark ) + text );
+    mason.pNotice->setToolTip( text );
+    mason.pNotice->setStyleSheet( QStringLiteral( "QLabel#masonNotice{padding:2px 8px;border-radius:2px;%1}" ).arg( QLatin1String( pStyle ) ) );
+    mason.pNotice->setProperty( "noticeKind", static_cast<int>( kind ) );
+    if ( mason.pNoticeTimer != nullptr ) { mason.pNoticeTimer->start(); }
+}
+
 void ReportError( mason_t &mason, const QString &title, const QString &text )
 {
     LogText( log_level_t::Error, title + QStringLiteral( ": " ) + text );
-    if ( mason.pWindow != nullptr ) { mason.pWindow->statusBar()->showMessage( title, 8000 ); }
+    ShowNotice( mason, map_notice_t::ERROR, title + QStringLiteral( ": " ) + text );
     if ( !IsHeadless( mason ) && mason.pWindow != nullptr ) { QMessageBox::warning( mason.pWindow, title, text ); }
 }
 
@@ -255,12 +290,13 @@ QString DescribeFailure( const map_files_result_t &result )
             return QStringLiteral( "This map has duplicate IDs and is read-only. The console lists them; fix them by hand or reopen "
                                    "with Reassign Duplicate IDs." );
         case map_status_t::SAVE_BLOCKED:
-            return QStringLiteral( "Saving would overwrite a damaged chunk file, or two files disagree. The console lists the problem "
-                                   "chunks; repair or move them first." );
+            return QStringLiteral( "A layer holds a section that could not be read and was kept as written, and the layer now has "
+                                   "objects of that kind. The console names the layer and section; fix it in the file first." );
         case map_status_t::LIMIT_EXCEEDED:
-            return QStringLiteral( "A chunk would exceed the format's size limit. Use smaller cells for dense layers." );
+            return QStringLiteral( "The map would exceed the format's size limit. Split very dense layers or remove unused objects." );
         case map_status_t::ROOT_UNREADABLE:
-            return QStringLiteral( "The file is not a Cypher map, or was written by a newer version." );
+            return QStringLiteral( "The file is not a Cypher map, uses the retired split format (cypher.map 10 with .cymapchunk "
+                                   "files), or was written by a newer version. The console says which, with the line for a text error." );
         case map_status_t::ROOT_INVALID: return QStringLiteral( "The map file is missing required members. The console lists them." );
         case map_status_t::OUT_OF_MEMORY: return QStringLiteral( "Out of memory." );
         default: break;
@@ -282,7 +318,7 @@ bool SaveTo( mason_t &mason, const QString &path )
     }
     mason.lastDirectory = QFileInfo( path ).absolutePath();
     ( void )MasonRecent_Add( &mason.recent, path );
-    mason.pWindow->statusBar()->showMessage( QStringLiteral( "Saved %1" ).arg( MapWorkspace_DisplayName( &mason.map ) ), 4000 );
+    ShowNotice( mason, map_notice_t::SUCCESS, QStringLiteral( "Saved \"%1\"" ).arg( QDir::toNativeSeparators( QFileInfo( path ).absoluteFilePath() ) ) );
     return true;
 }
 
@@ -397,6 +433,31 @@ command_result_t FileOpen( void *pContext, const command_args_t &args ) noexcept
     }
     if ( path.isEmpty() ) { return command_result_t::OK; } // Cancelled.
     if ( !ConfirmDiscard( mason ) ) { return command_result_t::OK; }
+    return Mason_OpenMap( &mason, path ) ? command_result_t::OK : command_result_t::FAILED;
+}
+
+// TrenchBroom's Revert Document, Hammer's Reload: the map as last saved.
+// Undo cannot bring the changes back, so a person confirms it first.
+u32 RevertState( void *pContext ) noexcept
+{
+    const mason_t &mason = Mason( pContext );
+    return !mason.map.path.isEmpty() && QFileInfo::exists( mason.map.path ) && MapWorkspace_IsModified( &mason.map ) ? COMMAND_STATE_ENABLED : COMMAND_STATE_NONE;
+}
+
+command_result_t FileRevert( void *pContext, const command_args_t &args ) noexcept
+{
+    mason_t &mason = Mason( pContext );
+    if ( RevertState( pContext ) == COMMAND_STATE_NONE ) { return command_result_t::DISABLED; }
+    // "file.revert yes" skips the question (scripts, tests); headless asks no one.
+    const bool confirmed = args.nArgs == 1u && StringView_Equals( args.pArgs[0], StringView_FromCString( "yes" ) );
+    if ( !confirmed ) {
+        if ( IsHeadless( mason ) ) { return command_result_t::INVALID_ARGUMENTS; }
+        const auto answer = QMessageBox::question( mason.pWindow, QStringLiteral( "Revert to Saved" ),
+            QStringLiteral( "Throw away every change to %1 since it was last saved? Undo cannot bring them back." ).arg( MapWorkspace_DisplayName( &mason.map ) ),
+            QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Cancel );
+        if ( answer != QMessageBox::Discard ) { return command_result_t::OK; }
+    }
+    const QString path = mason.map.path;
     return Mason_OpenMap( &mason, path ) ? command_result_t::OK : command_result_t::FAILED;
 }
 
@@ -604,6 +665,7 @@ constexpr const char *kVisibilityPanel = MAP_PANEL_VISGROUPS;
 constexpr const char *kSelectionSetsPanel = MAP_PANEL_SELECTION_SETS;
 constexpr const char *kToolPropertiesPanel = MAP_PANEL_TOOL_PROPERTIES;
 constexpr const char *kActiveMaterialPanel = MAP_PANEL_ACTIVE_MATERIAL;
+constexpr const char *kUvEditorPanel = MAP_PANEL_UV_EDITOR;
 
 command_result_t OpenProperties( void *pContext, const command_args_t & ) noexcept
 {
@@ -744,7 +806,7 @@ command_result_t SaveLayout( void *pContext, const command_args_t & ) noexcept
 {
     mason_t &mason = Mason( pContext );
     if ( !SaveWorkspaceState( mason ) ) { return command_result_t::FAILED; }
-    mason.pWindow->statusBar()->showMessage( QStringLiteral( "Workspace layout saved" ), 4000 );
+    ShowNotice( mason, map_notice_t::INFO, QStringLiteral( "Workspace layout saved" ) );
     return command_result_t::OK;
 }
 
@@ -991,11 +1053,17 @@ u32 MaximizeActiveState( void *pContext ) noexcept
     return COMMAND_STATE_ENABLED | ( MapViews_MaximizedPane( pViews ) >= 0 ? COMMAND_STATE_CHECKED : 0u );
 }
 
-// Hammer's Shift+G: the selected Command History entries, or the last
-// repeatable command when the panel has no selection.
+// Shift+G: explicit Command History selections take precedence; otherwise
+// repeat the current modelling recipe or newest repeatable command.
 command_result_t RepeatCommand( void *pContext, const command_args_t & ) noexcept
 {
     mason_t &mason = Mason( pContext );
+    if ( mason.pCommandHistory != nullptr && EditorCommandHistory_HasSelectedRepeatable( mason.pCommandHistory ) ) {
+        return EditorCommandHistory_Repeat( mason.pCommandHistory );
+    }
+    if ( MapToolGestures_HasModellingRepeat( &mason.map ) ) {
+        return MapToolGestures_RepeatModelling( &mason.map ) ? command_result_t::OK : command_result_t::DISABLED;
+    }
     return mason.pCommandHistory != nullptr ? EditorCommandHistory_Repeat( mason.pCommandHistory ) : command_result_t::DISABLED;
 }
 
@@ -1261,6 +1329,8 @@ CYPHER_NODISCARD bool RegisterCommands( mason_t &mason )
         { "file.save", "Save", "Save the map.", "file-save", nullptr, COMMAND_FLAG_NONE, FileSave, nullptr, pContext },
         { "file.save_as", "Save As...", "Save the map under a new name.", "file-save-as", "file.save_as [path]", COMMAND_FLAG_NONE, FileSaveAs,
           nullptr, pContext },
+        { "file.revert", "Revert to Saved", "Go back to the map as it was last saved, throwing away the changes since (asks first).", "file-open", "file.revert [yes]",
+          COMMAND_FLAG_NONE, FileRevert, RevertState, pContext },
         { "file.exit", "Exit", "Close Mason.", nullptr, nullptr, COMMAND_FLAG_NONE, FileExit, nullptr, pContext },
         { "edit.undo", "Undo", "Undo the last change.", "edit-undo", nullptr, COMMAND_FLAG_NONE, Undo, CanUndo, pContext },
         { "edit.redo", "Redo", "Redo the last undone change.", "edit-redo", nullptr, COMMAND_FLAG_NONE, Redo, CanRedo, pContext },
@@ -1305,10 +1375,12 @@ CYPHER_NODISCARD bool RegisterCommands( mason_t &mason )
           COMMAND_FLAG_CHECKABLE, TogglePanel<&kHistoryPanel>, PanelState<&kHistoryPanel>, pContext },
         { "view.command_history", "Command History", "Show or hide every command run, with Repeat.", "command-history", nullptr,
           COMMAND_FLAG_CHECKABLE, TogglePanel<&kCommandHistoryPanel>, PanelState<&kCommandHistoryPanel>, pContext },
-        { "edit.repeat_command", "Repeat Command", "Run the selected Command History entries again, or the last repeatable command.",
+        { "edit.repeat_command", "Repeat Command", "Repeat selected Command History entries, otherwise the latest component transform or repeatable command.",
           "command-repeat", nullptr, COMMAND_FLAG_NONE, RepeatCommand, nullptr, pContext },
         { "view.visibility", "Auto Vis Groups", "Show or hide the automatic visibility groups (world, entities, and their kinds).", "view-visgroups", nullptr,
           COMMAND_FLAG_CHECKABLE, TogglePanel<&kVisibilityPanel>, PanelState<&kVisibilityPanel>, pContext },
+        { "view.uv_editor", "UV Editor", "Show or hide the UV Editor: the picked faces over their material, to move, turn, scale and shear the texture by hand.", "uv-islands", nullptr,
+          COMMAND_FLAG_CHECKABLE, TogglePanel<&kUvEditorPanel>, PanelState<&kUvEditorPanel>, pContext },
         { "view.selection_sets", "Selection Sets", "Show or hide saved selection sets.", "view-selection-sets", nullptr,
           COMMAND_FLAG_CHECKABLE, TogglePanel<&kSelectionSetsPanel>, PanelState<&kSelectionSetsPanel>, pContext },
         { "view.tool_properties", "Tool Properties", "Show or hide options for the current tool.", "view-tool-properties", nullptr,
@@ -1413,6 +1485,9 @@ constexpr editor_menu_item_t kMenus[]{
     { "&File", nullptr },
     { "&File", "file.save" },
     { "&File", "file.save_as" },
+    { "&File", "file.revert" },
+    { "&File", "file.import" },
+    { "&File", "file.export" },
     { "&File", nullptr },
     { "&File", "file.exit" },
     { "&Edit", "edit.undo" },
@@ -1426,19 +1501,41 @@ constexpr editor_menu_item_t kMenus[]{
     { "&Edit", "edit.duplicate" },
     { "&Edit", "edit.delete" },
     { "&Edit", nullptr },
+    { "&Edit", "edit.find" },
+    { "&Edit", "edit.find_replace" },
+    { "&Edit", nullptr },
     { "&Edit", "map.transform.dialog" },
     { "&Selection", "edit.select_all" },
     { "&Selection", "edit.select_none" },
     { "&Selection", "edit.invert_selection" },
+    { "&Selection", "map.select.cycle_next" },
+    { "&Selection", "map.select.cycle_previous" },
     { "&Selection", nullptr },
     { "&Selection", "map.select.grow" },
     { "&Selection", "map.select.shrink" },
     { "&Selection", "map.select.loop" },
     { "&Selection", "map.select.ring" },
+    { "&Selection", "map.select.ribs" },
+    { "&Selection", "map.select.connected" },
+    { "&Selection", "map.select.path" },
+    { "&Selection", "map.select.boundary_edges" },
+    { "&Selection", "map.select.sharp_edges" },
+    { "&Selection", "map.select.invert_components" },
+    { "&Selection", "map.select.to_vertices" },
+    { "&Selection", "map.select.to_edges" },
+    { "&Selection", "map.select.coplanar" },
+    { "&Selection", "map.select.faces_facing" },
+    { "&Selection", "map.select.same_corners" },
+    { "&Selection", "map.select.faces_material" },
+    { "&Selection", "map.select.face_path" },
     { "&Selection", nullptr },
     { "&Selection", "map.select.touching" },
+    { "&Selection", "map.select.inside" },
+    { "&Selection", "map.select.tall" },
     { "&Selection", "map.select.same_material" },
     { "&Selection", "map.select.same_class" },
+    { "&Selection", "map.select.parent" },
+    { "&Selection", "map.select.children" },
     { "&Selection", nullptr },
     { "&Selection", "map.select_mode.vertices" },
     { "&Selection", "map.select_mode.edges" },
@@ -1451,6 +1548,7 @@ constexpr editor_menu_item_t kMenus[]{
     { "&View", "map.grid.smaller" },
     { "&View", "map.grid.larger" },
     { "&View", "map.grid.snap" },
+    { "&View", "map.grid.snap_vertices" },
     { "&View", "map.grid.angle_snap" },
     { "&View", "map.grid.scale_snap" },
     { "&View", nullptr },
@@ -1465,13 +1563,16 @@ constexpr editor_menu_item_t kMenus[]{
     { "&View", "map.view.maximize" },
     { "&View", nullptr },
     { "&View", "map.render.wireframe" },
-    { "&View", "map.render.flat" },
-    { "&View", "map.render.textured" },
-    { "&View", "map.render.lit" },
+    { "&View", "map.render.shaded" },
+    { "&View", "map.render.fullbright" },
+    { "&View", "map.render.normals" },
+    { "&View", "map.render.mesh_edges" },
+    { "&View", "map.render.wire_overlay" },
     { "&View", nullptr },
     { "&View", "map.hide.selected" },
     { "&View", "map.hide.unselected" },
     { "&View", "map.hide.show_all" },
+    { "&View", "map.show.helpers" },
     { "&View", nullptr },
     { "&View", "view.command_palette" },
     { "&View", "assets.search" },
@@ -1481,6 +1582,9 @@ constexpr editor_menu_item_t kMenus[]{
     { "&Map", "map.brush.merge" },
     { "&Map", "map.brush.snap_to_grid" },
     { "&Map", "map.brush.to_mesh" },
+    { "&Map", "map.brush.extrude_new" },
+    { "&Map", "map.brush.make_room" },
+    { "&Map", "map.entity.io" },
     { "&Map", nullptr },
     { "&Map", "map.transform.flip_horizontal" },
     { "&Map", "map.transform.flip_vertical" },
@@ -1490,11 +1594,40 @@ constexpr editor_menu_item_t kMenus[]{
     { "&Map", "map.align.right" },
     { "&Map", "map.align.top" },
     { "&Map", "map.align.bottom" },
+    { "&Map", "map.transform.drop_to_floor" },
+    { "&Map", "map.transform.clear_rotation" },
+    { "&Map", "map.brush.bounding_box" },
     { "&Map", nullptr },
     { "&Map", "map.group.create" },
     { "&Map", "map.group.ungroup" },
+    { "&Map", "map.group.add" },
+    { "&Map", "map.group.remove" },
+    { "&Map", "map.group.select" },
+    { "&Map", "map.selection_set.create" },
+    { "&Map", nullptr },
+    { "&Map", "map.game.reload" },
+    { "&Map", nullptr },
+    { "&Map", "map.entity.tie" },
+    { "&Map", "map.entity.move_to_world" },
+    { "&Map", "map.entity.reparent" },
+    { "&Map", "map.entity.unparent" },
+    { "&Map", "map.layer.move_selection" },
     { "&Map", "map.prefab.create" },
+    { "&Map", "map.prefab.insert" },
+    { "&Map", "map.prefab.create_instance" },
+    { "&Map", "map.prefab.place_instance" },
+    { "&Map", "map.prefab.collapse" },
+    { "&Map", "map.prefab.edit" },
+    { "&Map", "map.prefab.finish_edit" },
+    { "&Map", "map.prefab.cancel_edit" },
+    { "&Map", "map.prefab.reload" },
     { "&Map", "map.layer.create" },
+    { "&Map", "map.layer.set_current" },
+    { "&Map", "map.layer.toggle_hidden" },
+    { "&Map", "map.layer.toggle_locked" },
+    { "&Map", "map.layer.isolate" },
+    { "&Map", "map.layer.show_all" },
+    { "&Map", "map.layer.select_objects" },
     { "&Map", "map.visgroup.create" },
     { "&Map", nullptr },
     { "&Map", "map.cordon.edit" },
@@ -1531,17 +1664,48 @@ constexpr editor_menu_item_t kMenus[]{
     { "&Mesh", "map.mesh.boolean_union" },
     { "&Mesh", "map.mesh.boolean_subtract" },
     { "&Mesh", "map.mesh.boolean_intersect" },
+    { "&Mesh", "map.mesh.boolean_exclusive" },
+    { "&Mesh", "map.mesh.boolean_split" },
     { "&Mesh", nullptr },
     { "&Mesh", "map.mesh.to_brush" },
+    { "&Mesh", nullptr },
+    { "&Mesh", "map.mesh.offset" },
+    { "&Mesh", "map.mesh.flatten" },
+    { "&Mesh", "map.mesh.flatten_normal" },
+    { "&Mesh", "map.mesh.flatten_x" },
+    { "&Mesh", "map.mesh.flatten_y" },
+    { "&Mesh", "map.mesh.flatten_z" },
+    { "&Mesh", "map.mesh.slide_loop" },
+    { "&Mesh", "map.mesh.snap_edge_to_edge" },
+    { "&Mesh", "map.mesh.delete_face" },
+    { "&Mesh", nullptr },
+    { "&Mesh", "map.mesh.weld" },
+    { "&Mesh", "map.mesh.merge_by_distance" },
+    { "&Mesh", nullptr },
+    { "&Mesh", "map.patch.insert_row" },
+    { "&Mesh", "map.patch.insert_column" },
+    { "&Mesh", "map.patch.remove_row" },
+    { "&Mesh", "map.patch.remove_column" },
+    { "&Mesh", "map.patch.transpose" },
+    { "&Mesh", "map.patch.invert" },
+    { "&Mesh", "map.patch.thicken" },
     { "&Texture", "assets.browse_materials" },
     { "&Texture", "assets.browser" },
     { "&Texture", "assets.database" },
     { "&Texture", "map.tool.apply_material" },
+    { "&Texture", "map.texture.fast" },
+    { "&Texture", "view.uv_editor" },
+    { "&Texture", "map.texture.hotspot" },
+    { "&Texture", "map.texture.wrap_coplanar" },
     { "&Texture", "map.texture.replace" },
     { "&Texture", nullptr },
     { "&Texture", "map.texture.fit" },
     { "&Texture", "map.texture.align_world" },
     { "&Texture", "map.texture.align_face" },
+    { "&Texture", "map.texture.flip_horizontal" },
+    { "&Texture", "map.texture.flip_vertical" },
+    { "&Texture", "map.texture.rotate_cw" },
+    { "&Texture", "map.texture.rotate_ccw" },
     { "&Texture", nullptr },
     { "&Texture", "map.texture.justify_left" },
     { "&Texture", "map.texture.justify_right" },
@@ -1583,7 +1747,11 @@ constexpr editor_menu_item_t kMenus[]{
     { "&Tools", "map.tool.extrude" },
     { "&Tools", "map.tool.knife" },
     { "&Tools", "map.tool.loop_cut" },
+    { "&Tools", "map.tool.edge_cut" },
+    { "&Tools", "map.tool.edge_arc" },
+    { "&Tools", "map.tool.displace" },
     { "&Tools", "map.tool.mirror" },
+    { "&Tools", "map.tool.shear" },
     { "&Tools", nullptr },
     { "&Tools", "map.tool.texture" },
     { "&Tools", "map.tool.eyedropper" },
@@ -1607,6 +1775,7 @@ constexpr editor_menu_item_t kMenus[]{
     { "&Window", "view.history" },
     { "&Window", "view.command_history" },
     { "&Window", "view.selection_sets" },
+    { "&Window", "view.uv_editor" },
     { "&Window", "view.visibility" },
     { "&Window", "view.assets" },
     { "&Window", "assets.database" },
@@ -1651,7 +1820,7 @@ constexpr const char *kToolPalette[]{
     "map.tool.entity", "map.tool.block", "map.tool.polygon", "map.tool.path",
     "map.tool.curve", "map.tool.patch", "map.tool.terrain", "map.tool.measure", nullptr,
     "map.tool.clip", "map.tool.vertex", "map.tool.extrude", "map.tool.knife",
-    "map.tool.loop_cut", "map.tool.mirror", nullptr,
+    "map.tool.loop_cut", "map.tool.edge_cut", "map.tool.edge_arc", "map.tool.displace", "map.tool.mirror", "map.tool.shear", nullptr,
     "map.mesh.inset", "map.mesh.bevel", "map.mesh.bridge", "map.mesh.fill_hole", nullptr,
     "map.brush.hollow", "map.brush.carve", "map.brush.merge", "map.brush.to_mesh", nullptr,
     "map.tool.texture", "map.tool.apply_material", "map.tool.eyedropper",
@@ -1682,7 +1851,17 @@ QWidget *CreateViews( void *pContext, QWidget *pParent )
     return views;
 }
 QWidget *CreateOutliner( void *pContext, QWidget *pParent ) { return MapOutliner_Create( pParent, &Mason( pContext ).map ); }
-QWidget *CreateProperties( void *pContext, QWidget *pParent ) { return MapProperties_Create( pParent, &Mason( pContext ).map ); }
+// Hammer 5's Object Properties: the properties, and for an entity its
+// Outputs and Inputs, one tab each.
+QWidget *CreateProperties( void *pContext, QWidget *pParent )
+{
+    auto *pTabs = new QTabWidget( pParent );
+    pTabs->setObjectName( QStringLiteral( "MasonPropertiesTabs" ) );
+    pTabs->setDocumentMode( true );
+    pTabs->addTab( MapProperties_Create( pTabs, &Mason( pContext ).map ), QStringLiteral( "Properties" ) );
+    MapEntityIo_AddTabs( &Mason( pContext ).map, pTabs );
+    return pTabs;
+}
 bool ToolControlCancel( void *pContext, QEvent *event )
 {
     return MapViews_HandleToolCancel( Mason( pContext ).docking.pCentral, event );
@@ -1695,6 +1874,7 @@ QWidget *CreateToolProperties( void *pContext, QWidget *pParent )
 }
 QWidget *CreateActiveMaterial( void *pContext, QWidget *pParent ) { return MapActiveMaterial_Create( pParent, &Mason( pContext ).map ); }
 QWidget *CreateVisgroups( void *pContext, QWidget *pParent ) { return MapVisgroups_Create( pParent, &Mason( pContext ).map ); }
+QWidget *CreateUvEditor( void *pContext, QWidget *pParent ) { return MapUvEditor_Create( pParent, &Mason( pContext ).map ); }
 QWidget *CreateSelectionSets( void *pContext, QWidget *pParent ) { return MapSelectionSets_Create( pParent, &Mason( pContext ).map ); }
 
 void HistoryApplied( void *pContext, editor_history_status_t status ) noexcept
@@ -1806,8 +1986,8 @@ void UpdateUsedAssets( mason_t &mason )
             static_cast<QStringList *>( pContext )->append( QString::fromUtf8( path.pData, static_cast<qsizetype>( path.cchLength ) ) );
         };
         EditorAssets_VisitReferences( SettingsDocument_Root( &pDocument->root ), collect, &used );
-        for ( usize i = 0u; i < pDocument->chunks.nCount; ++i ) {
-            EditorAssets_VisitReferences( SettingsDocument_Root( &pDocument->chunks.pData[i]->store ), collect, &used );
+        for ( usize i = 0u; i < pDocument->layerStores.nCount; ++i ) {
+            EditorAssets_VisitReferences( SettingsDocument_Root( &pDocument->layerStores.pData[i]->store ), collect, &used );
         }
     }
     EditorAssetBrowser_SetUsed( mason.pAssets, QStringLiteral( "Used in Map" ), used ); // Duplicates collapse there.
@@ -2084,8 +2264,49 @@ void OnMapChanged( void *pContext, u32 changes ) noexcept
 void OnCommandExecuted( void *pContext, const command_desc_t &command, const command_args_t &args, command_result_t result ) noexcept
 {
     mason_t &mason = Mason( pContext );
+    // A successful explicit edit takes precedence over an earlier pointer or
+    // numeric modelling operation. Tool/mode changes and Undo/Redo do not.
+    if ( result == command_result_t::OK && command.pId != nullptr &&
+         EditorCommandHistory_IsRepeatable( StringView_FromCString( command.pId ) ) ) {
+        MapToolGestures_SupersedeModellingRepeat( &mason.map );
+    }
     if ( mason.pCommandHistory != nullptr ) { EditorCommandHistory_Record( mason.pCommandHistory, command, args, result ); }
     if ( mason.pWindow != nullptr ) { EditorActions_RefreshStates( &mason.actions ); }
+    // A map action that could not run says so, with what it needs, instead
+    // of silently doing nothing.
+    // The edit it tried (if any) tells "nothing to change" from "could not".
+    const bool edited = mason.map.lastEdit.serial != mason.mapEditSerialSeen;
+    mason.mapEditSerialSeen = mason.map.lastEdit.serial;
+    if ( ( result == command_result_t::FAILED || result == command_result_t::DISABLED ) && command.pId != nullptr && !mason.bMapNoticeThisTurn &&
+         std::strncmp( command.pId, "map.", 4 ) == 0 && mason.pWindow != nullptr && mason.pWindow->isVisible() ) {
+        const char *pNeed = MapGeometryCommands_Requirement( command.pId );
+        const QString label = QString::fromUtf8( command.pLabel != nullptr ? command.pLabel : command.pId );
+        const QString needs = pNeed != nullptr && pNeed[0] != '\0' ? QString::fromUtf8( pNeed ) : QString();
+        if ( result == command_result_t::FAILED && edited && mason.map.lastEdit.outcome == map_edit_outcome_t::UNCHANGED ) {
+            const char *pWhy = MapGeometryCommands_NothingToDo( command.pId );
+            ShowNotice( mason, map_notice_t::INFO, pWhy != nullptr ? QStringLiteral( "%1: nothing to change - %2" ).arg( label, QString::fromUtf8( pWhy ) )
+                                                                   : QStringLiteral( "%1 found nothing to change in this selection" ).arg( label ) );
+        } else if ( result == command_result_t::FAILED && edited && mason.map.lastEdit.outcome == map_edit_outcome_t::FAILED ) {
+            const char *reason = "the map would not stay valid";
+            switch ( mason.map.lastEdit.status ) {
+                case map_status_t::GEOMETRY_FAILED: reason = "the result would not be valid geometry"; break;
+                case map_status_t::INVALID_ARGUMENT: reason = "the selection does not suit it"; break;
+                case map_status_t::LIMIT_EXCEEDED: reason = "the result would be too large"; break;
+                case map_status_t::READ_ONLY: reason = "the map is read-only"; break;
+                case map_status_t::OUT_OF_MEMORY: reason = "out of memory"; break;
+                case map_status_t::UNKNOWN_OBJECT: case map_status_t::UNKNOWN_LAYER: reason = "something it needs is gone"; break;
+                default: break;
+            }
+            ShowNotice( mason, map_notice_t::WARNING, needs.isEmpty() ? QStringLiteral( "%1 could not be applied: %2" ).arg( label, QString::fromUtf8( reason ) )
+                                                                      : QStringLiteral( "%1 could not be applied: %2 (it works on %3)" ).arg( label, QString::fromUtf8( reason ), needs ) );
+        } else {
+            ShowNotice( mason, map_notice_t::ERROR, !needs.isEmpty() ? QStringLiteral( "%1 needs %2" ).arg( label, needs ) :
+                result == command_result_t::DISABLED ? QStringLiteral( "%1 is not available for this selection" ).arg( label ) : QStringLiteral( "%1 did not change anything" ).arg( label ) );
+        }
+        // One message per turn: an alias that ran this command stays quiet.
+        mason.bMapNoticeThisTurn = true;
+        QTimer::singleShot( 0, mason.pWindow, [pMason = &mason]() { pMason->bMapNoticeThisTurn = false; } );
+    }
 }
 
 void UpdateProblemCounts( mason_t &mason )
@@ -2166,6 +2387,7 @@ CYPHER_NODISCARD bool BuildWindow( mason_t &mason )
     pWindow->menuBar()->setNativeMenuBar( EditorSettings_Bool( &mason.gui.settings, "editor.ui.native_menu_bar", CY_FALSE ) );
     pWindow->menuBar()->setObjectName( QStringLiteral( "masonMenuBar" ) );
     EditorActions_Init( &mason.actions, &mason.gui.commands, &mason.gui.style, pWindow );
+    mason.actions.pfnNeeds = &MapGeometryCommands_Requirement; // Greyed items say what they need.
     mason.pPalette = EditorCommandPalette_Create( pWindow, &mason.actions, &mason.gui.settings );
     usize nSkipped = EditorActions_BuildMenus( &mason.actions, pWindow->menuBar(), kMenus, std::size( kMenus ) );
     AddRecentMenu( mason );
@@ -2358,9 +2580,14 @@ CYPHER_NODISCARD bool BuildWindow( mason_t &mason )
     pGeometry->addSeparator();
     auto *pBooleanMenu = new QMenu( QStringLiteral( "CSG" ), pGeometry );
     pBooleanMenu->setObjectName( QStringLiteral( "masonBooleanMenu" ) );
-    constexpr const char *booleans[]{ "map.mesh.boolean_union", "map.mesh.boolean_subtract", "map.mesh.boolean_intersect" };
+    // Brush CSG first (Hammer/TrenchBroom), then the mesh booleans and the
+    // conversions between the two.
+    constexpr const char *booleans[]{ "map.brush.hollow", "map.brush.make_room", "map.brush.carve", "map.brush.merge", "map.brush.extrude_new",
+                                      "map.tool.clip", nullptr, "map.mesh.boolean_union", "map.mesh.boolean_subtract", "map.mesh.boolean_intersect", "map.mesh.boolean_exclusive", "map.mesh.boolean_split",
+                                      nullptr, "map.brush.to_mesh", "map.mesh.to_brush" };
     nSkipped += EditorActions_FillMenu( &mason.actions, pBooleanMenu, booleans, std::size( booleans ) );
-    addGroup( "masonBooleanOptions", "CSG", pBooleanMenu, { "map.mesh.boolean_union", "map.mesh.boolean_subtract", "map.mesh.boolean_intersect" } );
+    addGroup( "masonBooleanOptions", "CSG", pBooleanMenu, { "map.brush.hollow", "map.brush.carve", "map.brush.merge", "map.mesh.boolean_union",
+                                                            "map.mesh.boolean_subtract", "map.mesh.boolean_intersect" } );
     pGeometry->addSeparator();
     addGroup( "masonSurfaceOptions", "Surface", menu( "&Texture" ), { "map.texture.fit", "map.texture.align_world", "map.texture.align_face",
                            "map.texture.rotate", "map.texture.scale", "map.texture.shift", "map.texture.unwrap" } );
@@ -2397,6 +2624,41 @@ CYPHER_NODISCARD bool BuildWindow( mason_t &mason )
                                     std::size( contexts ) );
 
     QStatusBar *pStatus = pWindow->statusBar();
+    mason.pNotice = new QLabel( pStatus );
+    mason.pNotice->setObjectName( QStringLiteral( "masonNotice" ) );
+    mason.pNotice->setTextInteractionFlags( Qt::TextSelectableByMouse );
+    mason.pNotice->setMinimumWidth( 120 );
+    pStatus->addWidget( mason.pNotice, 1 );
+    mason.pNoticeTimer = new QTimer( pWindow );
+    mason.pNoticeTimer->setSingleShot( true );
+    mason.pNoticeTimer->setInterval( 6000 );
+    QObject::connect( mason.pNoticeTimer, &QTimer::timeout, pWindow, [pMason = &mason]() {
+        pMason->pNotice->setStyleSheet( QStringLiteral( "QLabel#masonNotice{padding:2px 8px;color:palette(mid);}" ) );
+    } );
+    // Autosave (TrenchBroom, Hammer): a numbered copy beside the map while
+    // it has unsaved work. The interval is read on every tick, so changing
+    // it in Settings applies without a restart; 0 turns autosave off.
+    mason.pAutosaveTimer = new QTimer( pWindow );
+    mason.pAutosaveTimer->setInterval( 60 * 1000 );
+    QObject::connect( mason.pAutosaveTimer, &QTimer::timeout, pWindow, [pMason = &mason]() {
+        const i64 every = EditorSettings_Integer( &pMason->gui.settings, "editor.general.autosave_minutes", 5 );
+        if ( every <= 0 || ++pMason->autosaveMinutes < every ) { return; }
+        const auto keep = static_cast<u32>( std::max<i64>( 1, EditorSettings_Integer( &pMason->gui.settings, "editor.general.autosave_keep", 10 ) ) );
+        QString path;
+        switch ( MapAutosave_Run( &pMason->map, &pMason->autosave, MapAutosave_Folder( &pMason->map ), keep, &path ) ) {
+            case map_autosave_status_t::SAVED:
+                pMason->autosaveMinutes = 0;
+                ShowNotice( *pMason, map_notice_t::INFO, QStringLiteral( "Autosaved a copy to %1" ).arg( QDir::toNativeSeparators( path ) ) );
+                break;
+            case map_autosave_status_t::UNCHANGED: pMason->autosaveMinutes = 0; break;
+            case map_autosave_status_t::BUSY: break; // Next minute.
+            case map_autosave_status_t::FAILED:
+                pMason->autosaveMinutes = 0;
+                ShowNotice( *pMason, map_notice_t::WARNING, QStringLiteral( "Autosave could not write to %1" ).arg( QDir::toNativeSeparators( MapAutosave_Folder( &pMason->map ) ) ) );
+                break;
+        }
+    } );
+    mason.pAutosaveTimer->start();
     // Compact panel switches stay available after a dock is closed, and share
     // the same actions as Window/View menus (including their checked state).
     auto *pPanelSwitches = new QWidget( pStatus );
@@ -2509,6 +2771,7 @@ CYPHER_NODISCARD bool BuildWindow( mason_t &mason )
         { MAP_PANEL_ACTIVE_MATERIAL, "Active Material", CreateActiveMaterial, &mason },
         { MAP_PANEL_VISGROUPS, "Auto Vis Groups", CreateVisgroups, &mason }, // Hammer 5's name.
         { MAP_PANEL_SELECTION_SETS, "Selection Sets", CreateSelectionSets, &mason },
+        { MAP_PANEL_UV_EDITOR, "UV Editor", CreateUvEditor, &mason }, // TrenchBroom's face inspector UV view.
         { MASON_PANEL_HISTORY, "Undo History", CreateHistory, &mason },
         { MASON_PANEL_COMMAND_HISTORY, "Command History", CreateCommandHistory, &mason },
     };
@@ -2540,6 +2803,47 @@ CYPHER_NODISCARD bool BuildWindow( mason_t &mason )
         EditorActions_RefreshStates( &pMason->actions );
     } );
     EditorCommands_SetObserver( &mason.gui.commands, &OnCommandExecuted, &mason );
+    // Hotspot rectangle files sit beside materials in the content roots.
+    MapHotspots_SetResolver( &mason.map, [pMason = &mason]( const QString &virtualPath ) {
+        if ( pMason->pAssets == nullptr ) { return QString(); }
+        for ( const QString &root : EditorAssetBrowser_Roots( pMason->pAssets ) ) {
+            const QString file = QDir( root ).filePath( virtualPath );
+            if ( QFileInfo::exists( file ) ) { return QFileInfo( file ).absoluteFilePath(); }
+        }
+        return QString();
+    } );
+    // Asset pickers in Object Properties list the content files of a type;
+    // prefab files are saved into, and named relative to, the content roots.
+    if ( mason.pAssets != nullptr ) { MapAssets_SetRoots( &mason.map, EditorAssetBrowser_Roots( mason.pAssets ) ); }
+    MapAssets_SetLister( &mason.map, [pMason = &mason]( const QStringList &extensions ) {
+        QStringList paths;
+        if ( pMason->pAssets == nullptr ) { return paths; }
+        QStringList filters;
+        for ( const QString &extension : extensions ) { filters.append( QStringLiteral( "*" ) + extension ); }
+        constexpr qsizetype kMaxListed = 5000; // A picker, not an index of the whole drive.
+        QSet<QString> seen; // A higher-priority root's file hides the same path in a later one.
+        for ( const QString &root : EditorAssetBrowser_Roots( pMason->pAssets ) ) {
+            const QDir dir( root );
+            QDirIterator it( root, filters, QDir::Files, QDirIterator::Subdirectories );
+            while ( it.hasNext() && paths.size() < kMaxListed ) {
+                const QString path = dir.relativeFilePath( it.next() );
+                if ( !seen.contains( path ) ) { seen.insert( path ); paths.append( path ); }
+            }
+        }
+        paths.sort( Qt::CaseInsensitive );
+        return paths;
+    } );
+    MapNotice_SetSink( &mason.map, [pMason = &mason]( map_notice_t kind, const QString &text ) {
+        // A command that explains itself ("already uses this material")
+        // keeps its notice; OnCommandExecuted does not cover it with a
+        // generic one. Commands run synchronously, so one event-loop turn
+        // bounds "during this command".
+        if ( !pMason->bMapNoticeThisTurn && pMason->pWindow != nullptr ) {
+            pMason->bMapNoticeThisTurn = true;
+            QTimer::singleShot( 0, pMason->pWindow, [pMason]() { pMason->bMapNoticeThisTurn = false; } );
+        }
+        ShowNotice( *pMason, kind, text );
+    } );
     UpdateTitle( mason );
     UpdateStatus( mason, MAP_CHANGE_VIEW | MAP_CHANGE_SELECTION );
     EditorActions_RefreshStates( &mason.actions );
@@ -2739,6 +3043,11 @@ void Mason_Destroy( mason_t *pMason )
     if ( pMason == nullptr ) { return; }
     // Listeners first: closing panels notifies nobody who is already gone.
     EditorCommands_SetObserver( &pMason->gui.commands, nullptr, nullptr );
+    MapNotice_SetSink( &pMason->map, {} );
+    MapHotspots_SetResolver( &pMason->map, {} );
+    MapAssets_SetLister( &pMason->map, {} );
+    MapAssets_SetRoots( &pMason->map, {} );
+    MapGame_Forget( &pMason->map );
     EditorSettings_RemoveListener( &pMason->gui.settings, &OnSettingsChanged, pMason );
     EditorGui_RemoveKeymapListener( &pMason->gui, &OnKeymapChanged, pMason );
     EditorGui_RemoveStyleListener( &pMason->gui, &OnStyleChanged, pMason );
@@ -2797,15 +3106,16 @@ bool Mason_OpenMap( mason_t *pMason, const QString &path )
     }
     pMason->lastDirectory = QFileInfo( path ).absolutePath();
     if ( !MasonRecent_Add( &pMason->recent, path ) ) { LogText( log_level_t::Warning, QStringLiteral( "The recent maps list could not be saved" ) ); }
-    QString message = QStringLiteral( "Opened %1: %2 objects in %3 chunk files" )
+    QString message = QStringLiteral( "Opened %1: %2 objects in %3 layers" )
                           .arg( MapWorkspace_DisplayName( &pMason->map ) )
                           .arg( pMason->map.wire.objects.nCount )
-                          .arg( result.nChunkFiles );
+                          .arg( pMason->map.pDocument->layers.nCount );
     if ( pMason->map.pDocument->problems.nCount != 0u ) {
         message += QStringLiteral( ", %1 problems (see console)" ).arg( pMason->map.pDocument->problems.nCount );
     }
     LogText( log_level_t::Info, message );
-    pMason->pWindow->statusBar()->showMessage( message, 8000 );
+    ShowNotice( *pMason, pMason->map.pDocument->problems.nCount != 0u ? map_notice_t::WARNING : map_notice_t::SUCCESS,
+                message + QStringLiteral( " \u2014 \"%1\"" ).arg( QDir::toNativeSeparators( QFileInfo( path ).absoluteFilePath() ) ) );
     return true;
 }
 

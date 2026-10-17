@@ -36,10 +36,10 @@ struct clipboard_scope_t {
 struct session_t {
     gui::editor_gui_t gui{};
     map_workspace_t workspace{};
-    session_t()
+    explicit session_t( const allocator_t *allocator = Allocator_GetSystem() )
     {
         auto *app = qobject_cast<QApplication *>( QCoreApplication::instance() );
-        REQUIRE( gui::EditorGui_Init( &gui, app, Allocator_GetSystem() ) == gui::editor_gui_status_t::OK );
+        REQUIRE( gui::EditorGui_Init( &gui, app, allocator ) == gui::editor_gui_status_t::OK );
         REQUIRE( MapWorkspace_Init( &workspace, &gui ) );
         REQUIRE( MapWorkspace_RegisterCommands( &workspace, &gui.commands ) == command_registry_status_t::OK );
     }
@@ -124,7 +124,8 @@ TEST_CASE( "Brush conversion publishes one selected mesh edit and preserves root
         const auto *brush = geo::GeometryDocument_FindBrush( &ws.pDocument->geometry, { id } ); REQUIRE( brush != nullptr );
         for ( usize i = 0; i < brush->sides.nCount; ++i ) { oldFaceIds.insert( brush->sides.pData[i].sourceId.value ); }
     }
-    REQUIRE( Enabled( session, "map.brush.to_mesh" ) ); CHECK_FALSE( Enabled( session, "map.mesh.flip_normals" ) );
+    // Flip Normals is offered on brushes too: it converts them first.
+    REQUIRE( Enabled( session, "map.brush.to_mesh" ) ); CHECK( Enabled( session, "map.mesh.flip_normals" ) );
     REQUIRE( Execute( session, "map.brush.to_mesh" ) == command_result_t::OK );
     CHECK( ws.pDocument->geometry.brushes.nCount == 0 ); CHECK( ws.pDocument->geometry.meshes.nCount == 2 );
     CHECK( Selection( ws ) == selected ); CHECK( EditorHistory_StepCount( &ws.history ) == steps + 1 );
@@ -356,8 +357,10 @@ TEST_CASE( "Mixed brush and mesh roots disable both mesh commands without partia
     const auto selected = Selection( ws ); const auto token = UndoRedo_StateToken( ws.history.pUndo );
     const auto *document = ws.pDocument; const auto *points = ws.wire.points.pData;
     CHECK_FALSE( MapWorkspace_CanConvertBrushSelection( &ws ) ); CHECK_FALSE( MapWorkspace_CanEditMeshSelection( &ws ) );
-    CHECK_FALSE( Enabled( session, "map.brush.to_mesh" ) ); CHECK_FALSE( Enabled( session, "map.mesh.flip_normals" ) );
-    CHECK_FALSE( Enabled( session, "map.mesh.triangulate" ) ); CHECK_FALSE( MapWorkspace_TriangulateMeshSelection( &ws ) );
+    // The commands offer themselves through converting the brush first; the
+    // workspace operations themselves still refuse a mixed selection.
+    CHECK_FALSE( Enabled( session, "map.brush.to_mesh" ) ); CHECK( Enabled( session, "map.mesh.flip_normals" ) );
+    CHECK( Enabled( session, "map.mesh.triangulate" ) ); CHECK_FALSE( MapWorkspace_TriangulateMeshSelection( &ws ) );
     CHECK_FALSE( MapWorkspace_ConvertBrushSelection( &ws ) ); CHECK_FALSE( MapWorkspace_FlipMeshNormals( &ws ) );
     CHECK( ws.pDocument == document ); CHECK( ws.wire.points.pData == points ); CHECK( Selection( ws ) == selected );
     CHECK( ws.pDocument->geometry.brushes.nCount == 1 ); CHECK( ws.pDocument->geometry.meshes.nCount == 1 );
@@ -525,8 +528,10 @@ TEST_CASE( "Select properties expose mesh operations with current selection mode
         CHECK( button( "map.mesh.triangulate" ) == triangulationButton.data() );
         CHECK_FALSE( conversionButton->isChecked() ); CHECK_FALSE( flipButton->isChecked() ); CHECK_FALSE( triangulationButton->isChecked() );
     };
-    REQUIRE( button( "map.brush.to_mesh" )->isEnabled() ); CHECK_FALSE( button( "map.mesh.flip_normals" )->isEnabled() );
-    CHECK_FALSE( button( "map.mesh.triangulate" )->isEnabled() );
+    // A selected brush offers the mesh operations too: running one makes it
+    // a mesh first (Hammer 5 blocks are meshes; editor.map.components_convert_brushes).
+    REQUIRE( button( "map.brush.to_mesh" )->isEnabled() ); CHECK( button( "map.mesh.flip_normals" )->isEnabled() );
+    CHECK( button( "map.mesh.triangulate" )->isEnabled() );
     CHECK( flipRows() == QStringList{ QStringLiteral( "[F] Mesh objects: reverse all faces (Objects/Groups/Meshes)" ) } );
     CHECK( triangleRows() == QStringList{ QStringLiteral( "[T] Mesh objects: triangulate all polygons (Objects/Groups/Meshes)" ) } );
     button( "map.brush.to_mesh" )->click();
@@ -569,7 +574,7 @@ TEST_CASE( "Select properties expose mesh operations with current selection mode
     REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
     REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
     retainedButtons();
-    CHECK( button( "map.brush.to_mesh" )->isEnabled() ); CHECK_FALSE( button( "map.mesh.flip_normals" )->isEnabled() );
+    CHECK( button( "map.brush.to_mesh" )->isEnabled() ); CHECK( button( "map.mesh.flip_normals" )->isEnabled() ); // Through conversion, as above.
 }
 
 TEST_CASE( "Mesh edit publication allocation failures leave selection wireframe history and document retryable", "[map][gui][mesh-edit][allocation][atomic]" )
@@ -611,4 +616,132 @@ TEST_CASE( "Mesh edit publication allocation failures leave selection wireframe 
         }
         CHECK( audit.live == 0 );
     }
+}
+
+TEST_CASE( "A face-set replacement prepares every allocation before publishing roots faces or notifications", "[map][gui][mesh-edit][face-selection-atomic][allocation]" )
+{
+    bool reachedSuccess = false;
+    for ( usize failOn = 1; failOn <= 16 && !reachedSuccess; ++failOn ) {
+        CAPTURE( failOn ); allocation_failure_t audit{};
+        const allocator_t allocator{ &Allocate, nullptr, &Free, &audit };
+        {
+            session_t session( &allocator ); auto &ws = session.workspace;
+            const u64 first = AddBox( ws, -128 ), second = AddBox( ws, 96 );
+            const u64 both[]{ first, second }; MapWorkspace_SetSelection( &ws, both, 2 );
+            REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) );
+            description_t a( *ws.pDocument, first ), b( *ws.pDocument, second );
+            const u64 active = a.value.faces.pData[0].sourceId.value;
+            MapWorkspace_SelectMeshFace( &ws, first, active );
+            REQUIRE( ws.selectedMeshFaceObject == first ); REQUIRE( ws.selectedMeshFaceId == active );
+            const u64 wanted[]{ b.value.faces.pData[2].sourceId.value, b.value.faces.pData[0].sourceId.value, b.value.faces.pData[2].sourceId.value };
+            const auto *document = ws.pDocument;
+            const auto geometryRevision = document->geometry.revision, nextId = document->nextId, revision = ws.selection.revision;
+            const auto *roots = ws.selection.ids.pData;
+            const usize steps = EditorHistory_StepCount( &ws.history );
+            const auto history = UndoRedo_StateToken( ws.history.pUndo );
+            ws.meshVertexColumnAxis = 1; ws.meshVertexColumnRevision = revision;
+            usize notifications = 0;
+            const auto listener = []( void *context, u32 changes ) noexcept {
+                if ( ( changes & MAP_CHANGE_SELECTION ) != 0u ) { ++*static_cast<usize *>( context ); }
+            };
+            REQUIRE( MapWorkspace_AddListener( &ws, listener, &notifications ) );
+            const usize live = audit.live;
+            audit.calls = 0; audit.failOn = failOn;
+            const bool changed = MapWorkspace_SetMeshFaces( &ws, second, { wanted, 3 }, wanted[0] );
+            audit.failOn = 0;
+            if ( !changed ) {
+                CHECK( audit.calls >= failOn ); CHECK( audit.live == live );
+                CHECK( notifications == 0 ); CHECK( ws.selection.revision == revision ); CHECK( ws.selection.ids.pData == roots );
+                REQUIRE( ws.selection.ids.nCount == 1 ); CHECK( ws.selection.ids.pData[0] == first );
+                CHECK( ws.selectedMeshFaceObject == first ); CHECK( ws.selectedMeshFaceId == active );
+                const auto faces = MapWorkspace_MeshFaces( &ws ); REQUIRE( faces.nCount == 1 ); CHECK( faces.pData[0] == active );
+                CHECK( ws.meshVertexColumnAxis == 1 ); CHECK( ws.meshVertexColumnRevision == revision );
+            } else {
+                reachedSuccess = true;
+                CHECK( notifications == 1 ); CHECK( ws.selection.revision == revision + 1 );
+                REQUIRE( ws.selection.ids.nCount == 1 ); CHECK( ws.selection.ids.pData[0] == second );
+                CHECK( ws.selectedMeshFaceObject == second ); CHECK( ws.selectedMeshFaceId == wanted[0] );
+                const auto faces = MapWorkspace_MeshFaces( &ws ); REQUIRE( faces.nCount == 2 ); CHECK( faces.pData[0] < faces.pData[1] );
+                CHECK( MapWorkspace_IsMeshFaceSelected( &ws, second, wanted[0] ) ); CHECK( MapWorkspace_IsMeshFaceSelected( &ws, second, wanted[1] ) );
+            }
+            MapWorkspace_RemoveListener( &ws, listener, &notifications );
+            CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == geometryRevision ); CHECK( document->nextId == nextId );
+            CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( UndoRedo_StateTokenEquals( history, UndoRedo_StateToken( ws.history.pUndo ) ) );
+        }
+        CHECK( audit.live == 0 );
+    }
+    REQUIRE( reachedSuccess );
+}
+
+TEST_CASE( "Face selection accepts its borrowed set and publishes active changes and removal once", "[map][gui][mesh-edit][face-selection-atomic]" )
+{
+    session_t session; auto &ws = session.workspace;
+    const u64 mesh = AddBox( ws, 0 ); REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) );
+    description_t source( *ws.pDocument, mesh );
+    const u64 a = source.value.faces.pData[0].sourceId.value, b = source.value.faces.pData[1].sourceId.value;
+    const u64 ids[]{ b, a, b };
+    REQUIRE( MapWorkspace_SetMeshFaces( &ws, mesh, { ids, 3 }, b ) );
+    REQUIRE( MapWorkspace_MeshFaces( &ws ).nCount == 2 );
+    const auto borrowed = MapWorkspace_MeshFaces( &ws ); const auto revision = ws.selection.revision;
+    REQUIRE( MapWorkspace_SetMeshFaces( &ws, mesh, borrowed, a ) );
+    CHECK( ws.selectedMeshFaceId == a ); CHECK( ws.selection.revision == revision + 1 );
+    REQUIRE( MapWorkspace_MeshFaces( &ws ).nCount == 2 );
+    CHECK( MapWorkspace_IsMeshFaceSelected( &ws, mesh, a ) ); CHECK( MapWorkspace_IsMeshFaceSelected( &ws, mesh, b ) );
+    const auto removal = ws.selection.revision;
+    REQUIRE( MapWorkspace_RemoveMeshFace( &ws, mesh, a ) );
+    CHECK( ws.selection.revision == removal + 1 ); CHECK( ws.selectedMeshFaceId == b );
+    REQUIRE( MapWorkspace_RemoveMeshFace( &ws, mesh, b ) );
+    CHECK( ws.selection.revision == removal + 2 ); CHECK( MapWorkspace_MeshFaces( &ws ).nCount == 0 );
+    const auto empty = ws.selection.revision;
+    MapWorkspace_ClearMeshFace( &ws ); CHECK( ws.selection.revision == empty );
+}
+
+TEST_CASE( "Adding a mesh face either publishes the complete set or retains the original scalar selection", "[map][gui][mesh-edit][face-selection-atomic][allocation]" )
+{
+    bool reachedSuccess = false;
+    for ( usize failOn = 1; failOn <= 16 && !reachedSuccess; ++failOn ) {
+        CAPTURE( failOn ); allocation_failure_t audit{};
+        const allocator_t allocator{ &Allocate, nullptr, &Free, &audit };
+        {
+            session_t session( &allocator ); auto &ws = session.workspace;
+            const u64 mesh = AddBox( ws, 0 ); REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) );
+            description_t source( *ws.pDocument, mesh );
+            const u64 a = source.value.faces.pData[0].sourceId.value, b = source.value.faces.pData[1].sourceId.value;
+            MapWorkspace_SelectMeshFace( &ws, mesh, a ); REQUIRE( MapWorkspace_HasMeshFace( &ws ) );
+            const auto revision = ws.selection.revision;
+            const auto *roots = ws.selection.ids.pData, *set = ws.meshFaceSet.pData;
+            const usize count = ws.meshFaceSet.nCount, capacity = ws.meshFaceSet.nCapacity;
+            const u64 setObject = ws.meshFaceSetObject;
+            const usize steps = EditorHistory_StepCount( &ws.history ); const auto history = UndoRedo_StateToken( ws.history.pUndo );
+            usize notifications = 0;
+            const auto listener = []( void *context, u32 changes ) noexcept {
+                if ( ( changes & MAP_CHANGE_SELECTION ) != 0u ) { ++*static_cast<usize *>( context ); }
+            };
+            REQUIRE( MapWorkspace_AddListener( &ws, listener, &notifications ) ); const usize live = audit.live;
+            audit.calls = 0; audit.failOn = failOn;
+            const bool changed = MapWorkspace_AddMeshFace( &ws, mesh, b ); audit.failOn = 0;
+            if ( !changed ) {
+                CHECK( audit.calls >= failOn ); CHECK( audit.live == live ); CHECK( notifications == 0 );
+                CHECK( ws.selection.revision == revision ); CHECK( ws.selection.ids.pData == roots );
+                CHECK( ws.selectedMeshFaceObject == mesh ); CHECK( ws.selectedMeshFaceId == a );
+                CHECK( ws.meshFaceSet.pData == set ); CHECK( ws.meshFaceSet.nCount == count );
+                CHECK( ws.meshFaceSet.nCapacity == capacity ); CHECK( ws.meshFaceSetObject == setObject );
+                const auto faces = MapWorkspace_MeshFaces( &ws ); REQUIRE( faces.nCount == 1 ); CHECK( faces.pData[0] == a );
+            } else {
+                reachedSuccess = true;
+                CHECK( notifications == 1 ); CHECK( ws.selection.revision == revision + 1 ); CHECK( ws.selectedMeshFaceId == b );
+                CHECK( MapWorkspace_IsMeshFaceSelected( &ws, mesh, a ) ); CHECK( MapWorkspace_IsMeshFaceSelected( &ws, mesh, b ) );
+                const auto unchanged = ws.selection.revision; notifications = 0; audit.calls = 0; audit.failOn = 1;
+                CHECK( MapWorkspace_AddMeshFace( &ws, mesh, b ) );
+                CHECK( MapWorkspace_SetMeshFaces( &ws, mesh, MapWorkspace_MeshFaces( &ws ), b ) );
+                CHECK_FALSE( MapWorkspace_AddMeshFace( &ws, mesh, 0 ) );
+                CHECK( audit.calls == 0 ); CHECK( notifications == 0 ); CHECK( ws.selection.revision == unchanged );
+                audit.failOn = 0;
+            }
+            MapWorkspace_RemoveListener( &ws, listener, &notifications );
+            CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( UndoRedo_StateTokenEquals( history, UndoRedo_StateToken( ws.history.pUndo ) ) );
+        }
+        CHECK( audit.live == 0 );
+    }
+    REQUIRE( reachedSuccess );
 }

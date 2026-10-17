@@ -4,6 +4,9 @@
 // Map edit ownership, persistent identity, transforms and save/load contracts.
 //////////////////////////////////////////////////////////////////////////
 #include "CypherMap_Edit.h"
+#include "CypherMap_Hierarchy.h"
+#include "CypherMap_Modifiers.h"
+#include "CypherMap_ObjectCreate.h"
 #include "CypherMap_Wireframe.h"
 #include "CypherGeometry_BrushBoundary.h"
 #include "CypherGeometry_BrushValidation.h"
@@ -50,30 +53,68 @@ map_bounds_t Bounds( map_document_t &m, u64 id )
     geo::BrushSource_Shutdown( &b ); REQUIRE( bounds.bHas ); return bounds;
 }
 struct files_t {
-    std::string root; std::map<std::string, std::string> chunks;
-    map_save_sink_t Sink()
+    std::string root;
+    map_status_t Save( map_document_t *pMap )
     {
-        return { this,
-            []( void *ctx, string_view_t p, string_view_t t ) noexcept -> bool_t { static_cast<files_t *>( ctx )->chunks[std::string( p.pData, p.cchLength )] = std::string( t.pData, t.cchLength ); return CY_TRUE; },
-            []( void *ctx, string_view_t p ) noexcept -> bool_t { static_cast<files_t *>( ctx )->chunks.erase( std::string( p.pData, p.cchLength ) ); return CY_TRUE; },
-            []( void *ctx, string_view_t t ) noexcept -> bool_t { static_cast<files_t *>( ctx )->root.assign( t.pData, t.cchLength ); return CY_TRUE; } };
+        text_buffer_t text{};
+        if ( !TextBuffer_Init( &text, Allocator_GetSystem() ) ) { return map_status_t::OUT_OF_MEMORY; }
+        const map_status_t status = MapDocument_Save( pMap, &text );
+        if ( status == map_status_t::OK ) { root.assign( TextBuffer_Data( &text ), TextBuffer_Length( &text ) ); }
+        return status;
     }
 };
 void Load( map_document_t &m, const files_t &f )
 {
-    std::vector<map_chunk_input_t> inputs;
-    for ( const auto &[p, text] : f.chunks ) { inputs.push_back( { SV( p ), SV( text ) } ); }
-    REQUIRE( MapDocument_Load( &m, Allocator_GetSystem(), SV( f.root ), { inputs.data(), inputs.size() } ) == map_status_t::OK );
+    REQUIRE( MapDocument_Load( &m, Allocator_GetSystem(), SV( f.root ) ) == map_status_t::OK );
 }
 void Facility( map_document_t &m )
 {
     const std::filesystem::path dir = CYPHER_MAP_EXAMPLE_DIR;
     const auto read = []( const std::filesystem::path &p ) { std::ifstream in( p ); return std::string( std::istreambuf_iterator<char>( in ), {} ); };
     files_t f; f.root = read( dir / "facility.cymap" );
-    for ( const auto &entry : std::filesystem::recursive_directory_iterator( dir / "facility" ) ) {
-        if ( entry.path().extension() == ".cymapchunk" ) { f.chunks[entry.path().lexically_relative( dir / "facility" ).generic_string()] = read( entry.path() ); }
-    }
     Load( m, f );
+}
+void UseUnweldedFacilityMirror( map_document_t &m )
+{
+    // Nonuniform root transforms preserve this axis-aligned mirror plane,
+    // but cannot preserve a scalar distance-weld tolerance. Change only the
+    // private test document; the authored facility stays welded.
+    std::vector<geo::modifier_t> stages;
+    REQUIRE( MapModifiers_Read( &m, 1200, stages ) == map_status_t::OK );
+    REQUIRE( stages.size() == 1u ); REQUIRE( stages[0].kind == geo::modifier_kind_t::MIRROR );
+    REQUIRE( stages[0].bWeld ); REQUIRE( stages[0].weldDistance > 0 );
+    stages[0].bWeld = false;
+    bool changed = false;
+    REQUIRE( MapModifiers_Write( &m, 1200, stages, &changed ) == map_status_t::OK ); REQUIRE( changed );
+}
+void SetPrefabFixtureVector( map_document_t &map, const char *name, math::vec3d_t value )
+{
+    map_layer_store_t *store = nullptr; auto *record = MapDocument_FindObject( &map, 200, &store ); REQUIRE( record ); REQUIRE( store );
+    if ( auto *old = KeyValue_Find( record, SV( name ) ) ) { REQUIRE( KeyValue_Remove( store->store.pDocument, record, old ) ); }
+    auto *node = KeyValue_ObjectInsert( store->store.pDocument, record, SV( name ), key_value_type_t::ARRAY ); REQUIRE( node );
+    for ( f64 part : { value.x, value.y, value.z } ) {
+        auto *item = KeyValue_ArrayAppend( store->store.pDocument, node, key_value_type_t::F64 ); REQUIRE( item );
+        REQUIRE( KeyValue_SetF64( store->store.pDocument, item, part ) );
+    }
+}
+math::vec3d_t PrefabFixtureVector( map_document_t &map, const char *name )
+{
+    const auto *node = KeyValue_Find( MapDocument_FindObject( &map, 200, nullptr ), SV( name ) );
+    math::vec3d_t value{}; REQUIRE( KeyValue_ChildCount( node ) == 3 );
+    REQUIRE( KeyValue_GetF64( KeyValue_ChildAt( node, 0 ), &value.x ) ); REQUIRE( KeyValue_GetF64( KeyValue_ChildAt( node, 1 ), &value.y ) );
+    REQUIRE( KeyValue_GetF64( KeyValue_ChildAt( node, 2 ), &value.z ) ); return value;
+}
+math::vec3d_t PrefabFixturePoint( math::vec3d_t p, math::vec3d_t origin, math::vec3d_t angles, math::vec3d_t scale )
+{
+    // Independent point construction: scale, roll about X, pitch about Y,
+    // then yaw about Z. The production admission uses a matrix conjugation.
+    constexpr f64 rad = 3.14159265358979323846 / 180;
+    p = { p.x * scale.x, p.y * scale.y, p.z * scale.z };
+    const f64 roll = angles.z * rad, pitch = angles.x * rad, yaw = angles.y * rad;
+    p = { p.x, std::cos( roll ) * p.y - std::sin( roll ) * p.z, std::sin( roll ) * p.y + std::cos( roll ) * p.z };
+    p = { std::cos( pitch ) * p.x + std::sin( pitch ) * p.z, p.y, -std::sin( pitch ) * p.x + std::cos( pitch ) * p.z };
+    p = { std::cos( yaw ) * p.x - std::sin( yaw ) * p.y, std::sin( yaw ) * p.x + std::cos( yaw ) * p.y, p.z };
+    return { origin.x + p.x, origin.y + p.y, origin.z + p.z };
 }
 struct allocation_audit_t {
     usize calls{ 0 }, failAt{ CY_USIZE_MAX }, bytes{ 0 };
@@ -118,7 +159,7 @@ TEST_CASE( "Map edit working copies retain identity and authored state without m
     CHECK( Bounds( original, id ).box.minimum.x == Catch::Approx( -32 ) );
     CHECK( Bounds( *edited, id ).box.minimum.x == Catch::Approx( 96 ) );
     CHECK( original.nextId == next ); CHECK( original.geometry.revision == revision );
-    CHECK( original.chunks.nCount == 0 );
+    CHECK( original.layerStores.nCount == 0 );
     CHECK( UniqueId_Equals( edited->mapId, original.mapId ) );
     CHECK( edited->geometry.sourceIds.allocator.next.value == original.geometry.sourceIds.allocator.next.value );
     CHECK( MapEdit_EstimateBytes( edited.get() ) > sizeof( map_document_t ) );
@@ -132,7 +173,7 @@ TEST_CASE( "Map edit working copies retain identity and authored state without m
         CHECK( uv.worldUnitsPerUv.x == Catch::Approx( 128.0 ) );
     }
     CHECK( MapMaterials_Path( &edited->materials, attributes->records.pData[0].material.value ).cchLength != 0 );
-    files_t saved; REQUIRE( MapDocument_Save( edited.get(), saved.Sink() ) == map_status_t::OK );
+    files_t saved; REQUIRE( saved.Save( edited.get() ) == map_status_t::OK );
     map_document_t loaded; Load( loaded, saved );
     CHECK( Bounds( loaded, id ).box.minimum.x == Catch::Approx( 96 ) );
     CHECK( loaded.nextId == edited->nextId );
@@ -253,7 +294,7 @@ TEST_CASE( "Mixed selected roots extend by identical world travel without shifti
                 for ( usize vertex = 0; vertex < sourceMesh.vertices.nCount; ++vertex ) { CHECK( sourceMesh.vertices.pData[vertex].sourceId.value == targetMesh.vertices.pData[vertex].sourceId.value ); }
                 for ( usize corner = 0; corner < sourceMesh.corners.nCount; ++corner ) { CHECK( sourceMesh.corners.pData[corner].attributes.uv0.x == targetMesh.corners.pData[corner].attributes.uv0.x ); CHECK( sourceMesh.corners.pData[corner].attributes.uv0.y == targetMesh.corners.pData[corner].attributes.uv0.y ); }
                 geo::MeshSourceDescription_Shutdown( &sourceMesh ); geo::MeshSourceDescription_Shutdown( &targetMesh );
-                files_t saved; REQUIRE( MapDocument_Save( edited.get(), saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+                files_t saved; REQUIRE( saved.Save( edited.get() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
                 map_wireframe_t restored; REQUIRE( MapWireframe_Init( &restored, loaded.pAllocator ) ); REQUIRE( MapWireframe_Build( &restored, loaded ) == map_status_t::OK );
                 for ( const u64 id : ids ) {
                     const auto *a = MapWireframe_FindObject( after, id ), *b = MapWireframe_FindObject( restored, id ); REQUIRE( a ); REQUIRE( b );
@@ -268,11 +309,12 @@ TEST_CASE( "Per-object resize preflights every root and keeps no-op revisions un
 {
     map_document_t map; Facility( map );
     const map_bounds_resize_t valid{ { 1, 0, 0 }, { 64, 0, 0 }, CY_FALSE };
-    files_t baseline; REQUIRE( MapDocument_Save( &map, baseline.Sink() ) == map_status_t::OK );
-    const auto revision = map.geometry.revision, next = map.nextId;
+    files_t baseline; REQUIRE( baseline.Save( &map ) == map_status_t::OK );
+    const auto revision = map.geometry.revision, next = map.nextId, partNext = map.geometry.sourceIds.allocator.next.value;
     const auto reject = [&]( span_t<const u64> ids, map_bounds_resize_t resize, map_status_t expected ) {
         CHECK( MapEdit_Resize( &map, ids, resize ) == expected ); CHECK( map.geometry.revision == revision ); CHECK( map.nextId == next );
-        files_t actual; REQUIRE( MapDocument_Save( &map, actual.Sink() ) == map_status_t::OK ); CHECK( actual.root == baseline.root ); CHECK( actual.chunks == baseline.chunks );
+        CHECK( map.geometry.sourceIds.allocator.next.value == partNext );
+        files_t actual; REQUIRE( actual.Save( &map ) == map_status_t::OK ); CHECK( actual.root == baseline.root );
     };
     const u64 unknown[]{ 1000, 987654321 }; reject( { unknown, 2 }, valid, map_status_t::UNKNOWN_OBJECT );
     const u64 entity[]{ 1000, 150 }; reject( { entity, 2 }, valid, map_status_t::INVALID_ARGUMENT );
@@ -285,10 +327,18 @@ TEST_CASE( "Per-object resize preflights every root and keeps no-op revisions un
     CHECK( MapEdit_Resize( nullptr, { roots, 4 }, valid ) == map_status_t::INVALID_ARGUMENT ); CHECK( MapEdit_Resize( &map, {}, valid ) == map_status_t::INVALID_ARGUMENT );
     map.bReadOnly = CY_TRUE; CHECK( MapEdit_Resize( &map, { roots, 4 }, valid ) == map_status_t::READ_ONLY ); map.bReadOnly = CY_FALSE;
     map.geometry.revision = CY_U64_MAX; CHECK( MapEdit_Resize( &map, { roots, 4 }, valid ) == map_status_t::LIMIT_EXCEEDED ); CHECK( map.geometry.revision == CY_U64_MAX ); map.geometry.revision = revision;
+    // Mesh 1200 has distance welding enabled: unequal axis scale cannot
+    // preserve its tolerance, so the whole mixed-root batch must stay put.
+    reject( { roots, 4 }, valid, map_status_t::MODIFIER_TRANSFORM_UNSUPPORTED );
     // Supported curved patches use the same original control-net bounds as the
     // view, while originless entity helpers remain outside this operation.
-    REQUIRE( MapEdit_Resize( &map, { roots, 4 }, valid ) == map_status_t::OK ); CHECK( map.geometry.revision == revision + 1 );
-    files_t resized; REQUIRE( MapDocument_Save( &map, resized.Sink() ) == map_status_t::OK ); map_document_t restored; Load( restored, resized );
+    map_document_t *raw = nullptr; REQUIRE( MapEdit_Clone( &map, &raw ) == map_status_t::OK );
+    std::unique_ptr<map_document_t> compatible( raw ); UseUnweldedFacilityMirror( *compatible );
+    const auto compatibleRevision = compatible->geometry.revision;
+    REQUIRE( MapEdit_Resize( compatible.get(), { roots, 4 }, valid ) == map_status_t::OK ); CHECK( compatible->geometry.revision == compatibleRevision + 1 );
+    CHECK( map.geometry.revision == revision ); CHECK( map.nextId == next ); CHECK( map.geometry.sourceIds.allocator.next.value == partNext );
+    files_t unchanged; REQUIRE( unchanged.Save( &map ) == map_status_t::OK ); CHECK( unchanged.root == baseline.root );
+    files_t resized; REQUIRE( resized.Save( compatible.get() ) == map_status_t::OK ); map_document_t restored; Load( restored, resized );
     map_wireframe_t wire; REQUIRE( MapWireframe_Init( &wire, restored.pAllocator ) ); REQUIRE( MapWireframe_Build( &wire, restored ) == map_status_t::OK );
     const auto *owned = MapWireframe_FindObject( wire, 151 ); REQUIRE( owned ); CHECK( owned->owner == 150 );
     const auto *retained = MapDocument_FindObject( &restored, 1200, nullptr ); REQUIRE( retained ); CHECK( KeyValue_Find( retained, SV( "modifiers" ) ) != nullptr );
@@ -340,17 +390,17 @@ TEST_CASE( "Map duplication gives every part a fresh ID and keeps source surface
 TEST_CASE( "Map working copies retain chunk metadata and duplicate entity-owned brushes", "[map][edit]" )
 {
     map_document_t original; Facility( original );
-    files_t baseline; REQUIRE( MapDocument_Save( &original, baseline.Sink() ) == map_status_t::OK );
+    files_t baseline; REQUIRE( baseline.Save( &original ) == map_status_t::OK );
     map_document_t *raw = nullptr; REQUIRE( MapEdit_Clone( &original, &raw ) == map_status_t::OK );
     std::unique_ptr<map_document_t> copy( raw );
-    files_t cloned; REQUIRE( MapDocument_Save( copy.get(), cloned.Sink() ) == map_status_t::OK );
-    CHECK( cloned.root == baseline.root ); CHECK( cloned.chunks == baseline.chunks );
+    files_t cloned; REQUIRE( cloned.Save( copy.get() ) == map_status_t::OK );
+    CHECK( cloned.root == baseline.root );
     // Door entity owns brush #151; selection includes its child deliberately.
     const u64 selection[]{ 151, 150 };
     vector_t<u64> duplicates; REQUIRE( Vector_Init( &duplicates, copy->pAllocator ) );
     REQUIRE( MapEdit_Duplicate( copy.get(), { selection, 2 }, { 0, 128, 0 }, &duplicates ) == map_status_t::OK );
     REQUIRE( duplicates.nCount == 2 );
-    REQUIRE( MapDocument_Save( copy.get(), cloned.Sink() ) == map_status_t::OK );
+    REQUIRE( cloned.Save( copy.get() ) == map_status_t::OK );
     map_document_t reloaded; Load( reloaded, cloned );
     CHECK( MapDocument_FindObject( &reloaded, duplicates.pData[0], nullptr ) != nullptr );
     CHECK( MapDocument_FindObject( &reloaded, duplicates.pData[1], nullptr ) != nullptr );
@@ -399,6 +449,16 @@ TEST_CASE( "Map edits transform and duplicate open meshes and curved patches wit
     map_document_t *raw = nullptr; REQUIRE( MapEdit_Clone( &source, &raw ) == map_status_t::OK );
     std::unique_ptr<map_document_t> copy( raw );
     const u64 ids[]{ 1200, 1300 };
+    files_t welded; REQUIRE( welded.Save( copy.get() ) == map_status_t::OK );
+    const auto weldedRevision = copy->geometry.revision, next = copy->nextId, partNext = copy->geometry.sourceIds.allocator.next.value;
+    // Put the patch first: refusal of the later welded mesh must also leave
+    // the preceding compatible target and all authored surface data intact.
+    const u64 weldedIds[]{ 1300, 1200 };
+    REQUIRE( MapEdit_Scale( copy.get(), { weldedIds, 2 }, { 2, 1, 1 }, {} ) == map_status_t::MODIFIER_TRANSFORM_UNSUPPORTED );
+    CHECK( copy->geometry.revision == weldedRevision ); CHECK( copy->nextId == next );
+    CHECK( copy->geometry.sourceIds.allocator.next.value == partNext );
+    files_t refused; REQUIRE( refused.Save( copy.get() ) == map_status_t::OK ); CHECK( refused.root == welded.root );
+    UseUnweldedFacilityMirror( *copy );
     REQUIRE( MapEdit_Translate( copy.get(), { ids, 2 }, { 32, 64, 16 } ) == map_status_t::OK );
     REQUIRE( MapEdit_Scale( copy.get(), { ids, 2 }, { 2, 1, 1 }, {} ) == map_status_t::OK );
     REQUIRE( MapEdit_Rotate( copy.get(), { ids, 2 }, { 0, 0, 90 }, {} ) == map_status_t::OK );
@@ -420,7 +480,7 @@ TEST_CASE( "Map edits transform and duplicate open meshes and curved patches wit
     vector_t<u64> duplicates; REQUIRE( Vector_Init( &duplicates, copy->pAllocator ) );
     REQUIRE( MapEdit_Duplicate( copy.get(), { ids, 2 }, { 16, 0, 0 }, &duplicates ) == map_status_t::OK );
     REQUIRE( duplicates.nCount == 2 );
-    files_t saved; REQUIRE( MapDocument_Save( copy.get(), saved.Sink() ) == map_status_t::OK );
+    files_t saved; REQUIRE( saved.Save( copy.get() ) == map_status_t::OK );
     map_document_t reloaded; Load( reloaded, saved );
     const auto *meshRecord = MapDocument_FindObject( &reloaded, duplicates.pData[0], nullptr ); REQUIRE( meshRecord );
     CHECK( KeyValue_Find( meshRecord, SV( "modifiers" ) ) != nullptr );
@@ -457,7 +517,7 @@ TEST_CASE( "Map primitive authoring creates complete layered solids with persist
     std::vector<u64> roots;
     std::set<u64> allocated;
     const auto material = SV( "materials/dev/sloped_stone.cymat" );
-    const usize faces[]{ 6, 5, 18, 17, 80 };
+    const usize faces[]{ 6, 5, 18, 17, 240 };
     // This contract concerns the five closed brush primitives. Quad has the
     // separate open-mesh authoring and persistence contract below.
     for ( u32 i = 0; i < static_cast<u32>( map_primitive_kind_t::QUAD ); ++i ) {
@@ -499,7 +559,7 @@ TEST_CASE( "Map primitive authoring creates complete layered solids with persist
     }
     CHECK( original.geometry.brushes.nCount == 0 ); CHECK( original.geometryRecords.nCount == 0 ); CHECK( original.materials.entries.nCount == 0 );
     const u64 next = copy->nextId;
-    files_t saved; REQUIRE( MapDocument_Save( copy.get(), saved.Sink() ) == map_status_t::OK );
+    files_t saved; REQUIRE( saved.Save( copy.get() ) == map_status_t::OK );
     map_document_t loaded; Load( loaded, saved ); CHECK( loaded.nextId == next );
     for ( usize i = 0; i < roots.size(); ++i ) {
         const auto *brush = geo::GeometryDocument_FindBrush( &loaded.geometry, { roots[i] } ); REQUIRE( brush );
@@ -557,7 +617,7 @@ TEST_CASE( "Round and wedge primitive options orient the authored planes and kee
         desc.sphereSubdivisions = level; desc.bounds = { { 48, 80, -64 }, { 112, 208, 128 } };
         u64 id = 0; REQUIRE( MapEdit_CreatePrimitive( &m, desc, {}, {}, &id ) == map_status_t::OK );
         const auto *brush = geo::GeometryDocument_FindBrush( &m.geometry, { id } ); REQUIRE( brush );
-        REQUIRE( brush->sides.nCount == ( level == 0 ? 20u : 80u ) );
+        REQUIRE( brush->sides.nCount == ( level == 0 ? 128u : 240u ) );
         geo::brush_boundary_t boundary{};
         REQUIRE( geo::BrushBoundary_Init( &boundary, m.pAllocator ) == geo::geometry_status_t::OK );
         REQUIRE( geo::BrushBoundary_TryReconstruct( &boundary, brush, m.geometryPolicy ) == geo::geometry_status_t::OK );
@@ -565,6 +625,73 @@ TEST_CASE( "Round and wedge primitive options orient the authored planes and kee
             const auto p = boundary.vertices.pData[i]; const f64 x = ( p.x - 80 ) / 32, y = ( p.y - 144 ) / 64, z = ( p.z - 32 ) / 96;
             CHECK( x * x + y * y + z * z == Catch::Approx( 1 ).margin( 1e-6 ) );
         }
+        geo::BrushBoundary_Shutdown( &boundary );
+    }
+}
+
+TEST_CASE( "Block spheres have convex round silhouettes and editable latitude bands", "[map][edit][primitive][sphere-roundness]" )
+{
+    for ( u32 detail = 0; detail < 2; ++detail ) {
+        CAPTURE( detail );
+        map_document_t map; Create( map );
+        map_primitive_desc_t desc{}; desc.kind = map_primitive_kind_t::SPHERE; desc.sphereSubdivisions = detail;
+        desc.bounds = { { 48, 80, -64 }, { 112, 208, 128 } };
+        const u32 sides = detail == 0 ? 16u : 24u, bands = detail == 0 ? 8u : 10u;
+        u64 id = 0;
+        REQUIRE( MapEdit_CreatePrimitive( &map, desc, {}, {}, &id ) == map_status_t::OK );
+        const auto *brush = geo::GeometryDocument_FindBrush( &map.geometry, { id } ); REQUIRE( brush );
+        geo::brush_boundary_t boundary{};
+        REQUIRE( geo::BrushBoundary_Init( &boundary, map.pAllocator ) == geo::geometry_status_t::OK );
+        REQUIRE( geo::BrushBoundary_TryReconstruct( &boundary, brush, map.geometryPolicy ) == geo::geometry_status_t::OK );
+        REQUIRE( boundary.vertices.nCount == sides * ( bands - 1u ) + 2u );
+        REQUIRE( boundary.faces.nCount == sides * bands );
+        std::vector<math::vec3d_t> unit;
+        for ( usize i = 0; i < boundary.vertices.nCount; ++i ) {
+            const auto p = boundary.vertices.pData[i];
+            unit.push_back( { ( p.x - 80 ) / 32, ( p.y - 144 ) / 64, ( p.z - 32 ) / 96 } );
+            const auto q = unit.back();
+            // All vertices stay on the ellipsoid: neither spikes nor an
+            // accidental box/grid projection may move them off its surface.
+            CHECK( q.x * q.x + q.y * q.y + q.z * q.z == Catch::Approx( 1.0 ).margin( 1e-7 ) );
+        }
+        for ( usize i = 0; i < brush->sides.nCount; ++i ) {
+            const auto plane = brush->sides.pData[i].plane;
+            f64 maximumOutside = -std::numeric_limits<f64>::infinity();
+            for ( usize v = 0; v < boundary.vertices.nCount; ++v ) {
+                const auto p = boundary.vertices.pData[v];
+                maximumOutside = std::max( maximumOutside, plane.normal.x * p.x + plane.normal.y * p.y + plane.normal.z * p.z + plane.d );
+            }
+            CHECK( maximumOutside <= 1e-7 );
+            CHECK( plane.normal.x * 80 + plane.normal.y * 144 + plane.normal.z * 32 + plane.d < 0.0 );
+        }
+        usize triangles = 0, quads = 0;
+        for ( usize i = 0; i < boundary.faces.nCount; ++i ) {
+            const auto corners = boundary.faces.pData[i].cVertices;
+            triangles += corners == 3u; quads += corners == 4u;
+        }
+        CHECK( triangles == 2u * sides ); CHECK( quads == sides * ( bands - 2u ) );
+        // Sample support in every orthographic silhouette, between vertices
+        // as well as through them. This catches a pointy low-detail fallback.
+        for ( u32 axis = 0; axis < 3u; ++axis ) {
+            f64 minimumSupport = 1.0;
+            for ( u32 sample = 0; sample < 360u; ++sample ) {
+                const f64 angle = static_cast<f64>( sample ) * 3.14159265358979323846 / 180.0;
+                f64 support = -1.0;
+                for ( const auto p : unit ) {
+                    const f64 c[]{ p.x, p.y, p.z };
+                    support = std::max( support, c[( axis + 1u ) % 3u] * std::cos( angle ) + c[( axis + 2u ) % 3u] * std::sin( angle ) );
+                }
+                minimumSupport = std::min( minimumSupport, support );
+            }
+            CHECK( minimumSupport >= ( detail == 0 ? 0.98 : 0.987 ) );
+        }
+        const auto actual = Bounds( map, id ).box;
+        CHECK( actual.minimum.x == Catch::Approx( desc.bounds.minimum.x ) );
+        CHECK( actual.minimum.y == Catch::Approx( desc.bounds.minimum.y ) );
+        CHECK( actual.minimum.z == Catch::Approx( desc.bounds.minimum.z ) );
+        CHECK( actual.maximum.x == Catch::Approx( desc.bounds.maximum.x ) );
+        CHECK( actual.maximum.y == Catch::Approx( desc.bounds.maximum.y ) );
+        CHECK( actual.maximum.z == Catch::Approx( desc.bounds.maximum.z ) );
         geo::BrushBoundary_Shutdown( &boundary );
     }
 }
@@ -665,7 +792,7 @@ TEST_CASE( "Quad authoring creates one planar authored mesh with material UV ide
             const auto bounds = MapGeometry_MeshBounds( *mesh, map.pAllocator ); REQUIRE( bounds.bHas );
             CHECK( coordinate( bounds.box.minimum, axis ) == coordinate( primitive.bounds.minimum, axis ) );
             CHECK( coordinate( bounds.box.maximum, axis ) == coordinate( primitive.bounds.minimum, axis ) );
-            files_t saved; REQUIRE( MapDocument_Save( &map, saved.Sink() ) == map_status_t::OK );
+            files_t saved; REQUIRE( saved.Save( &map ) == map_status_t::OK );
             map_document_t loaded; Load( loaded, saved ); CHECK( loaded.nextId == map.nextId );
             const auto *savedMesh = geo::GeometryDocument_FindMesh( &loaded.geometry, { id } ); REQUIRE( savedMesh != nullptr );
             geo::mesh_source_description_t restored{};
@@ -707,22 +834,24 @@ TEST_CASE( "Every primitive allocation failure discards private construction wit
         const u64 originalId = Box( original );
         const usize baseline = audit.bytes, materialCount = original.materials.entries.nCount;
         const auto next = original.nextId, revision = original.geometry.revision;
-        for ( u32 i = 0; i < static_cast<u32>( map_primitive_kind_t::COUNT ); ++i ) {
-            map_primitive_desc_t desc{}; desc.kind = static_cast<map_primitive_kind_t>( i ); desc.sphereSubdivisions = 0;
+        for ( u32 i = 0; i <= static_cast<u32>( map_primitive_kind_t::COUNT ); ++i ) {
+            const bool directSphere = i == static_cast<u32>( map_primitive_kind_t::COUNT );
+            const auto create = directSphere ? &MapEdit_CreateSphereMesh : &MapEdit_CreatePrimitive;
+            map_primitive_desc_t desc{}; desc.kind = directSphere ? map_primitive_kind_t::SPHERE : static_cast<map_primitive_kind_t>( i ); desc.sphereSubdivisions = 0;
             desc.bounds = { { 64, -32, 16 }, { 160, 32, 144 } }; desc.nSides = 5; desc.worldUnitsPerUv = 48;
             map_document_t *raw = nullptr; REQUIRE( MapEdit_Clone( &original, &raw ) == map_status_t::OK );
             std::unique_ptr<map_document_t> successful( raw );
             audit.calls = 0;
             u64 id = 0;
-            REQUIRE( MapEdit_CreatePrimitive( successful.get(), desc, SV( "materials/new_primitive.cymat" ), {}, &id ) == map_status_t::OK );
+            REQUIRE( create( successful.get(), desc, SV( "materials/new_primitive.cymat" ), {}, &id ) == map_status_t::OK );
             const usize nAllocations = audit.calls; REQUIRE( nAllocations > 8 ); successful.reset(); CHECK( audit.bytes == baseline );
             for ( usize failure = 0; failure < nAllocations; ++failure ) {
-                CAPTURE( i, failure, nAllocations );
+                CAPTURE( i, directSphere, failure, nAllocations );
                 audit.failAt = CY_USIZE_MAX; raw = nullptr;
                 REQUIRE( MapEdit_Clone( &original, &raw ) == map_status_t::OK );
                 std::unique_ptr<map_document_t> working( raw );
                 audit.calls = 0; audit.failAt = failure; id = 987654321;
-                CHECK( MapEdit_CreatePrimitive( working.get(), desc, SV( "materials/new_primitive.cymat" ), {}, &id ) == map_status_t::OUT_OF_MEMORY );
+                CHECK( create( working.get(), desc, SV( "materials/new_primitive.cymat" ), {}, &id ) == map_status_t::OUT_OF_MEMORY );
                 CHECK( id == 987654321 ); working.reset();
                 CHECK( audit.bytes == baseline ); CHECK( original.geometry.brushes.nCount == 1 );
                 CHECK( original.geometryRecords.nCount == 1 ); CHECK( original.materials.entries.nCount == materialCount );
@@ -733,4 +862,189 @@ TEST_CASE( "Every primitive allocation failure discards private construction wit
         }
     }
     CHECK( audit.bytes == 0 );
+}
+
+TEST_CASE( "Affected-object collection includes owned geometry and descendants without mutating the map", "[map][edit][affected-object-query]" )
+{
+    map_document_t map; Create( map );
+    const u64 owned = Box( map ), childOwned = Box( map ), loose = Box( map );
+    u64 parent{}, child{}, grandchild{}, owner{};
+    REQUIRE( MapDocument_AddEntity( &map, SV( map.layers.pData[0].id ), SV( "info_target" ), {}, &parent ) == map_status_t::OK );
+    REQUIRE( MapDocument_AddEntity( &map, SV( map.layers.pData[0].id ), SV( "info_target" ), {}, &child ) == map_status_t::OK );
+    REQUIRE( MapDocument_AddEntity( &map, SV( map.layers.pData[0].id ), SV( "info_target" ), {}, &grandchild ) == map_status_t::OK );
+    REQUIRE( MapCreate_TieToEntity( &map, { &owned, 1 }, parent, SV( "func_detail" ), &owner ) == map_status_t::OK );
+    REQUIRE( MapCreate_TieToEntity( &map, { &childOwned, 1 }, grandchild, SV( "func_detail" ), &owner ) == map_status_t::OK );
+    REQUIRE( MapHierarchy_SetParent( &map, { &child, 1 }, parent ) == map_status_t::OK );
+    REQUIRE( MapHierarchy_SetParent( &map, { &grandchild, 1 }, child ) == map_status_t::OK );
+    files_t before; REQUIRE( before.Save( &map ) == map_status_t::OK );
+    const auto nextId = map.nextId, revision = map.geometry.revision;
+    map.bReadOnly = CY_TRUE;
+    vector_t<u64> affected{}; REQUIRE( Vector_Init( &affected, Allocator_GetSystem() ) );
+    const u64 roots[]{ parent, child, parent };
+    REQUIRE( MapEdit_CollectAffectedObjects( &map, { roots, 3 }, &affected ) == map_status_t::OK );
+    CHECK( std::set<u64>( affected.pData, affected.pData + affected.nCount ) == std::set<u64>{ parent, owned, child, grandchild, childOwned } );
+    CHECK( affected.nCount == 5 );
+    // Borrowing the output as input is supported, without releasing it early.
+    REQUIRE( MapEdit_CollectAffectedObjects( &map, { affected.pData, affected.nCount }, &affected ) == map_status_t::OK );
+    CHECK( affected.nCount == 5 );
+    REQUIRE( MapEdit_CollectAffectedObjects( &map, { &child, 1 }, &affected ) == map_status_t::OK );
+    CHECK( std::set<u64>( affected.pData, affected.pData + affected.nCount ) == std::set<u64>{ child, grandchild, childOwned } );
+    auto *storage = affected.pData; const auto count = affected.nCount, capacity = affected.nCapacity;
+    const u64 invalid = map.nextId + 100;
+    CHECK( MapEdit_CollectAffectedObjects( &map, { &invalid, 1 }, &affected ) != map_status_t::OK );
+    CHECK( affected.pData == storage ); CHECK( affected.nCount == count ); CHECK( affected.nCapacity == capacity );
+    CHECK( MapEdit_CollectAffectedObjects( nullptr, { &loose, 1 }, &affected ) == map_status_t::INVALID_ARGUMENT );
+    vector_t<u64> uninitialized{};
+    CHECK( MapEdit_CollectAffectedObjects( &map, { &parent, 1 }, &uninitialized ) == map_status_t::INVALID_ARGUMENT );
+    REQUIRE( MapEdit_CollectAffectedObjects( &map, {}, &affected ) == map_status_t::OK ); CHECK( affected.nCount == 0 );
+    CHECK( map.bReadOnly ); CHECK( map.nextId == nextId ); CHECK( map.geometry.revision == revision );
+    map.bReadOnly = CY_FALSE;
+    files_t after; REQUIRE( after.Save( &map ) == map_status_t::OK ); CHECK( after.root == before.root );
+}
+
+TEST_CASE( "Affected-object query allocation failures preserve borrowed input and output", "[map][edit][affected-object-query][allocation]" )
+{
+    map_document_t map; Create( map );
+    u64 parent{};
+    REQUIRE( MapDocument_AddEntity( &map, SV( map.layers.pData[0].id ), SV( "info_target" ), {}, &parent ) == map_status_t::OK );
+    // Force several result growth allocations while following a deep chain.
+    u64 previous = parent;
+    for ( usize i = 0; i < 20; ++i ) {
+        u64 child{}; REQUIRE( MapDocument_AddEntity( &map, SV( map.layers.pData[0].id ), SV( "info_target" ), {}, &child ) == map_status_t::OK );
+        REQUIRE( MapHierarchy_SetParent( &map, { &child, 1 }, previous ) == map_status_t::OK ); previous = child;
+    }
+    files_t before; REQUIRE( before.Save( &map ) == map_status_t::OK );
+    allocation_audit_t audit;
+    usize allocations{};
+    {
+        vector_t<u64> output{}; REQUIRE( Vector_Init( &output, &audit.allocator ) );
+        REQUIRE( Vector_PushBack( &output, parent ) ); audit.calls = 0;
+        REQUIRE( MapEdit_CollectAffectedObjects( &map, { output.pData, output.nCount }, &output ) == map_status_t::OK );
+        allocations = audit.calls; REQUIRE( allocations > 1 ); REQUIRE( output.nCount == 21 );
+    }
+    CHECK( audit.bytes == 0 );
+    for ( usize fail = 0; fail < allocations; ++fail ) {
+        DYNAMIC_SECTION( "allocation=" << fail ) {
+            vector_t<u64> output{}; REQUIRE( Vector_Init( &output, &audit.allocator ) );
+            REQUIRE( Vector_PushBack( &output, parent ) );
+            auto *storage = output.pData; const auto count = output.nCount, capacity = output.nCapacity, bytes = audit.bytes;
+            audit.calls = 0; audit.failAt = fail;
+            CHECK( MapEdit_CollectAffectedObjects( &map, { output.pData, output.nCount }, &output ) == map_status_t::OUT_OF_MEMORY );
+            audit.failAt = CY_USIZE_MAX;
+            CHECK( output.pData == storage ); CHECK( output.nCount == count ); CHECK( output.nCapacity == capacity );
+            CHECK( output.pAllocator == &audit.allocator ); CHECK( output.pData[0] == parent ); CHECK( audit.bytes == bytes );
+        }
+        CHECK( audit.bytes == 0 );
+    }
+    files_t after; REQUIRE( after.Save( &map ) == map_status_t::OK ); CHECK( after.root == before.root );
+}
+
+TEST_CASE( "Linked prefab scaling preserves the placed surface for representable world factors", "[map][edit][prefab-scale]" )
+{
+    struct example_t { math::vec3d_t angles, factors; };
+    const example_t examples[]{ { {}, { 2, 3, 4 } }, { { 0, 90, 0 }, { 2, 3, 4 } },
+        { { 0, -90, 0 }, { 2, 3, 4 } }, { { 0, 45, 0 }, { 2, 2, 3 } },
+        { { 90, 0, 0 }, { 2, 3, 4 } }, { { 23, 41, -19 }, { 2, 2, 2 } } };
+    for ( const auto &example : examples ) {
+        CAPTURE( example.angles.x, example.angles.y, example.angles.z );
+        map_document_t map; Facility( map );
+        const math::vec3d_t origin{ 17, -23, 31 }, oldScale{ 2, 3, 4 }, pivot{ -11, 7, 5 };
+        SetPrefabFixtureVector( map, "origin", origin ); SetPrefabFixtureVector( map, "angles", example.angles );
+        SetPrefabFixtureVector( map, "scale", oldScale );
+        const auto revision = map.geometry.revision, next = map.nextId, partNext = map.geometry.sourceIds.allocator.next.value;
+        const u64 id = 200;
+        REQUIRE( MapEdit_Scale( &map, { &id, 1 }, example.factors, pivot ) == map_status_t::OK );
+        CHECK( map.geometry.revision == revision + 1 ); CHECK( map.nextId == next ); CHECK( map.geometry.sourceIds.allocator.next.value == partNext );
+        const auto angles = PrefabFixtureVector( map, "angles" ), scale = PrefabFixtureVector( map, "scale" ), translated = PrefabFixtureVector( map, "origin" );
+        CHECK( math::Vec3d_EqualsExact( angles, example.angles ) );
+        const auto checkSurface = [&]( math::vec3d_t actualOrigin, math::vec3d_t actualScale ) {
+            for ( const math::vec3d_t p : { math::vec3d_t{ 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 }, { -3, 5, 7 } } ) {
+                const auto before = PrefabFixturePoint( p, origin, example.angles, oldScale );
+                const math::vec3d_t expected{ pivot.x + example.factors.x * ( before.x - pivot.x ),
+                    pivot.y + example.factors.y * ( before.y - pivot.y ), pivot.z + example.factors.z * ( before.z - pivot.z ) };
+                const auto actual = PrefabFixturePoint( p, actualOrigin, example.angles, actualScale );
+                CHECK( actual.x == Catch::Approx( expected.x ).margin( 1e-10 ) ); CHECK( actual.y == Catch::Approx( expected.y ).margin( 1e-10 ) );
+                CHECK( actual.z == Catch::Approx( expected.z ).margin( 1e-10 ) );
+            }
+        };
+        checkSurface( translated, scale );
+        files_t saved; REQUIRE( saved.Save( &map ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+        checkSurface( PrefabFixtureVector( loaded, "origin" ), PrefabFixtureVector( loaded, "scale" ) );
+        const auto *record = MapDocument_FindObject( &loaded, id, nullptr ); REQUIRE( record );
+        string_view_t text{}; REQUIRE( KeyValue_GetString( KeyValue_Find( record, SV( "source" ) ), &text ) );
+        CHECK( StringView_Equals( text, SV( "prefabs/security_door.cyprefab" ) ) );
+        REQUIRE( KeyValue_GetString( KeyValue_Find( KeyValue_Find( record, SV( "overrides" ) ), SV( "door.name" ) ), &text ) );
+        CHECK( StringView_Equals( text, SV( "yard_door" ) ) );
+    }
+}
+
+TEST_CASE( "Linked prefab scale accepts numeric forms and refuses shear before any mixed root changes", "[map][edit][prefab-scale]" )
+{
+    for ( const auto type : { key_value_type_t::NULL_VALUE, key_value_type_t::F64, key_value_type_t::I64, key_value_type_t::U64 } ) {
+        CAPTURE( static_cast<int>( type ) ); map_document_t map; Facility( map );
+        map_layer_store_t *store = nullptr; auto *record = MapDocument_FindObject( &map, 200, &store ); REQUIRE( record ); REQUIRE( store );
+        REQUIRE( KeyValue_Find( record, SV( "scale" ) ) == nullptr );
+        if ( type != key_value_type_t::NULL_VALUE ) {
+            auto *value = KeyValue_ObjectInsert( store->store.pDocument, record, SV( "scale" ), type ); REQUIRE( value );
+            if ( type == key_value_type_t::F64 ) { REQUIRE( KeyValue_SetF64( store->store.pDocument, value, 2 ) ); }
+            else if ( type == key_value_type_t::I64 ) { REQUIRE( KeyValue_SetI64( store->store.pDocument, value, 2 ) ); }
+            else { REQUIRE( KeyValue_SetU64( store->store.pDocument, value, 2 ) ); }
+        }
+        const u64 id = 200; REQUIRE( MapEdit_Scale( &map, { &id, 1 }, { 3, 3, 3 }, {} ) == map_status_t::OK );
+        f64 scale = 0; REQUIRE( KeyValue_GetF64( KeyValue_Find( record, SV( "scale" ) ), &scale ) );
+        CHECK( scale == ( type == key_value_type_t::NULL_VALUE ? 3 : 6 ) );
+    }
+    for ( const int invalid : { 0, 1, 2, 3 } ) {
+        CAPTURE( invalid ); map_document_t map; Facility( map );
+        SetPrefabFixtureVector( map, "angles", { 0, 45, 0 } );
+        SetPrefabFixtureVector( map, "scale", invalid == 1 ? math::vec3d_t{ -1, 1, 1 } : invalid == 2 ? math::vec3d_t{ 0, 1, 1 } : math::vec3d_t{ 1, 1, 1 } );
+        if ( invalid == 3 ) {
+            map_layer_store_t *store = nullptr; auto *record = MapDocument_FindObject( &map, 200, &store );
+            auto *value = KeyValue_Find( record, SV( "scale" ) ); REQUIRE( KeyValue_SetString( store->store.pDocument, value, SV( "bad scale" ) ) );
+        }
+        files_t before; REQUIRE( before.Save( &map ) == map_status_t::OK );
+        const auto revision = map.geometry.revision, next = map.nextId, partNext = map.geometry.sourceIds.allocator.next.value;
+        const u64 ids[]{ 1000, 200 }; // Compatible brush first; no target may move on refusal.
+        CHECK( MapEdit_Scale( &map, { ids, 2 }, { 2, 1, 1 }, { -11, 7, 5 } ) ==
+            ( invalid == 0 ? map_status_t::PREFAB_TRANSFORM_UNSUPPORTED : map_status_t::INVALID_ARGUMENT ) );
+        CHECK( map.geometry.revision == revision ); CHECK( map.nextId == next ); CHECK( map.geometry.sourceIds.allocator.next.value == partNext );
+        files_t after; REQUIRE( after.Save( &map ) == map_status_t::OK ); CHECK( after.root == before.root );
+    }
+}
+
+TEST_CASE( "Linked prefab scale distinguishes exact quarters from amplified near-axis shear", "[map][edit][prefab-scale]" )
+{
+    for ( const f64 yaw : { 1e-12, 90.0 + 1e-12 } ) {
+        CAPTURE( yaw ); map_document_t map; Facility( map );
+        SetPrefabFixtureVector( map, "origin", {} ); SetPrefabFixtureVector( map, "angles", { 0, yaw, 0 } );
+        SetPrefabFixtureVector( map, "scale", { 1, 1, 1 } );
+        // Independent placed-axis test: world scaling introduces a component
+        // along the other rotated local axis. No diagonal local scale can do so.
+        const auto x = PrefabFixturePoint( { 1, 0, 0 }, {}, { 0, yaw, 0 }, { 1, 1, 1 } );
+        const auto y = PrefabFixturePoint( { 0, 1, 0 }, {}, { 0, yaw, 0 }, { 1, 1, 1 } );
+        const f64 crossAxis = 1e16 * x.x * y.x + x.y * y.y + x.z * y.z;
+        REQUIRE( std::fabs( crossAxis ) > 100 );
+        files_t before; REQUIRE( before.Save( &map ) == map_status_t::OK );
+        const auto revision = map.geometry.revision, next = map.nextId, partNext = map.geometry.sourceIds.allocator.next.value;
+        const u64 ids[]{ 1000, 200 };
+        CHECK( MapEdit_Scale( &map, { ids, 2 }, { 1e16, 1, 1 }, {} ) == map_status_t::PREFAB_TRANSFORM_UNSUPPORTED );
+        CHECK( map.geometry.revision == revision ); CHECK( map.nextId == next ); CHECK( map.geometry.sourceIds.allocator.next.value == partNext );
+        files_t after; REQUIRE( after.Save( &map ) == map_status_t::OK ); CHECK( after.root == before.root );
+    }
+    for ( const f64 yaw : { 90.0, -90.0, 450.0 } ) {
+        CAPTURE( yaw ); map_document_t map; Facility( map );
+        SetPrefabFixtureVector( map, "origin", {} ); SetPrefabFixtureVector( map, "angles", { 0, yaw, 0 } );
+        SetPrefabFixtureVector( map, "scale", { 2, 3, 4 } );
+        const u64 id = 200;
+        REQUIRE( MapEdit_Scale( &map, { &id, 1 }, { 1e16, 1, 1 }, {} ) == map_status_t::OK );
+        const auto scale = PrefabFixtureVector( map, "scale" );
+        CHECK( scale.x == 2 ); CHECK( scale.y == 3e16 ); CHECK( scale.z == 4 );
+        // Exact signed coordinate permutation, independent of trigonometry.
+        const f64 sign = yaw == -90 ? -1 : 1;
+        const math::vec3d_t actual{ sign * 3 * scale.y, sign * 2 * scale.x, 7 * scale.z };
+        CHECK( actual.x == sign * 9e16 ); CHECK( actual.y == sign * 4 ); CHECK( actual.z == 28 );
+        files_t saved; REQUIRE( saved.Save( &map ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+        CHECK( math::Vec3d_EqualsExact( PrefabFixtureVector( loaded, "scale" ), scale ) );
+        CHECK( PrefabFixtureVector( loaded, "angles" ).y == yaw );
+    }
 }

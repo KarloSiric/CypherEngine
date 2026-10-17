@@ -39,6 +39,7 @@
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDirIterator>
+#include <QMap>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
@@ -171,7 +172,8 @@ QByteArray ReadRecipe( const QStringList &roots, const QString &path )
 
 QString PreviewImageSource( const QStringList &roots, const QString &path, const allocator_t *allocator, int depth = 0 )
 {
-    if ( depth > 3 ) { return {}; }
+    // Material -> texture recipe -> image, through up to 16 inherited bases.
+    if ( depth > 20 ) { return {}; }
     bool_t isSource{};
     const auto kind = EditorAssets_KindOf( ViewOf( path.toUtf8() ), &isSource );
     if ( kind == editor_asset_kind_t::TEXTURE && isSource ) { return path; }
@@ -180,6 +182,9 @@ QString PreviewImageSource( const QStringList &roots, const QString &path, const
     const QByteArray recipe = ReadRecipe( roots, path );
     QString source;
     if ( kind == editor_asset_kind_t::MATERIAL && EditorAssets_MaterialTexture( ViewOf( recipe ), allocator, &reference ) == editor_asset_status_t::OK ) {
+        source = PreviewImageSource( roots, FromView( TextBuffer_View( &reference ) ), allocator, depth + 1 );
+    } else if ( kind == editor_asset_kind_t::MATERIAL && EditorAssets_MaterialBase( ViewOf( recipe ), allocator, &reference ) == editor_asset_status_t::OK ) {
+        // Names no texture of its own: it shows what it inherits.
         source = PreviewImageSource( roots, FromView( TextBuffer_View( &reference ) ), allocator, depth + 1 );
     } else if ( kind == editor_asset_kind_t::TEXTURE && EditorAssets_TextureSource( ViewOf( recipe ), allocator, &reference ) == editor_asset_status_t::OK ) {
         source = FromView( TextBuffer_View( &reference ) );
@@ -265,7 +270,7 @@ public:
         title->setTextInteractionFlags( Qt::TextSelectableByMouse );
         layout->addWidget( title );
         auto *note = new QLabel( kind == editor_asset_kind_t::MAP
-            ? QStringLiteral( "Map document inspection · on-disk definition and chunks. This does not open the map or render its geometry." )
+            ? QStringLiteral( "Map document inspection · the whole level as written, layer by layer. This does not open the map or render its geometry." )
             : kind == editor_asset_kind_t::SHADER
                 ? QStringLiteral( "Shader source inspection · recipe and referenced stages. This does not compile or render the shader." )
                 : QStringLiteral( "Read-only asset inspection · source images and authored properties. Material images are not a shaded material rendering." ), this );
@@ -348,7 +353,6 @@ public:
         QObject::connect( buttons, &QDialogButtonBox::rejected, this, &QDialog::close );
         QObject::connect( reload, &QPushButton::clicked, this, [this]() { Load(); LoadImage(); } );
         m_pFiles->addItem( m_path, m_path );
-        AddMapChunks();
         QObject::connect( m_pFiles, &QComboBox::currentIndexChanged, this, [this]( int ) { Load(); } );
         Load();
         LoadImage();
@@ -377,30 +381,6 @@ private:
         auto *row = new QTreeWidgetItem( m_pMetadata, { key, value } );
         row->setToolTip( 1, value );
     }
-    void AddMapChunks()
-    {
-        if ( m_kind != editor_asset_kind_t::MAP || !m_path.endsWith( QStringLiteral( ".cymap" ), Qt::CaseInsensitive ) ) { return; }
-        const QString resolvedRoot = PreviewFile( m_roots, m_path );
-        if ( resolvedRoot.isEmpty() ) { return; }
-        const QFileInfo root( resolvedRoot );
-        const QDir chunks( root.dir().filePath( root.completeBaseName() ) );
-        QStringList paths;
-        QDirIterator it( chunks.path(), { QStringLiteral( "*.cymapchunk" ) }, QDir::Files, QDirIterator::Subdirectories );
-        int scanned = 0;
-        while ( it.hasNext() && paths.size() < 128 && scanned++ < 4096 ) {
-            const QString file = it.next();
-            const QString relative = chunks.relativeFilePath( file );
-            if ( relative.count( QLatin1Char( '/' ) ) != 1 ) { continue; } // layer/cell, as the map format defines.
-            const QString path = QDir::cleanPath( QFileInfo( m_path ).path() + QLatin1Char( '/' ) + root.completeBaseName() + QLatin1Char( '/' ) + relative );
-            paths.append( path );
-            // CYMAP chunks belong to this root file's sibling directory;
-            // unrelated higher-priority asset roots must not shadow them.
-            m_chunkFiles.insert( path, file );
-        }
-        paths.sort();
-        for ( const QString &path : paths ) { m_pFiles->addItem( path, QDir::cleanPath( path ) ); }
-        m_chunkCount = paths.size();
-    }
     void AddStructure( const key_value_t *value, QTreeWidgetItem *parent, int &count )
     {
         for ( usize i = 0; i < KeyValue_ChildCount( value ) && count < kTreeLimit; ++i ) {
@@ -417,7 +397,7 @@ private:
         const QString path = FromView( reference );
         if ( m_references.contains( path ) ) { return; }
         m_references.insert( path );
-        const QString file = m_chunkFiles.contains( path ) ? m_chunkFiles.value( path ) : PreviewFile( m_roots, path );
+        const QString file = PreviewFile( m_roots, path );
         auto *row = new QTreeWidgetItem( m_pDependencies, { path, file.isEmpty() ? QStringLiteral( "Missing" ) : QStringLiteral( "Found" ) } );
         row->setToolTip( 0, path );
         row->setToolTip( 1, file.isEmpty() ? QStringLiteral( "Not resolved in the current content roots" ) : QDir::toNativeSeparators( file ) );
@@ -436,16 +416,13 @@ private:
         m_references.clear();
         m_pSource->clear();
         const QString path = m_pFiles->currentData().toString();
-        const QString file = m_chunkFiles.contains( path ) ? m_chunkFiles.value( path ) : PreviewFile( m_roots, path );
+        const QString file = PreviewFile( m_roots, path );
         Meta( QStringLiteral( "Virtual path" ), path );
         Meta( QStringLiteral( "Resolved file" ), file.isEmpty() ? QStringLiteral( "Missing" ) : QDir::toNativeSeparators( file ) );
         if ( file.isEmpty() ) { m_pStatus->setText( QStringLiteral( "File is missing from the current content roots." ) ); return; }
         const QFileInfo info( file );
         Meta( QStringLiteral( "File size" ), SizeText( static_cast<u64>( info.size() ) ) );
         Meta( QStringLiteral( "Modified" ), info.lastModified().toString( Qt::ISODate ) );
-        if ( m_kind == editor_asset_kind_t::MAP ) {
-            Meta( QStringLiteral( "Available chunk files" ), QStringLiteral( "%1%2" ).arg( m_chunkCount ).arg( m_chunkCount == 128 ? QStringLiteral( " (listing capped at 128)" ) : QString() ) );
-        }
         bool_t isSource{};
         const auto kind = EditorAssets_KindOf( ViewOf( path.toUtf8() ), &isSource );
         if ( kind != editor_asset_kind_t::COUNT ) { Meta( QStringLiteral( "Asset type" ), QString::fromLatin1( EditorAssets_KindLabel( kind ) ) ); }
@@ -479,8 +456,23 @@ private:
         const auto header = KeyValue_DocumentHeader( document.get() );
         Meta( QStringLiteral( "Schema" ), QStringLiteral( "%1 · version %2" ).arg( FromView( header.schemaId ) ).arg( header.nSchemaVersion ) );
         const auto *root = KeyValue_Root( document.get() );
-        for ( const char *key : { "name", "description", "language", "shader", "source", "layers", "entities", "brushes", "meshes", "patches", "terrain" } ) {
+        for ( const char *key : { "name", "description", "language", "shader", "source", "layers" } ) {
             if ( const auto *value = KeyValue_Find( root, StringView_FromCString( key ) ) ) { Meta( QString::fromLatin1( key ), PreviewValue( value ) ); }
+        }
+        // A map's objects per section, added up from each layer's own
+        // summary (CYMAP.md 8); the file keeps no map-wide one.
+        if ( m_kind == editor_asset_kind_t::MAP ) {
+            QMap<QString, qulonglong> totals;
+            const auto *layers = KeyValue_Find( root, StringView_FromCString( "layers" ) );
+            for ( usize i = 0; i < KeyValue_ChildCount( layers ); ++i ) {
+                const auto *summary = KeyValue_Find( KeyValue_ChildAt( layers, i ), StringView_FromCString( "info" ) );
+                for ( usize j = 0; j < KeyValue_ChildCount( summary ); ++j ) {
+                    const auto *entry = KeyValue_ChildAt( summary, j );
+                    i64 count = 0;
+                    if ( KeyValue_GetI64( entry, &count ) && count > 0 ) { totals[FromView( KeyValue_Name( entry ) )] += static_cast<qulonglong>( count ); }
+                }
+            }
+            for ( auto it = totals.cbegin(); it != totals.cend(); ++it ) { Meta( it.key(), QString::number( it.value() ) ); }
         }
         int count = 0;
         AddStructure( root, m_pStructure->invisibleRootItem(), count );
@@ -523,8 +515,6 @@ private:
     editor_asset_kind_t m_kind;
     QString m_imagePath;
     QSet<QString> m_references{};
-    QHash<QString, QString> m_chunkFiles{};
-    qsizetype m_chunkCount{};
     QTabWidget *m_pTabs{};
     QTreeWidget *m_pMetadata{}, *m_pStructure{}, *m_pDependencies{};
     QPlainTextEdit *m_pSource{};

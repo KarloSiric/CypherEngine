@@ -61,6 +61,9 @@ struct editor_actions_t {
     const editor_style_t *pStyle{ nullptr }; // Icons are tinted from it.
     QWidget *pOwner{ nullptr };              // Parent of every QAction; its window scopes shortcuts.
     QHash<QString, QAction *> actions{};     // By command ID; owned by pOwner.
+    // What a disabled command needs ("selected mesh faces"), shown in its
+    // tooltip so a greyed menu item says why; null when unknown.
+    const char *( *pfnNeeds )( const char *pCommandId ) noexcept { nullptr };
 };
 
 void EditorActions_Init(

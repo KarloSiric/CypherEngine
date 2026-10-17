@@ -50,7 +50,7 @@ struct provenance_t { geo::mesh_edit_provenance_t value{}; ~provenance_t() { geo
 struct lineage_t { geo::mesh_edit_lineage_t value{}; ~lineage_t() { geo::MeshEditLineage_Shutdown( &value ); } };
 struct residual_t {
     key_value_document_t *document{};
-    map_chunk_t *chunk{};
+    map_layer_store_t *layerStore{};
     key_value_t *record{}, *parent{}, *container{};
     ~residual_t() { KeyValue_DestroyDocument( document ); }
 };
@@ -82,11 +82,11 @@ bool Count( const key_value_t *node, u64 &value ) noexcept
 }
 map_status_t PrepareResidual( map_document_t *map, u64 id, residual_t &out ) noexcept
 {
-    out.record = MapDocument_FindObject( map, id, &out.chunk );
+    out.record = MapDocument_FindObject( map, id, &out.layerStore );
     if ( !out.record ) { return map_status_t::OK; }
-    if ( !out.chunk ) { return map_status_t::GEOMETRY_FAILED; }
-    out.parent = Parent( KeyValue_Root( out.chunk->store.pDocument ), out.record );
-    out.container = Parent( KeyValue_Root( out.chunk->store.pDocument ), out.parent );
+    if ( !out.layerStore ) { return map_status_t::GEOMETRY_FAILED; }
+    out.parent = Parent( KeyValue_Root( out.layerStore->store.pDocument ), out.record );
+    out.container = Parent( KeyValue_Root( out.layerStore->store.pDocument ), out.parent );
     if ( !out.parent || !out.container || KeyValue_Type( out.parent ) != key_value_type_t::ARRAY ||
          !StringView_Equals( KeyValue_Name( out.parent ), SV( "brushes" ) ) || KeyValue_Type( out.container ) != key_value_type_t::OBJECT ) { return map_status_t::GEOMETRY_FAILED; }
     key_value_document_desc_t desc{}; desc.pAllocator = map->pAllocator;
@@ -117,7 +117,7 @@ map_status_t PrepareResidual( map_document_t *map, u64 id, residual_t &out ) noe
 map_status_t PublishResidual( residual_t &residual ) noexcept
 {
     if ( !residual.record ) { return map_status_t::OK; }
-    auto *doc = residual.chunk->store.pDocument;
+    auto *doc = residual.layerStore->store.pDocument;
     auto *meshes = KeyValue_Find( residual.container, SV( "meshes" ) );
     if ( meshes && KeyValue_Type( meshes ) != key_value_type_t::ARRAY ) { return map_status_t::INVALID_ARGUMENT; }
     if ( !meshes ) { meshes = KeyValue_ObjectInsert( doc, residual.container, SV( "meshes" ), key_value_type_t::ARRAY ); }
@@ -205,10 +205,10 @@ map_status_t FlipOne( map_document_t *map, u64 id ) noexcept
 map_status_t PrepareEditedResidual( map_document_t *map, u64 id,
     const geo::mesh_source_description_t &after, const geo::mesh_edit_lineage_t &lineage, residual_t &output ) noexcept
 {
-    output.record = MapDocument_FindObject( map, id, &output.chunk );
+    output.record = MapDocument_FindObject( map, id, &output.layerStore );
     if ( !output.record ) { return map_status_t::OK; }
-    if ( !output.chunk ) { return map_status_t::GEOMETRY_FAILED; }
-    output.parent = Parent( KeyValue_Root( output.chunk->store.pDocument ), output.record );
+    if ( !output.layerStore ) { return map_status_t::GEOMETRY_FAILED; }
+    output.parent = Parent( KeyValue_Root( output.layerStore->store.pDocument ), output.record );
     if ( !output.parent || KeyValue_Type( output.parent ) != key_value_type_t::ARRAY ||
          !StringView_Equals( KeyValue_Name( output.parent ), SV( "meshes" ) ) ) { return map_status_t::GEOMETRY_FAILED; }
     key_value_document_desc_t desc{}; desc.pAllocator = map->pAllocator;
@@ -268,8 +268,8 @@ bool HasValidFaceLineage( const geo::mesh_source_description_t &before,
 map_status_t PublishEditedResidual( residual_t &residual ) noexcept
 {
     if ( residual.record &&
-         ( !KeyValue_CloneInto( residual.chunk->store.pDocument, residual.parent, KeyValue_Root( residual.document ) ) ||
-           !KeyValue_Remove( residual.chunk->store.pDocument, residual.parent, residual.record ) ) ) { return map_status_t::OUT_OF_MEMORY; }
+         ( !KeyValue_CloneInto( residual.layerStore->store.pDocument, residual.parent, KeyValue_Root( residual.document ) ) ||
+           !KeyValue_Remove( residual.layerStore->store.pDocument, residual.parent, residual.record ) ) ) { return map_status_t::OUT_OF_MEMORY; }
     return map_status_t::OK;
 }
 bool NeedsTriangulation( const geo::mesh_source_t *source ) noexcept
@@ -317,7 +317,7 @@ map_status_t TriangulateOne( map_document_t *map, u64 id ) noexcept
     if ( status != geo::geometry_status_t::OK ) { return Status( status ); }
     return changed ? PublishEditedResidual( residual ) : map_status_t::OK;
 }
-enum class face_model_operation_t { EXTRUDE, INSET, QUAD_SLICE };
+enum class face_model_operation_t { EXTRUDE, INSET, INSET_WIDTH, QUAD_SLICE };
 map_status_t ModelFace( map_document_t *map, u64 meshId, u64 faceId, face_model_operation_t operation,
     f64 amount = 0.0, u32 cU = 0, u32 cV = 0 ) noexcept
 {
@@ -359,8 +359,12 @@ map_status_t ModelFace( map_document_t *map, u64 meshId, u64 faceId, face_model_
             const geo::geometry_source_id_t selected{ faceId };
             status = geo::MeshSourceEdit_TryQuadSlice( working, { &selected, 1 }, cU, cV, &report );
         } else {
-            status = operation == face_model_operation_t::INSET ? geo::MeshSourceEdit_TryInsetFace( working, { faceId }, amount, &report )
-                                                               : geo::MeshSourceEdit_TryExtrudeFace( working, { faceId }, amount, &report );
+            if ( operation == face_model_operation_t::INSET_WIDTH ) {
+                status = geo::MeshSourceEdit_TryInsetFaceByEdgeWidth( working, { faceId }, amount, map->geometryPolicy.numerical, &report );
+            } else {
+                status = operation == face_model_operation_t::INSET ? geo::MeshSourceEdit_TryInsetFace( working, { faceId }, amount, &report )
+                                                                   : geo::MeshSourceEdit_TryExtrudeFace( working, { faceId }, amount, &report );
+            }
         }
     }
     if ( status == geo::geometry_status_t::OK ) { status = geo::GeometryMeshTransaction_TryAssignIds( &transaction.value, nullptr ); }
@@ -455,8 +459,52 @@ map_status_t MapMeshEdit_InsetFace( map_document_t *map, u64 meshId, u64 faceId,
     return ModelFace( map, meshId, faceId, face_model_operation_t::INSET, margin );
 }
 
+map_status_t MapMeshEdit_InsetFaceByEdgeWidth( map_document_t *map, u64 meshId, u64 faceId, f64 width ) noexcept
+{
+    return ModelFace( map, meshId, faceId, face_model_operation_t::INSET_WIDTH, width );
+}
+
 map_status_t MapMeshEdit_QuadSliceFace( map_document_t *map, u64 meshId, u64 faceId, u32 cU, u32 cV ) noexcept
 {
     return ModelFace( map, meshId, faceId, face_model_operation_t::QUAD_SLICE, 0.0, cU, cV );
+}
+map_status_t MapMeshEdit_Apply( map_document_t *map, u64 meshId, map_mesh_source_edit_fn pfnEdit, void *pContext,
+    map_mesh_source_assigned_fn pfnAssigned ) noexcept
+{
+    const auto checked = Check( map, { &meshId, 1 }, false );
+    if ( checked != map_status_t::OK ) { return checked; }
+    if ( pfnEdit == nullptr ) { return map_status_t::INVALID_ARGUMENT; }
+    if ( map->nextId == 0 || geo::GeometrySourceIdAllocator_IsExhausted( &map->geometry.sourceIds.allocator ) ||
+         map->geometry.revision == CY_U64_MAX ) { return map_status_t::LIMIT_EXCEEDED; }
+    transaction_t transaction; delta_t delta; description_t after; provenance_t provenance; lineage_t lineage; residual_t residual;
+    auto status = geo::GeometryMeshTransaction_Begin( &transaction.value, &map->geometry, { meshId } );
+    if ( status == geo::geometry_status_t::OK && map->nextId > 1 ) {
+        // As in ModelFace: map-only objects share the ID namespace.
+        status = geo::GeometrySourceIdAllocator_AdvancePast( &transaction.value.tentativeIds, { map->nextId - 1 } );
+    }
+    if ( status == geo::geometry_status_t::OK ) { status = geo::GeometryMeshDelta_Init( &delta.value, map->pAllocator ); }
+    if ( status == geo::geometry_status_t::OK ) { status = geo::MeshEditProvenance_Init( &provenance.value, map->pAllocator ); }
+    if ( status == geo::geometry_status_t::OK ) { status = geo::MeshEditLineage_Init( &lineage.value, map->pAllocator ); }
+    if ( status == geo::geometry_status_t::OK ) { status = geo::MeshSourceDescription_Init( &after.value, map->pAllocator, { meshId } ); }
+    auto *working = geo::GeometryMeshTransaction_Working( &transaction.value );
+    geo::mesh_edit_report_t report{}; report.pProvenance = &provenance.value;
+    if ( status == geo::geometry_status_t::OK ) { status = pfnEdit( pContext, working, &report ); }
+    if ( status == geo::geometry_status_t::OK ) { status = geo::GeometryMeshTransaction_TryAssignIds( &transaction.value, nullptr ); }
+    if ( status == geo::geometry_status_t::OK && pfnAssigned != nullptr ) { status = pfnAssigned( pContext, working ); }
+    if ( status == geo::geometry_status_t::OK ) { status = geo::MeshEditProvenance_TryToLineage( &provenance.value, working, &lineage.value ); }
+    if ( status == geo::geometry_status_t::OK ) { status = geo::MeshSource_TryDescribe( working, &after.value ); }
+    if ( status != geo::geometry_status_t::OK ) { return Status( status ); }
+    if ( geo::MeshSourceDescription_Equal( &transaction.value.baseline, &after.value ) ) { return map_status_t::OK; }
+    const auto prepared = PrepareEditedResidual( map, meshId, after.value, lineage.value, residual );
+    if ( prepared != map_status_t::OK ) { return prepared; }
+    bool changed = false;
+    status = geo::GeometryMeshTransaction_Commit( &transaction.value, &delta.value, nullptr, &changed );
+    if ( status != geo::geometry_status_t::OK ) { return Status( status ); }
+    if ( !changed ) { return map_status_t::OK; }
+    const auto published = PublishEditedResidual( residual );
+    if ( published != map_status_t::OK ) { return published; }
+    const auto next = map->geometry.sourceIds.allocator.next.value;
+    map->nextId = next == 0 ? 0 : std::max( map->nextId, next );
+    return map_status_t::OK;
 }
 } // namespace cypher::editor::map

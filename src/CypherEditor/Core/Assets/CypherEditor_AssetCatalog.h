@@ -146,6 +146,13 @@ CYPHER_NODISCARD editor_asset_status_t EditorAssets_MaterialTexture(
     common::string_view_t materialText,
     const common::allocator_t *pAllocator,
     common::text_buffer_t *pPathOut ) noexcept;
+
+// A schema 2 material's `base` (the material it inherits from), for callers
+// that follow inheritance when the material itself names no texture.
+CYPHER_NODISCARD editor_asset_status_t EditorAssets_MaterialBase(
+    common::string_view_t materialText,
+    const common::allocator_t *pAllocator,
+    common::text_buffer_t *pPathOut ) noexcept;
 CYPHER_NODISCARD editor_asset_status_t EditorAssets_TextureSource(
     common::string_view_t textureText,
     const common::allocator_t *pAllocator,
@@ -160,8 +167,8 @@ CYPHER_NODISCARD editor_asset_status_t EditorAssets_References(
     editor_asset_reference_fn pfnReference,
     void *pContext ) noexcept;
 
-// The same walk over a tree already parsed - a map's root or chunk
-// documents - for "Used in Map".
+// The same walk over a tree already parsed - a map's root and its layer
+// stores - for "Used in Map".
 void EditorAssets_VisitReferences( const common::key_value_t *pValue, editor_asset_reference_fn pfnReference, void *pContext ) noexcept;
 
 CYPHER_NODISCARD const char *EditorAssets_StatusName( editor_asset_status_t status ) noexcept;

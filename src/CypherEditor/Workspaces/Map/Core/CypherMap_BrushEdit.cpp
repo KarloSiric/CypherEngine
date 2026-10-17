@@ -5,6 +5,7 @@
 // adoption. The editor publishes the private map only after the whole batch.
 //////////////////////////////////////////////////////////////////////////
 #include "CypherMap_BrushEdit.h"
+#include "CypherMap_Groups.h"
 
 #include "CypherGeometry_BrushClip.h"
 #include "CypherGeometry_BrushCsgAdoption.h"
@@ -106,7 +107,7 @@ struct kv_document_t {
 // first. The original record container and placement are stable map metadata.
 struct retained_t {
     kv_document_t owned{};
-    map_chunk_t *pChunk{};
+    map_layer_store_t *pStore{};
     key_value_t *pParent{};
     u32 iLayer{};
     u64 owner{};
@@ -119,10 +120,10 @@ map_status_t Retain( map_document_t *pMap, u64 id, retained_t *pOut ) noexcept
         if ( record.id == id ) { pOut->iLayer = record.iLayer; pOut->owner = record.owner; break; }
     }
     if ( pOut->iLayer >= pMap->layers.nCount ) { return map_status_t::UNKNOWN_LAYER; }
-    const auto *pRecord = MapDocument_FindObject( pMap, id, &pOut->pChunk );
+    const auto *pRecord = MapDocument_FindObject( pMap, id, &pOut->pStore );
     if ( !pRecord ) { return map_status_t::OK; } // Unsaved geometry has no retained fields yet.
-    if ( !pOut->pChunk ) { return map_status_t::GEOMETRY_FAILED; }
-    pOut->pParent = FindParent( KeyValue_Root( pOut->pChunk->store.pDocument ), pRecord );
+    if ( !pOut->pStore ) { return map_status_t::GEOMETRY_FAILED; }
+    pOut->pParent = FindParent( KeyValue_Root( pOut->pStore->store.pDocument ), pRecord );
     if ( !pOut->pParent || KeyValue_Type( pOut->pParent ) != key_value_type_t::ARRAY ) { return map_status_t::GEOMETRY_FAILED; }
     if ( !pOut->owned.Init( pMap->pAllocator ) ) { return map_status_t::OUT_OF_MEMORY; }
     auto *pRoot = KeyValue_Root( pOut->owned.pDocument );
@@ -144,54 +145,36 @@ const key_value_t *FindFace( const key_value_t *pRecord, u64 sideId ) noexcept
 
 // Unsaved geometry normally needs no CYKV record. If a Boolean transfers
 // unknown face data onto it, create a minimal map-owned record in a working
-// container. Save will place world geometry by its actual bounds as usual;
-// the global working chunk is only an in-memory anchor, not a file operation.
+// container: the store of the geometry's layer.
 map_status_t FragmentAnchor( map_document_t *pMap, const retained_t &retained,
-    map_chunk_t **ppChunk, key_value_t **ppParent ) noexcept
+    map_layer_store_t **ppStore, key_value_t **ppParent ) noexcept
 {
-    map_chunk_t *pChunk = nullptr; key_value_t *pContainer = nullptr;
+    map_layer_store_t *pStore = nullptr; key_value_t *pContainer = nullptr;
     if ( retained.owner ) {
-        pContainer = MapDocument_FindObject( pMap, retained.owner, &pChunk );
-        if ( !pContainer || !pChunk || KeyValue_Type( pContainer ) != key_value_type_t::OBJECT ) { return map_status_t::UNKNOWN_OBJECT; }
+        pContainer = MapDocument_FindObject( pMap, retained.owner, &pStore );
+        if ( !pContainer || !pStore || KeyValue_Type( pContainer ) != key_value_type_t::OBJECT ) { return map_status_t::UNKNOWN_OBJECT; }
     } else {
-        const auto layer = SV( pMap->layers.pData[retained.iLayer].id );
-        const auto cell = MapCell_Global();
-        for ( usize i = 0; i < pMap->chunks.nCount; ++i ) {
-            auto *pCandidate = pMap->chunks.pData[i];
-            if ( !pCandidate->bDamaged && StringView_Equals( SV( pCandidate->layer ), layer ) && MapCell_Equals( pCandidate->cell, cell ) ) { pChunk = pCandidate; break; }
-        }
-        if ( !pChunk ) {
-            void *pMemory = Allocator_Allocate( pMap->pAllocator, sizeof( map_chunk_t ), alignof( map_chunk_t ) );
-            if ( !pMemory ) { return map_status_t::OUT_OF_MEMORY; }
-            auto *pPending = new ( pMemory ) map_chunk_t{};
-            std::memcpy( pPending->layer, layer.pData, layer.cchLength ); pPending->cell = cell;
-            const auto status = SettingsDocument_Init( &pPending->store, pMap->pAllocator,
-                { SV( MAP_CHUNK_SCHEMA_ID ), MAP_SCHEMA_VERSION, MAP_SCHEMA_VERSION } );
-            if ( status != settings_document_status_t::OK || !Vector_PushBack( &pMap->chunks, pPending ) ) {
-                pPending->~map_chunk_t(); Allocator_Free( pMap->pAllocator, pMemory, sizeof( map_chunk_t ), alignof( map_chunk_t ) );
-                return map_status_t::OUT_OF_MEMORY;
-            }
-            pChunk = pPending;
-        }
-        pContainer = KeyValue_Root( pChunk->store.pDocument );
+        pStore = MapDocument_LayerStore( pMap, SV( pMap->layers.pData[retained.iLayer].id ) );
+        if ( !pStore ) { return map_status_t::OUT_OF_MEMORY; }
+        pContainer = KeyValue_Root( pStore->store.pDocument );
     }
     auto *pParent = KeyValue_Find( pContainer, SV( "brushes" ) );
     if ( pParent && KeyValue_Type( pParent ) != key_value_type_t::ARRAY ) { return map_status_t::GEOMETRY_FAILED; }
-    if ( !pParent ) { pParent = KeyValue_ObjectInsert( pChunk->store.pDocument, pContainer, SV( "brushes" ), key_value_type_t::ARRAY ); }
+    if ( !pParent ) { pParent = KeyValue_ObjectInsert( pStore->store.pDocument, pContainer, SV( "brushes" ), key_value_type_t::ARRAY ); }
     if ( !pParent ) { return map_status_t::OUT_OF_MEMORY; }
-    *ppChunk = pChunk; *ppParent = pParent; return map_status_t::OK;
+    *ppStore = pStore; *ppParent = pParent; return map_status_t::OK;
 }
 
 map_status_t PublishFragmentData( map_document_t *pMap, const retained_t &retained,
     const key_value_t *pRecord ) noexcept
 {
     if ( !pRecord ) { return map_status_t::OK; }
-    auto *pChunk = retained.pChunk; auto *pParent = retained.pParent;
-    if ( !pChunk || !pParent ) {
-        const auto status = FragmentAnchor( pMap, retained, &pChunk, &pParent );
+    auto *pStore = retained.pStore; auto *pParent = retained.pParent;
+    if ( !pStore || !pParent ) {
+        const auto status = FragmentAnchor( pMap, retained, &pStore, &pParent );
         if ( status != map_status_t::OK ) { return status; }
     }
-    return KeyValue_CloneInto( pChunk->store.pDocument, pParent, pRecord )
+    return KeyValue_CloneInto( pStore->store.pDocument, pParent, pRecord )
         ? map_status_t::OK : map_status_t::OUT_OF_MEMORY;
 }
 
@@ -294,7 +277,11 @@ map_status_t HollowOne( map_document_t *pMap, u64 id, f64 thickness, vector_t<u6
             pMap->pAllocator, &allocator, pMap->geometryPolicy, &result.adopted );
     }
     if ( status != geo::geometry_status_t::OK ) { return Status( status ); }
+    const usize firstFragment = pRoots->nCount;
     auto mapStatus = AdoptFragments( pMap, id, result.adopted, pRoots );
+    if ( mapStatus == map_status_t::OK ) {
+        mapStatus = MapGroups_ReplaceMember( pMap, id, { pRoots->pData + firstFragment, pRoots->nCount - firstFragment } );
+    }
     if ( mapStatus == map_status_t::OK ) { pMap->nextId = allocator.next.value; }
     return mapStatus;
 }

@@ -49,6 +49,7 @@ struct map_issue_t {
     common::u64 id{ 0u };  // The object involved; 0 when the issue is map-wide.
     QString kind{};        // "missing_target", "no_player_start", ...: stable, for filters and tests.
     QString message{};
+    common::u64 detail{ 0u }; // Kind-specific: the output's index for missing_target and invalid_output.
 };
 
 // Whether a virtual asset path exists (the asset browser's catalogue).
@@ -60,12 +61,26 @@ CYPHER_NODISCARD QVector<map_issue_t> MapCheck_Run( const map_workspace_t *pWork
                                                     void *pAssetContext = nullptr );
 CYPHER_NODISCARD const char *MapCheck_SeverityName( map_issue_severity_t severity ) noexcept;
 
+// Fixes (Hammer's Fix and Fix All, TrenchBroom's issue quick fixes): a
+// stacked twin, a classless entity or a lost object is deleted, a broken or
+// dangling output is removed, a mesh with welding, winding or degenerate
+// face problems is repaired (its open borders stay open). The label says
+// what the fix does; empty when the issue has no automatic fix.
+CYPHER_NODISCARD QString MapCheck_FixLabel( const map_issue_t &issue );
+// Applies the fixes of every fixable issue listed, as one undo step.
+// Returns how many issues were fixed (0 changes nothing).
+CYPHER_NODISCARD int MapCheck_Fix( map_workspace_t *pWorkspace, const QVector<map_issue_t> &issues );
+
 CYPHER_NODISCARD QDialog *MapCheckDialog_Create( QWidget *pParent, map_workspace_t *pWorkspace, map_asset_exists_fn pfnAssetExists = nullptr,
                                                  void *pAssetContext = nullptr );
 // Runs the checks again (the map may have changed). Returns the issue count.
 int MapCheckDialog_Refresh( QDialog *pDialog );
 // Selects and frames the issue's object; false for map-wide issues.
 bool MapCheckDialog_GoTo( QDialog *pDialog, int iIssue );
+// The window's Fix (one issue) and Fix All buttons; both check again after.
+// Return how many issues were fixed.
+int MapCheckDialog_Fix( QDialog *pDialog, int iIssue );
+int MapCheckDialog_FixAll( QDialog *pDialog );
 
 } // namespace cypher::editor::map
 

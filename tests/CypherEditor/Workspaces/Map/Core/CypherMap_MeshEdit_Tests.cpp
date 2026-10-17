@@ -46,26 +46,18 @@ u64 Primitive( map_document_t &map, map_primitive_kind_t kind = map_primitive_ki
 }
 struct saved_t {
     std::string root;
-    std::map<std::string, std::string> chunks;
-    map_save_sink_t Sink()
+    map_status_t Save( map_document_t *pMap )
     {
-        return { this,
-            []( void *ctx, string_view_t path, string_view_t text ) noexcept -> bool_t {
-                static_cast<saved_t *>( ctx )->chunks[std::string( path.pData, path.cchLength )].assign( text.pData, text.cchLength ); return CY_TRUE;
-            },
-            []( void *ctx, string_view_t path ) noexcept -> bool_t {
-                static_cast<saved_t *>( ctx )->chunks.erase( std::string( path.pData, path.cchLength ) ); return CY_TRUE;
-            },
-            []( void *ctx, string_view_t text ) noexcept -> bool_t {
-                static_cast<saved_t *>( ctx )->root.assign( text.pData, text.cchLength ); return CY_TRUE;
-            } };
+        text_buffer_t text{};
+        if ( !TextBuffer_Init( &text, Allocator_GetSystem() ) ) { return map_status_t::OUT_OF_MEMORY; }
+        const map_status_t status = MapDocument_Save( pMap, &text );
+        if ( status == map_status_t::OK ) { root.assign( TextBuffer_Data( &text ), TextBuffer_Length( &text ) ); }
+        return status;
     }
 };
 void Load( map_document_t &map, const saved_t &saved )
 {
-    std::vector<map_chunk_input_t> inputs;
-    for ( const auto &[path, text] : saved.chunks ) { inputs.push_back( { SV( path ), SV( text ) } ); }
-    REQUIRE( MapDocument_Load( &map, Allocator_GetSystem(), SV( saved.root ), { inputs.data(), inputs.size() } ) == map_status_t::OK );
+    REQUIRE( MapDocument_Load( &map, Allocator_GetSystem(), SV( saved.root ) ) == map_status_t::OK );
 }
 struct description_t {
     geo::mesh_source_description_t value{};
@@ -93,7 +85,7 @@ void SetU64( key_value_document_t *doc, key_value_t *parent, const char *name, u
 }
 void Metadata( map_document_t &map, u64 id )
 {
-    map_chunk_t *chunk = nullptr; auto *record = MapDocument_FindObject( &map, id, &chunk ); REQUIRE( record ); REQUIRE( chunk );
+    map_layer_store_t *chunk = nullptr; auto *record = MapDocument_FindObject( &map, id, &chunk ); REQUIRE( record ); REQUIRE( chunk );
     auto *doc = chunk->store.pDocument;
     SetU64( doc, record, "future_root", 87654 );
     auto *name = KeyValue_ObjectInsert( doc, record, SV( "name" ), key_value_type_t::STRING ); REQUIRE( name );
@@ -202,7 +194,7 @@ TEST_CASE( "Brush conversion uses the actual boundary and retains authored face 
             }
         }
         CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &map.geometry.sourceIds ) );
-        saved_t saved; REQUIRE( MapDocument_Save( &map, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+        saved_t saved; REQUIRE( saved.Save( &map ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
         description_t roundTrip; roundTrip.Read( loaded, root ); CHECK( geo::MeshSourceDescription_Equal( &desc.value, &roundTrip.value ) );
         geo::BrushBoundary_Shutdown( &boundary ); Vector_Shutdown( &roots );
     }
@@ -215,13 +207,13 @@ TEST_CASE( "Owned brush conversion preserves placement and unknown root and face
     REQUIRE( MapDocument_SetGeometryLayer( &map, root, SV( "detail" ) ) == map_status_t::OK );
     REQUIRE( MapDocument_AddEntity( &map, SV( "detail" ), SV( "func_structure" ), {}, &owner ) == map_status_t::OK );
     REQUIRE( MapDocument_SetGeometryOwner( &map, root, owner ) == map_status_t::OK );
-    saved_t initial; REQUIRE( MapDocument_Save( &map, initial.Sink() ) == map_status_t::OK ); Metadata( map, root );
+    saved_t initial; REQUIRE( initial.Save( &map ) == map_status_t::OK ); Metadata( map, root );
     const u32 layer = Placement( map, root ).iLayer;
     vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, map.pAllocator ) );
     REQUIRE( MapMeshEdit_ConvertBrushes( &map, { &root, 1 }, &roots ) == map_status_t::OK );
     CheckMetadata( map, root, owner, layer );
     REQUIRE( MapMeshEdit_FlipNormals( &map, { &root, 1 } ) == map_status_t::OK ); CheckMetadata( map, root, owner, layer );
-    saved_t saved; REQUIRE( MapDocument_Save( &map, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+    saved_t saved; REQUIRE( saved.Save( &map ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
     CHECK( loaded.geometry.brushes.nCount == 0 ); CHECK( loaded.geometry.meshes.nCount == 1 ); CheckMetadata( loaded, root, owner, layer );
     description_t before, after; before.Read( map, root ); after.Read( loaded, root ); CHECK( geo::MeshSourceDescription_Equal( &before.value, &after.value ) );
     CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &loaded.geometry.sourceIds ) ); Vector_Shutdown( &roots );
@@ -278,8 +270,8 @@ TEST_CASE( "Mesh adapters reject invalid mixed and conflicting records without c
     CHECK( MapMeshEdit_Triangulate( &map, { mixed, 2 } ) == map_status_t::UNKNOWN_OBJECT );
     map.bReadOnly = CY_TRUE; CHECK( MapMeshEdit_FlipNormals( &map, { &a, 1 } ) == map_status_t::READ_ONLY );
     CHECK( MapMeshEdit_Triangulate( &map, { &a, 1 } ) == map_status_t::READ_ONLY ); map.bReadOnly = CY_FALSE;
-    saved_t saved; REQUIRE( MapDocument_Save( &map, saved.Sink() ) == map_status_t::OK ); Metadata( map, b );
-    map_chunk_t *chunk = nullptr; auto *record = MapDocument_FindObject( &map, b, &chunk ); REQUIRE( record ); REQUIRE( chunk );
+    saved_t saved; REQUIRE( saved.Save( &map ) == map_status_t::OK ); Metadata( map, b );
+    map_layer_store_t *chunk = nullptr; auto *record = MapDocument_FindObject( &map, b, &chunk ); REQUIRE( record ); REQUIRE( chunk );
     SetU64( chunk->store.pDocument, record, "vertex_ids", 999 );
     CHECK( MapMeshEdit_ConvertBrushes( &map, { &b, 1 }, &roots ) == map_status_t::INVALID_ARGUMENT ); REQUIRE( roots.nCount == 1 ); CHECK( roots.pData[0] == a );
     REQUIRE( KeyValue_Remove( chunk->store.pDocument, record, KeyValue_Find( record, SV( "vertex_ids" ) ) ) );
@@ -295,7 +287,7 @@ TEST_CASE( "Every mesh adapter allocation failure releases private data and pres
         CAPTURE( operation ); audit_t audit;
         {
             map_document_t original; Create( original, &audit.allocator ); const u64 id = Primitive( original );
-            saved_t initial; REQUIRE( MapDocument_Save( &original, initial.Sink() ) == map_status_t::OK ); Metadata( original, id );
+            saved_t initial; REQUIRE( initial.Save( &original ) == map_status_t::OK ); Metadata( original, id );
             vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, &audit.allocator ) );
             if ( operation != 0 ) { REQUIRE( MapMeshEdit_ConvertBrushes( &original, { &id, 1 }, &roots ) == map_status_t::OK ); }
             Vector_Shutdown( &roots ); const usize baselineBytes = audit.bytes; const auto next = original.nextId, revision = original.geometry.revision;
@@ -335,7 +327,7 @@ TEST_CASE( "Mesh triangulation preserves exact parent face data and corner UVs w
     REQUIRE( MapDocument_SetGeometryLayer( &map, root, SV( "detail" ) ) == map_status_t::OK );
     REQUIRE( MapDocument_AddEntity( &map, SV( "detail" ), SV( "func_structure" ), {}, &owner ) == map_status_t::OK );
     REQUIRE( MapDocument_SetGeometryOwner( &map, root, owner ) == map_status_t::OK );
-    saved_t initial; REQUIRE( MapDocument_Save( &map, initial.Sink() ) == map_status_t::OK ); Metadata( map, root );
+    saved_t initial; REQUIRE( initial.Save( &map ) == map_status_t::OK ); Metadata( map, root );
     vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, map.pAllocator ) );
     REQUIRE( MapMeshEdit_ConvertBrushes( &map, { &root, 1 }, &roots ) == map_status_t::OK );
     const auto next = map.nextId, revision = map.geometry.revision; const auto layer = Placement( map, root ).iLayer;
@@ -373,7 +365,7 @@ TEST_CASE( "Mesh triangulation preserves exact parent face data and corner UVs w
     const auto committedRevision = map.geometry.revision, committedNext = map.nextId;
     REQUIRE( MapMeshEdit_Triangulate( &map, { &root, 1 } ) == map_status_t::OK ); CHECK( map.geometry.revision == committedRevision ); CHECK( map.nextId == committedNext );
     description_t noOp; noOp.Read( map, root ); CHECK( geo::MeshSourceDescription_Equal( &after.value, &noOp.value ) );
-    saved_t saved; REQUIRE( MapDocument_Save( &map, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+    saved_t saved; REQUIRE( saved.Save( &map ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
     CheckMetadata( loaded, root, owner, layer ); description_t roundTrip; roundTrip.Read( loaded, root ); CHECK( geo::MeshSourceDescription_Equal( &after.value, &roundTrip.value ) );
     CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &loaded.geometry.sourceIds ) ); Vector_Shutdown( &roots );
 }
@@ -441,7 +433,7 @@ TEST_CASE( "Triangulation never reuses live or retired map IDs when allocation c
     }
     const auto mapNext = map.nextId; REQUIRE( mapNext == meshNext + 8 );
     CHECK( map.geometry.sourceIds.allocator.next.value == mapNext );
-    saved_t saved; REQUIRE( MapDocument_Save( &map, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+    saved_t saved; REQUIRE( saved.Save( &map ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
     REQUIRE( loaded.nextId == mapNext ); CHECK( loaded.geometry.sourceIds.allocator.next.value == mapNext );
 
     u64 expectedFirst = mapNext;
@@ -469,7 +461,7 @@ TEST_CASE( "Triangulation never reuses live or retired map IDs when allocation c
         if ( !originalFaces.contains( id ) ) { CHECK( id >= expectedFirst ); ++fresh; }
     }
     CHECK( fresh == 6 ); CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &loaded.geometry.sourceIds ) );
-    saved_t committed; REQUIRE( MapDocument_Save( &loaded, committed.Sink() ) == map_status_t::OK ); map_document_t roundTrip; Load( roundTrip, committed );
+    saved_t committed; REQUIRE( committed.Save( &loaded ) == map_status_t::OK ); map_document_t roundTrip; Load( roundTrip, committed );
     CHECK( roundTrip.nextId == expectedFirst + 6 ); CHECK( roundTrip.geometry.sourceIds.allocator.next.value == roundTrip.nextId );
     description_t persisted; persisted.Read( roundTrip, root ); CHECK( geo::MeshSourceDescription_Equal( &after.value, &persisted.value ) );
 }
@@ -514,7 +506,7 @@ namespace
 {
 map_status_t EditFace( map_document_t *map, int operation, u64 root, u64 face, f64 amount )
 {
-    return operation == 0 ? MapMeshEdit_ExtrudeFace( map, root, face, amount ) : MapMeshEdit_InsetFace( map, root, face, amount );
+    return operation == 0 ? MapMeshEdit_ExtrudeFace( map, root, face, amount ) : operation == 1 ? MapMeshEdit_InsetFace( map, root, face, amount ) : MapMeshEdit_InsetFaceByEdgeWidth( map, root, face, amount );
 }
 u64 ConvertBox( map_document_t &map )
 {
@@ -568,7 +560,7 @@ math::vec3d_t Centroid( const geo::mesh_source_description_t &description, const
 
 TEST_CASE( "Single face modeling retains the selected identity and correctly creates geometry on every signed box side", "[map][mesh-edit][face-modeling]" )
 {
-    for ( int operation : { 0, 1 } ) {
+    for ( int operation : { 0, 1, 2 } ) {
         for ( usize side = 0; side < 6; ++side ) {
             CAPTURE( operation, side ); map_document_t map; Create( map ); const u64 root = ConvertBox( map );
             description_t before; before.Read( map, root ); const auto &original = before.value.faces.pData[side];
@@ -590,6 +582,13 @@ TEST_CASE( "Single face modeling retains the selected identity and correctly cre
                     // The source operation's amount is radial travel toward
                     // the centroid, not a perpendicular border width.
                     expected = { p.x + amount * dx / distance, p.y + amount * dy / distance, p.z + amount * dz / distance };
+                }
+                if ( operation == 2 ) {
+                    // Axis-aligned box sides have two perpendicular edge
+                    // distances: each in-plane coordinate moves by width.
+                    expected = { p.x + ( std::fabs( normal.x ) > 0.99 ? 0 : std::copysign( amount, center.x - p.x ) ),
+                                 p.y + ( std::fabs( normal.y ) > 0.99 ? 0 : std::copysign( amount, center.y - p.y ) ),
+                                 p.z + ( std::fabs( normal.z ) > 0.99 ? 0 : std::copysign( amount, center.z - p.z ) ) };
                 }
                 bool found = false;
                 for ( u32 j = 0; j < edited->cCorners; ++j ) {
@@ -617,18 +616,18 @@ TEST_CASE( "Single face modeling retains the selected identity and correctly cre
 
 TEST_CASE( "Face modeling follows exact surface ancestry for materials UV sets colors and retained nested records across reload", "[map][mesh-edit][face-modeling][metadata]" )
 {
-    for ( int operation : { 0, 1 } ) {
+    for ( int operation : { 0, 1, 2 } ) {
         CAPTURE( operation ); map_document_t map; Create( map ); const u64 root = Primitive( map ); u64 owner = 0;
         REQUIRE( MapDocument_AddLayer( &map, SV( "detail" ), SV( "Detail" ) ) == map_status_t::OK );
         REQUIRE( MapDocument_SetGeometryLayer( &map, root, SV( "detail" ) ) == map_status_t::OK );
         REQUIRE( MapDocument_AddEntity( &map, SV( "detail" ), SV( "func_structure" ), {}, &owner ) == map_status_t::OK );
         REQUIRE( MapDocument_SetGeometryOwner( &map, root, owner ) == map_status_t::OK );
-        saved_t initial; REQUIRE( MapDocument_Save( &map, initial.Sink() ) == map_status_t::OK ); Metadata( map, root );
+        saved_t initial; REQUIRE( initial.Save( &map ) == map_status_t::OK ); Metadata( map, root );
         std::map<u64, geo::geometry_brush_side_attributes_t> surfaces;
         std::map<u64, u64> parentTags;
         const auto *brush = geo::GeometryDocument_FindBrush( &map.geometry, { root } ); REQUIRE( brush );
         auto *attributes = geo::GeometryDocument_FindBrushAttributesMutable( &map.geometry, { root } ); REQUIRE( attributes );
-        map_chunk_t *chunk = nullptr; auto *record = MapDocument_FindObject( &map, root, &chunk ); REQUIRE( record ); REQUIRE( chunk );
+        map_layer_store_t *chunk = nullptr; auto *record = MapDocument_FindObject( &map, root, &chunk ); REQUIRE( record ); REQUIRE( chunk );
         for ( usize i = 0; i < brush->sides.nCount; ++i ) {
             const auto id = brush->sides.pData[i].sourceId.value; auto &surface = attributes->records.pData[brush->sides.pData[i].iAttributeIndex];
             const std::string path = "materials/face_" + std::to_string( i ) + ".cymat";
@@ -656,7 +655,7 @@ TEST_CASE( "Face modeling follows exact surface ancestry for materials UV sets c
         const u64 selected = TopFace( authored.value ); const auto layer = Placement( map, root ).iLayer;
         REQUIRE( EditFace( &map, operation, root, selected, operation == 0 ? 24.0 : 8.0 ) == map_status_t::OK );
         description_t after; after.Read( map, root ); CheckMetadata( map, root, owner, layer );
-        saved_t committed; REQUIRE( MapDocument_Save( &map, committed.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, committed );
+        saved_t committed; REQUIRE( committed.Save( &map ) == map_status_t::OK ); map_document_t loaded; Load( loaded, committed );
         CheckMetadata( loaded, root, owner, layer ); description_t persisted; persisted.Read( loaded, root );
         REQUIRE( after.value.faces.nCount == persisted.value.faces.nCount );
         for ( usize i = 0; i < persisted.value.faces.nCount; ++i ) {
@@ -711,7 +710,7 @@ TEST_CASE( "Face modeling follows exact surface ancestry for materials UV sets c
 
 TEST_CASE( "Face modeling rejects invalid amounts read only maps and missing components without allocating or advancing identities", "[map][mesh-edit][face-modeling][validation]" )
 {
-    for ( int operation : { 0, 1 } ) {
+    for ( int operation : { 0, 1, 2 } ) {
         audit_t audit; CAPTURE( operation );
         {
             map_document_t map; Create( map, &audit.allocator ); const u64 root = ConvertBox( map ); const u64 brush = Primitive( map );
@@ -736,7 +735,7 @@ TEST_CASE( "Face modeling rejects invalid amounts read only maps and missing com
 
 TEST_CASE( "Face modeling respects both exhausted identity cursors revision limits and document geometry budgets", "[map][mesh-edit][face-modeling][identity][limits]" )
 {
-    for ( int operation : { 0, 1 } ) {
+    for ( int operation : { 0, 1, 2 } ) {
         for ( int limit = 0; limit < 7; ++limit ) {
             CAPTURE( operation, limit ); map_document_t map; Create( map ); const u64 root = ConvertBox( map );
             description_t before; before.Read( map, root ); const u64 face = TopFace( before.value );
@@ -758,7 +757,7 @@ TEST_CASE( "Face modeling respects both exhausted identity cursors revision limi
 
 TEST_CASE( "New face and vertex IDs never reuse map reservations when source allocation cursors differ", "[map][mesh-edit][face-modeling][identity]" )
 {
-    for ( int operation : { 0, 1 } ) {
+    for ( int operation : { 0, 1, 2 } ) {
         for ( int ahead : { 0, 1 } ) {
             CAPTURE( operation, ahead ); map_document_t map; Create( map ); const u64 root = ConvertBox( map ); const u64 meshNext = map.nextId;
             std::set<u64> issued;
@@ -782,7 +781,7 @@ TEST_CASE( "New face and vertex IDs never reuse map reservations when source all
             }
             CHECK( fresh == 8 ); CHECK( map.nextId == first + 8 ); CHECK( map.geometry.sourceIds.allocator.next.value == map.nextId );
             CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &map.geometry.sourceIds ) );
-            saved_t saved; REQUIRE( MapDocument_Save( &map, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+            saved_t saved; REQUIRE( saved.Save( &map ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
             CHECK( loaded.nextId == first + 8 ); CHECK( loaded.geometry.sourceIds.allocator.next.value == loaded.nextId );
             description_t persisted; persisted.Read( loaded, root ); CHECK( geo::MeshSourceDescription_Equal( &after.value, &persisted.value ) );
         }
@@ -791,11 +790,11 @@ TEST_CASE( "New face and vertex IDs never reuse map reservations when source all
 
 TEST_CASE( "Every face modeling allocation failure releases the discarded private copy and a fresh retry preserves the source", "[map][mesh-edit][face-modeling][oom]" )
 {
-    for ( int operation : { 0, 1 } ) {
+    for ( int operation : { 0, 1, 2 } ) {
         CAPTURE( operation ); audit_t audit;
         {
             map_document_t original; Create( original, &audit.allocator ); const u64 root = Primitive( original );
-            saved_t initial; REQUIRE( MapDocument_Save( &original, initial.Sink() ) == map_status_t::OK ); Metadata( original, root );
+            saved_t initial; REQUIRE( initial.Save( &original ) == map_status_t::OK ); Metadata( original, root );
             vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, &audit.allocator ) );
             REQUIRE( MapMeshEdit_ConvertBrushes( &original, { &root, 1 }, &roots ) == map_status_t::OK ); Vector_Shutdown( &roots );
             description_t before; before.Read( original, root ); const u64 face = TopFace( before.value );
@@ -840,7 +839,7 @@ TEST_CASE( "Quad slice retains authored shells face ancestry and both UV channel
         REQUIRE( MapDocument_SetGeometryLayer( &map, root, SV( "detail" ) ) == map_status_t::OK );
         REQUIRE( MapDocument_AddEntity( &map, SV( "detail" ), SV( "func_structure" ), {}, &owner ) == map_status_t::OK );
         REQUIRE( MapDocument_SetGeometryOwner( &map, root, owner ) == map_status_t::OK );
-        saved_t initial; REQUIRE( MapDocument_Save( &map, initial.Sink() ) == map_status_t::OK ); Metadata( map, root );
+        saved_t initial; REQUIRE( initial.Save( &map ) == map_status_t::OK ); Metadata( map, root );
         vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, map.pAllocator ) );
         REQUIRE( MapMeshEdit_ConvertBrushes( &map, { &root, 1 }, &roots ) == map_status_t::OK );
         description_t before; before.Read( map, root );
@@ -888,7 +887,7 @@ TEST_CASE( "Quad slice retains authored shells face ancestry and both UV channel
         }
         CHECK( freshVertices == 8 ); CHECK( freshFaces == 5 ); CHECK( neighbors == 4 ); CheckMetadata( map, root, owner, layer );
         CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &map.geometry.sourceIds ) );
-        saved_t committed; REQUIRE( MapDocument_Save( &map, committed.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, committed );
+        saved_t committed; REQUIRE( committed.Save( &map ) == map_status_t::OK ); map_document_t loaded; Load( loaded, committed );
         CheckMetadata( loaded, root, owner, layer ); description_t persisted; persisted.Read( loaded, root );
         CHECK( geo::MeshSourceDescription_Equal( &after.value, &persisted.value ) ); CHECK( loaded.nextId == map.nextId );
     }
@@ -922,7 +921,7 @@ TEST_CASE( "Quad slice authors open sheets and honors maximum cell counts with c
         const auto *source = geo::GeometryDocument_FindMesh( &map.geometry, { root } ); REQUIRE( source );
         CHECK( geo::EditableMesh_ShellCount( &source->mesh ) == 1 ); CHECK( geo::MeshBoundary_CountBoundaryEdges( &source->mesh ) == 130 );
         CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &map.geometry.sourceIds ) );
-        saved_t saved; REQUIRE( MapDocument_Save( &map, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+        saved_t saved; REQUIRE( saved.Save( &map ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
         description_t persisted; persisted.Read( loaded, root ); CHECK( geo::MeshSourceDescription_Equal( &after.value, &persisted.value ) ); CHECK( loaded.nextId == map.nextId );
     }
 }
@@ -973,7 +972,7 @@ TEST_CASE( "Every quad slice allocation failure releases its private copy and re
     audit_t audit;
     {
         map_document_t original; Create( original, &audit.allocator ); const u64 root = Primitive( original );
-        saved_t initial; REQUIRE( MapDocument_Save( &original, initial.Sink() ) == map_status_t::OK ); Metadata( original, root );
+        saved_t initial; REQUIRE( initial.Save( &original ) == map_status_t::OK ); Metadata( original, root );
         vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, &audit.allocator ) );
         REQUIRE( MapMeshEdit_ConvertBrushes( &original, { &root, 1 }, &roots ) == map_status_t::OK ); Vector_Shutdown( &roots );
         description_t before; before.Read( original, root ); const u64 face = TopFace( before.value );

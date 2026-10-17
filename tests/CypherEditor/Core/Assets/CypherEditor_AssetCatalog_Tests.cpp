@@ -143,9 +143,26 @@ TEST_CASE( "Recipes name their textures, sources, and dependencies", "[editor][a
     REQUIRE( EditorAssets_MaterialTexture( StringView_FromCString( pDecal ), Allocator_GetSystem(), &path ) == editor_asset_status_t::OK );
     CHECK( Str( TextBuffer_View( &path ) ) == "textures/a_n.cytex" );
 
+    // Schema 2 wraps the texture in an object; an override without a resource
+    // names none, and the material's base is where its texture comes from.
+    const char *pLayered = "@cykv 1\n@schema \"cypher.material\" 2\n{ base = \"materials/templates/blockout.cymat\"\n"
+                           "  textures = { base_color = { resource = \"textures/wall.cytex\" sampler = \"linear_wrap\" } } }\n";
+    REQUIRE( EditorAssets_MaterialTexture( StringView_FromCString( pLayered ), Allocator_GetSystem(), &path ) == editor_asset_status_t::OK );
+    CHECK( Str( TextBuffer_View( &path ) ) == "textures/wall.cytex" );
+    const char *pInheriting = "@cykv 1\n@schema \"cypher.material\" 2\n{ base = \"materials/templates/blockout.cymat\"\n"
+                              "  textures = { base_color = { sampler = \"linear_wrap\" } } }\n";
+    CHECK( EditorAssets_MaterialTexture( StringView_FromCString( pInheriting ), Allocator_GetSystem(), &path ) == editor_asset_status_t::NOT_FOUND );
+    REQUIRE( EditorAssets_MaterialBase( StringView_FromCString( pInheriting ), Allocator_GetSystem(), &path ) == editor_asset_status_t::OK );
+    CHECK( Str( TextBuffer_View( &path ) ) == "materials/templates/blockout.cymat" );
+
     const char *pTexture = "@cykv 1\n@schema \"cypher.texture\" 1\n{ source = \"textures/blockout/floor_tile.png\" usage = \"color\" }\n";
     REQUIRE( EditorAssets_TextureSource( StringView_FromCString( pTexture ), Allocator_GetSystem(), &path ) == editor_asset_status_t::OK );
     CHECK( Str( TextBuffer_View( &path ) ) == "textures/blockout/floor_tile.png" );
+    // A packed schema 3 texture previews its first channel image.
+    const char *pPacked = "@cykv 1\n@schema \"cypher.texture\" 3\n{ type = \"2d\" usage = \"data\" color_space = \"linear\"\n"
+                          "  channels = { g = { source = \"textures/source/rough.png\" channel = \"r\" } b = { value = 1 } } }\n";
+    REQUIRE( EditorAssets_TextureSource( StringView_FromCString( pPacked ), Allocator_GetSystem(), &path ) == editor_asset_status_t::OK );
+    CHECK( Str( TextBuffer_View( &path ) ) == "textures/source/rough.png" );
 
     // Wrong schema, broken text, and a missing member say so.
     CHECK( EditorAssets_TextureSource( StringView_FromCString( pMaterial ), Allocator_GetSystem(), &path ) == editor_asset_status_t::INVALID_DATA );

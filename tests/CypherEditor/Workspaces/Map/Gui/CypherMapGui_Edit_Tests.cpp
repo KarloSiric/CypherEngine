@@ -3,6 +3,10 @@
 // Immutable edit snapshots and atomic wireframe publication contracts.
 //////////////////////////////////////////////////////////////////////////
 #include "CypherMapGui_Workspace.h"
+#include "CypherMapGui_Layers.h"
+#include "CypherMapGui_ToolPanels.h"
+#include "CypherMap_TopologyEdit.h"
+#include "CypherMap_MeshEdit.h"
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 #include "CypherCommon/Mathlib/CypherMath_UV.h"
 #include "CypherEditor/Geometry/Document/CypherGeometry_DocumentBrushAttributes.h"
@@ -14,10 +18,12 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QTemporaryDir>
+#include <QPushButton>
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <limits>
+#include <memory>
 #include <vector>
 #include <map>
 #include <set>
@@ -99,11 +105,6 @@ map_clip_guide_t ClipGuide( u32 axis, f64 offset = 32, f64 start = 0, f64 end = 
     else { guide.points[0] = { offset, start, constructionCoordinate }; guide.points[1] = { offset, end, constructionCoordinate }; }
     return guide;
 }
-QString SavedDestination( const QString &path )
-{
-    const QFileInfo file( path );
-    return QDir( file.absoluteDir().canonicalPath() ).filePath( file.fileName() );
-}
 void CheckSavedBrush( const QString &path, usize expectedCount, u64 id = 0, f64 expectedX = 0 )
 {
     map_document_t loaded{};
@@ -129,7 +130,7 @@ TEST_CASE( "Workspace creation defaults author every primitive with persistent i
     const shape_t shapes[]{
         { "box", map_primitive_kind_t::BOX, 6 }, { "wedge", map_primitive_kind_t::WEDGE, 5 },
         { "cylinder", map_primitive_kind_t::CYLINDER, 14 }, { "spike", map_primitive_kind_t::CONE, 13 },
-        { "sphere", map_primitive_kind_t::SPHERE, 80 }
+        { "sphere", map_primitive_kind_t::SPHERE, 240 }
     };
     for ( const auto &shape : shapes ) {
         CAPTURE( shape.name );
@@ -644,8 +645,8 @@ TEST_CASE( "Construction cache keys include every geometry and surface creation 
     CHECK( ws.editPreview.primitive.worldUnitsPerUv == 256 );
     settings.Text( "editor.map.new_brush_shape", "spike" ); settings.Real( "editor.map.cone_top_radius", 0 ); build( 13 );
     settings.Real( "editor.map.cone_top_radius", 0.5 ); build( 14 );
-    settings.Text( "editor.map.new_brush_shape", "sphere" ); settings.Integer( "editor.map.sphere_subdivisions", 0 ); build( 20 );
-    settings.Integer( "editor.map.sphere_subdivisions", 1 ); build( 80 );
+    settings.Text( "editor.map.new_brush_shape", "sphere" ); settings.Integer( "editor.map.sphere_subdivisions", 0 ); build( 128 );
+    settings.Integer( "editor.map.sphere_subdivisions", 1 ); build( 240 );
     MapWorkspace_ClearEditPreview( &ws ); CHECK( audit.live == 0 );
     CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.editPreviewWire.faces.nCount == 0 );
     CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == 1 );
@@ -823,7 +824,7 @@ TEST_CASE( "A private owned brush preview retains surface identities while publi
     MapWorkspace_DocumentChanged( &ws );
     QTemporaryDir folder; REQUIRE( folder.isValid() ); const QString path = folder.filePath( QStringLiteral( "owned_face.cymap" ) );
     REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK );
-    map_chunk_t *chunk{}; auto *record = MapDocument_FindObject( ws.pDocument, id, &chunk ); REQUIRE( record != nullptr ); REQUIRE( chunk != nullptr );
+    map_layer_store_t *chunk{}; auto *record = MapDocument_FindObject( ws.pDocument, id, &chunk ); REQUIRE( record != nullptr ); REQUIRE( chunk != nullptr );
     auto *extra = KeyValue_ObjectInsert( chunk->store.pDocument, record, StringView_FromCString( "editor_custom_annotation" ), key_value_type_t::STRING );
     REQUIRE( extra != nullptr ); REQUIRE( KeyValue_SetString( chunk->store.pDocument, extra, StringView_FromCString( "quality-pass" ) ) );
     auto *attributes = geo::GeometryDocument_FindBrushAttributesMutable( &ws.pDocument->geometry, { id } ); REQUIRE( attributes != nullptr );
@@ -1380,11 +1381,15 @@ TEST_CASE( "Mesh source identities survive workspace publication undo redo and r
     const auto checkCache = [&]( const map_wireframe_t &wire, cypher::math::vec3d_t delta ) {
         const auto *object = MapWireframe_FindObject( wire, meshId ); REQUIRE( object != nullptr );
         REQUIRE( wire.pointSourceIds.nCount == wire.points.nCount );
-        CHECK( object->nPoints == vertices.size() ); CHECK( object->nLines == edges.size() );
+        // The example mesh carries a mirror modifier: its evaluated surface
+        // adds points with no authored identity (0), faces naming no cage
+        // face (copies) and outlines between those points. The authored cage
+        // must still come through exactly once, at the moved positions.
         std::set<u64> actualVertices, actualFaces;
         std::set<std::pair<u64, u64>> actualEdges;
         for ( u32 i = 0u; i < object->nPoints; ++i ) {
             const u32 point = object->iFirstPoint + i; const u64 id = wire.pointSourceIds.pData[point];
+            if ( id == 0u ) { continue; }
             REQUIRE( vertices.contains( id ) ); CHECK( actualVertices.insert( id ).second );
             const auto original = vertices.at( id ), position = wire.points.pData[point];
             CHECK( position.x == Catch::Approx( original.x + delta.x ) );
@@ -1393,11 +1398,12 @@ TEST_CASE( "Mesh source identities survive workspace publication undo redo and r
         }
         for ( usize i = 0u; i < wire.faces.nCount; ++i ) {
             const auto &face = wire.faces.pData[i];
-            if ( face.id == meshId ) { CHECK( face.sideId == 0u ); CHECK( actualFaces.insert( face.faceId ).second ); }
+            if ( face.id == meshId && face.faceId != 0u ) { CHECK( face.sideId == 0u ); CHECK( actualFaces.insert( face.faceId ).second ); }
         }
         for ( u32 i = 0u; i < object->nLines; ++i ) {
             const auto &line = wire.lines.pData[object->iFirstLine + i];
             const u64 a = wire.pointSourceIds.pData[line.iA], b = wire.pointSourceIds.pData[line.iB];
+            if ( a == 0u && b == 0u ) { continue; }
             CHECK( a < b ); CHECK( actualEdges.emplace( a, b ).second );
         }
         CHECK( actualVertices.size() == vertices.size() ); CHECK( actualFaces == faces ); CHECK( actualEdges == edges );
@@ -1466,7 +1472,7 @@ TEST_CASE( "Failed undo and redo preparation preserve the published document and
     CHECK( ws.wire.objects.pData[0].bounds.box.minimum.x == ( redo ? 16 : 0 ) );
 }
 
-TEST_CASE( "Undoing a saved creation removes its persisted chunk before reopening", "[map][gui][geometry-edit][snapshot][persistence]" )
+TEST_CASE( "Undoing a saved creation removes it from the saved map file", "[map][gui][geometry-edit][snapshot][persistence]" )
 {
     session_t session;
     auto &ws = session.workspace;
@@ -1475,21 +1481,19 @@ TEST_CASE( "Undoing a saved creation removes its persisted chunk before reopenin
     QTemporaryDir folder;
     REQUIRE( folder.isValid() );
     const QString path = folder.filePath( QStringLiteral( "undo.cymap" ) );
-    const QString chunk = folder.filePath( QStringLiteral( "undo/default/x0_y0.cymapchunk" ) );
     REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK );
-    REQUIRE( QFileInfo::exists( chunk ) );
+    CheckSavedBrush( path, 1, id, 0 );
     REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
-    const auto saved = MapWorkspace_Save( &ws );
-    REQUIRE( saved.status == map_files_status_t::OK );
-    CHECK( saved.nRemoved == 1 );
-    CHECK_FALSE( QFileInfo::exists( chunk ) );
+    REQUIRE( MapWorkspace_Save( &ws ).status == map_files_status_t::OK );
     CheckSavedBrush( path, 0 );
     REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
     REQUIRE( MapWorkspace_Save( &ws ).status == map_files_status_t::OK );
     CheckSavedBrush( path, 1, id, 0 );
+    // The whole level is the one file: nothing is written beside it.
+    CHECK( QDir( folder.path() ).entryList( QDir::AllEntries | QDir::NoDotAndDotDot ) == QStringList{ QStringLiteral( "undo.cymap" ) } );
 }
 
-TEST_CASE( "Undo and redo across saved chunk cells do not leave duplicate geometry", "[map][gui][geometry-edit][snapshot][persistence]" )
+TEST_CASE( "Undo and redo across a far move rewrite the one map file without duplicates", "[map][gui][geometry-edit][snapshot][persistence]" )
 {
     session_t session;
     auto &ws = session.workspace;
@@ -1498,26 +1502,19 @@ TEST_CASE( "Undo and redo across saved chunk cells do not leave duplicate geomet
     QTemporaryDir folder;
     REQUIRE( folder.isValid() );
     const QString path = folder.filePath( QStringLiteral( "move.cymap" ) );
-    const QString original = folder.filePath( QStringLiteral( "move/default/x0_y0.cymapchunk" ) );
-    const QString moved = folder.filePath( QStringLiteral( "move/default/x1_y0.cymapchunk" ) );
     REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK );
     REQUIRE( MapWorkspace_TranslateSelection( &ws, { 9000, 0, 0 } ) );
     REQUIRE( MapWorkspace_Save( &ws ).status == map_files_status_t::OK );
-    CHECK_FALSE( QFileInfo::exists( original ) );
-    REQUIRE( QFileInfo::exists( moved ) );
+    CheckSavedBrush( path, 1, id, 9000 );
     REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
     REQUIRE( MapWorkspace_Save( &ws ).status == map_files_status_t::OK );
-    CHECK( QFileInfo::exists( original ) );
-    CHECK_FALSE( QFileInfo::exists( moved ) );
     CheckSavedBrush( path, 1, id, 0 );
     REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
     REQUIRE( MapWorkspace_Save( &ws ).status == map_files_status_t::OK );
-    CHECK_FALSE( QFileInfo::exists( original ) );
-    CHECK( QFileInfo::exists( moved ) );
     CheckSavedBrush( path, 1, id, 9000 );
 }
 
-TEST_CASE( "Save As maintains independent persisted chunk inventories per destination", "[map][gui][geometry-edit][snapshot][persistence]" )
+TEST_CASE( "Save As writes each destination as its own complete map file", "[map][gui][geometry-edit][snapshot][persistence]" )
 {
     session_t session;
     auto &ws = session.workspace;
@@ -1527,46 +1524,19 @@ TEST_CASE( "Save As maintains independent persisted chunk inventories per destin
     REQUIRE( folder.isValid() );
     const QString a = folder.filePath( QStringLiteral( "a.cymap" ) );
     const QString b = folder.filePath( QStringLiteral( "b.cymap" ) );
-    const QString a0 = folder.filePath( QStringLiteral( "a/default/x0_y0.cymapchunk" ) );
-    const QString a1 = folder.filePath( QStringLiteral( "a/default/x1_y0.cymapchunk" ) );
-    const QString b0 = folder.filePath( QStringLiteral( "b/default/x0_y0.cymapchunk" ) );
-    const QString b1 = folder.filePath( QStringLiteral( "b/default/x1_y0.cymapchunk" ) );
     REQUIRE( MapWorkspace_SaveAs( &ws, a ).status == map_files_status_t::OK );
     REQUIRE( MapWorkspace_TranslateSelection( &ws, { 9000, 0, 0 } ) );
     REQUIRE( MapWorkspace_SaveAs( &ws, b ).status == map_files_status_t::OK );
-    REQUIRE( QFileInfo::exists( a0 ) );
-    REQUIRE( QFileInfo::exists( b1 ) );
+    CHECK( ws.path == b );
+    CheckSavedBrush( a, 1, id, 0 );
+    CheckSavedBrush( b, 1, id, 9000 );
     REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
     REQUIRE( MapWorkspace_Save( &ws ).status == map_files_status_t::OK );
-    CHECK( ws.path == b );
-    CHECK( QFileInfo::exists( a0 ) );
-    CHECK( QFileInfo::exists( b0 ) );
-    CHECK_FALSE( QFileInfo::exists( b1 ) );
-    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
-    REQUIRE( MapWorkspace_SaveAs( &ws, a ).status == map_files_status_t::OK );
-    CHECK_FALSE( QFileInfo::exists( a0 ) );
-    CHECK( QFileInfo::exists( a1 ) );
-    CHECK( QFileInfo::exists( b0 ) );
-    CheckSavedBrush( a, 1, id, 9000 );
+    CheckSavedBrush( a, 1, id, 0 );
     CheckSavedBrush( b, 1, id, 0 );
 }
 
-TEST_CASE( "Explicit persistence inventory rejects invalid and escaping paths before writing", "[map][gui][geometry-edit][persistence]" )
-{
-    session_t session;
-    REQUIRE( MapWorkspace_CreateBox( &session.workspace, Box( 0 ) ) );
-    QTemporaryDir folder;
-    REQUIRE( folder.isValid() );
-    const QString path = folder.filePath( QStringLiteral( "invalid.cymap" ) );
-    span_t<const string_view_t> inventory{ nullptr, 1 };
-    const string_view_t escape = StringView_FromCString( "../x0_y0.cymapchunk" );
-    SECTION( "A nonempty span needs valid storage" ) {}
-    SECTION( "The inventory cannot escape the chunk directory" ) { inventory = { &escape, 1 }; }
-    CHECK( MapFiles_Save( session.workspace.pDocument, path.toUtf8().constData(), inventory ).status == map_files_status_t::INVALID_ARGUMENT );
-    CHECK_FALSE( QFileInfo::exists( path ) );
-}
-
-TEST_CASE( "A partially published failed save is cleaned up after undo and retry", "[map][gui][geometry-edit][snapshot][persistence][save-failure]" )
+TEST_CASE( "A failed save leaves the map on disk unchanged and a retry succeeds", "[map][gui][geometry-edit][snapshot][persistence][save-failure]" )
 {
     session_t session;
     auto &ws = session.workspace;
@@ -1575,94 +1545,19 @@ TEST_CASE( "A partially published failed save is cleaned up after undo and retry
     QTemporaryDir folder;
     REQUIRE( folder.isValid() );
     const QString path = folder.filePath( QStringLiteral( "partial.cymap" ) );
-    const QString original = folder.filePath( QStringLiteral( "partial/default/x0_y0.cymapchunk" ) );
-    const QString moved = folder.filePath( QStringLiteral( "partial/default/x1_y0.cymapchunk" ) );
     REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK );
     REQUIRE( MapWorkspace_TranslateSelection( &ws, { 9000, 0, 0 } ) );
-    // A directory at the root path allows staging, but prevents root rename
-    // after the new chunk has already been published.
+    // A directory at the map's path lets the `.tmp` be written but stops the
+    // replace, the last step of a save.
     REQUIRE( QFile::remove( path ) );
     REQUIRE( QDir().mkdir( path ) );
     REQUIRE( MapWorkspace_Save( &ws ).status == map_files_status_t::WRITE_FAILED );
-    CHECK( QFileInfo::exists( original ) );
-    REQUIRE( QFileInfo::exists( moved ) );
-    CHECK( ws.persistedChunksByRoot.value( SavedDestination( path ) ).contains( QStringLiteral( "default/x1_y0.cymapchunk" ) ) );
+    CHECK( QFileInfo( path ).isDir() );
+    CHECK_FALSE( QFileInfo::exists( path + QStringLiteral( ".tmp" ) ) );
+    CHECK( MapWorkspace_IsModified( &ws ) );
     REQUIRE( QDir().rmdir( path ) );
-    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
     REQUIRE( MapWorkspace_Save( &ws ).status == map_files_status_t::OK );
-    CHECK_FALSE( QFileInfo::exists( moved ) );
-    CheckSavedBrush( path, 1, id, 0 );
-}
-
-TEST_CASE( "Failed Save As claims only chunks whose replacement actually succeeded", "[map][gui][geometry-edit][snapshot][persistence][save-failure]" )
-{
-    session_t session;
-    auto &ws = session.workspace;
-    REQUIRE( MapWorkspace_CreateBox( &ws, Box( 0 ) ) );
-    REQUIRE( MapWorkspace_CreateBox( &ws, Box( 9000 ) ) );
-    QTemporaryDir folder;
-    REQUIRE( folder.isValid() );
-    const QString a = folder.filePath( QStringLiteral( "a.cymap" ) );
-    const QString b = folder.filePath( QStringLiteral( "b.cymap" ) );
-    const QString a0 = folder.filePath( QStringLiteral( "a/default/x0_y0.cymapchunk" ) );
-    const QString a1 = folder.filePath( QStringLiteral( "a/default/x1_y0.cymapchunk" ) );
-    const QString b0 = folder.filePath( QStringLiteral( "b/default/x0_y0.cymapchunk" ) );
-    const QString b1 = folder.filePath( QStringLiteral( "b/default/x1_y0.cymapchunk" ) );
-    REQUIRE( MapWorkspace_SaveAs( &ws, a ).status == map_files_status_t::OK );
-    // Chunk order is canonical by cell. Publishing x0 succeeds, then the x1
-    // directory makes its rename fail before the new root is published.
-    REQUIRE( QDir().mkpath( b1 ) );
-    REQUIRE( MapWorkspace_SaveAs( &ws, b ).status == map_files_status_t::WRITE_FAILED );
-    CHECK( ws.path == a );
-    REQUIRE( QFileInfo::exists( b0 ) );
-    const QStringList recovery = ws.persistedChunksByRoot.value( SavedDestination( b ) );
-    CHECK( recovery.contains( QStringLiteral( "default/x0_y0.cymapchunk" ) ) );
-    CHECK_FALSE( recovery.contains( QStringLiteral( "default/x1_y0.cymapchunk" ) ) );
-    REQUIRE( QDir().rmdir( b1 ) );
-    // This unclaimed destination file must survive the retry. Tracking all
-    // canonical document paths instead of successful renames would delete it.
-    REQUIRE( QFile::copy( a1, b1 ) );
-    QFile unrelated( b1 );
-    REQUIRE( unrelated.open( QIODevice::ReadOnly ) );
-    const QByteArray originalBytes = unrelated.readAll();
-    unrelated.close();
-    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
-    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
-    REQUIRE( MapWorkspace_SaveAs( &ws, b ).status == map_files_status_t::OK );
-    CHECK_FALSE( QFileInfo::exists( b0 ) );
-    REQUIRE( unrelated.open( QIODevice::ReadOnly ) );
-    CHECK( unrelated.readAll() == originalBytes );
-    CHECK( QFileInfo::exists( a0 ) );
-    CHECK( QFileInfo::exists( a1 ) );
-}
-
-TEST_CASE( "Recovery tracking allocation fails before any chunk is published", "[map][gui][geometry-edit][persistence][save-failure][allocation]" )
-{
-    session_t session;
-    auto &ws = session.workspace;
-    REQUIRE( MapWorkspace_CreateBox( &ws, Box( 0 ) ) );
-    const u64 id = ws.selection.ids.pData[0];
-    QTemporaryDir folder;
-    REQUIRE( folder.isValid() );
-    const QString path = folder.filePath( QStringLiteral( "tracking.cymap" ) );
-    const QString moved = folder.filePath( QStringLiteral( "tracking/default/x1_y0.cymapchunk" ) );
-    REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK );
-    REQUIRE( MapWorkspace_TranslateSelection( &ws, { 9000, 0, 0 } ) );
-    allocation_failure_t failure;
-    failure.failOn = 1;
-    const allocator_t allocator{ &Allocate, nullptr, &Free, &failure };
-    text_buffer_t published{};
-    REQUIRE( TextBuffer_Init( &published, &allocator ) );
-    const string_view_t inventory = StringView_FromCString( "default/x0_y0.cymapchunk" );
-    const auto result = MapFiles_Save( ws.pDocument, path.toUtf8().constData(), { &inventory, 1 }, &published );
-    REQUIRE( result.status == map_files_status_t::DOCUMENT_FAILED );
-    CHECK( result.documentStatus == map_status_t::OUT_OF_MEMORY );
-    CHECK( failure.calls == 1 );
-    CHECK( failure.live == 0 );
-    CHECK( TextBuffer_IsEmpty( &published ) );
-    CHECK_FALSE( QFileInfo::exists( moved ) );
-    CHECK_FALSE( QFileInfo::exists( moved + QStringLiteral( ".tmp" ) ) );
-    CheckSavedBrush( path, 1, id, 0 );
+    CheckSavedBrush( path, 1, id, 9000 );
 }
 
 TEST_CASE( "Brush scale uses texture scale lock independently from translation lock", "[map][gui][geometry-edit][texture-lock]" )
@@ -1698,7 +1593,7 @@ TEST_CASE( "Brush scale uses texture scale lock independently from translation l
     CHECK( after.worldUnitsPerUv.x == Catch::Approx( scaleLock ? before.worldUnitsPerUv.x * 2 : before.worldUnitsPerUv.x ) );
 }
 
-TEST_CASE( "Directory aliases share the same persisted chunk inventory", "[map][gui][geometry-edit][snapshot][persistence]" )
+TEST_CASE( "Save As through a directory alias writes the same map file", "[map][gui][geometry-edit][snapshot][persistence]" )
 {
     session_t session;
     auto &ws = session.workspace;
@@ -1712,17 +1607,14 @@ TEST_CASE( "Directory aliases share the same persisted chunk inventory", "[map][
     if ( error ) { SKIP( "Directory symlinks are unavailable on this host" ); }
     QString relative = QStringLiteral( "map.cymap" );
     SECTION( "Existing parent directories" ) {}
-    SECTION( "Staging creates nested parent directories" ) { relative = QStringLiteral( "new/nested/map.cymap" ); }
+    SECTION( "Saving creates nested parent directories" ) { relative = QStringLiteral( "new/nested/map.cymap" ); }
     const QString path = QDir( real ).filePath( relative );
     const QString aliasedPath = QDir( alias ).filePath( relative );
-    const QString chunk = QFileInfo( path ).absoluteDir().filePath( QStringLiteral( "map/default/x0_y0.cymapchunk" ) );
     REQUIRE( MapWorkspace_CreateBox( &ws, Box( 0 ) ) );
     REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK );
-    REQUIRE( QFileInfo::exists( chunk ) );
+    CheckSavedBrush( path, 1, ws.selection.ids.pData[0], 0 );
     REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
     REQUIRE( MapWorkspace_SaveAs( &ws, aliasedPath ).status == map_files_status_t::OK );
-    CHECK_FALSE( QFileInfo::exists( chunk ) );
-    CHECK( ws.persistedChunksByRoot.size() == 1 );
     CheckSavedBrush( path, 0 );
 }
 
@@ -1840,4 +1732,455 @@ TEST_CASE( "Individual resize preparation failures retain every root and the sha
         CHECK( EditorHistory_AppliedStepCount( &ws.history ) == 5 ); CHECK_FALSE( ws.editPreview.bActive );
         REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
     }
+}
+
+
+namespace
+{
+namespace history_geo = cypher::editor::geometry;
+u64 HistoryQuad( map_workspace_t &ws )
+{
+    auto desc = MapWorkspace_PrimitiveDefaults( &ws, Box( 0 ) );
+    desc.kind = map_primitive_kind_t::QUAD; desc.axis = 2;
+    REQUIRE( MapWorkspace_CreatePrimitive( &ws, desc ) );
+    REQUIRE( ws.selection.ids.nCount == 1 );
+    MapWorkspace_SetTool( &ws, map_tool_t::SELECT );
+    return ws.selection.ids.pData[0];
+}
+std::vector<history_geo::mesh_edge_ref_t> HistoryEdges( const map_workspace_t &ws, u64 id )
+{
+    std::vector<history_geo::mesh_edge_ref_t> edges;
+    const auto *object = MapWireframe_FindObject( ws.wire, id ); REQUIRE( object != nullptr );
+    for ( u32 i = 0; i < object->nLines; ++i ) {
+        const auto &line = ws.wire.lines.pData[object->iFirstLine + i];
+        edges.push_back( history_geo::MeshEdgeRef_Make( { ws.wire.pointSourceIds.pData[line.iA] }, { ws.wire.pointSourceIds.pData[line.iB] } ) );
+    }
+    REQUIRE( !edges.empty() );
+    return edges;
+}
+std::vector<history_geo::geometry_source_id_t> HistoryVertices( const map_workspace_t &ws, u64 id )
+{
+    std::vector<history_geo::geometry_source_id_t> vertices;
+    const auto *object = MapWireframe_FindObject( ws.wire, id ); REQUIRE( object != nullptr );
+    for ( u32 i = 0; i < object->nPoints; ++i ) { vertices.push_back( { ws.wire.pointSourceIds.pData[object->iFirstPoint + i] } ); }
+    std::sort( vertices.begin(), vertices.end(), []( auto a, auto b ) { return a.value < b.value; } );
+    return vertices;
+}
+void HistoryCheckEdges( const map_workspace_t &ws, u64 mesh, const std::vector<history_geo::mesh_edge_ref_t> &expected,
+    history_geo::mesh_edge_ref_t seed )
+{
+    REQUIRE( ws.selection.ids.nCount == 1 ); CHECK( ws.selection.ids.pData[0] == mesh );
+    CHECK( ws.meshSelection.meshId.value == mesh ); REQUIRE( ws.meshSelection.edges.nCount == expected.size() );
+    for ( const auto edge : expected ) { CHECK( history_geo::MeshSelection_HasEdge( &ws.meshSelection, edge ) ); }
+    CHECK( ws.selectedMeshEdgeSeed.a.value == seed.a.value ); CHECK( ws.selectedMeshEdgeSeed.b.value == seed.b.value );
+    CHECK( ws.meshSelection.vertices.nCount == 0 ); CHECK( ws.selectedMeshFaceObject == 0 );
+    CHECK( MapWorkspace_HasMeshEdges( &ws ) );
+}
+struct history_extend_t {
+    u64 mesh{};
+    history_geo::mesh_edge_ref_t edge{};
+    history_geo::mesh_selection_t next{};
+    explicit history_extend_t( u64 id, history_geo::mesh_edge_ref_t source ) : mesh( id ), edge( source )
+    {
+        REQUIRE( history_geo::MeshSelection_Init( &next, Allocator_GetSystem(), { mesh } ) == history_geo::geometry_status_t::OK );
+    }
+    static map_status_t Apply( void *context, map_document_t *copy, vector_t<u64> *roots )
+    {
+        auto &self = *static_cast<history_extend_t *>( context );
+        if ( !Vector_PushBack( roots, self.mesh ) ) { return map_status_t::OUT_OF_MEMORY; }
+        return MapTopologyEdit_ExtendEdgesBy( copy, self.mesh, { &self.edge, 1 }, { 0, 0, 32 }, &self.next.edges );
+    }
+};
+struct history_move_t {
+    u64 mesh{}; span_t<const history_geo::geometry_source_id_t> vertices{};
+    static map_status_t Apply( void *context, map_document_t *copy, vector_t<u64> *roots )
+    {
+        const auto &self = *static_cast<const history_move_t *>( context );
+        if ( !Vector_PushBack( roots, self.mesh ) ) { return map_status_t::OUT_OF_MEMORY; }
+        return MapTopologyEdit_MoveVertices( copy, self.mesh, self.vertices, { 16, 0, 0 } );
+    }
+};
+struct history_published_t {
+    const map_document_t *document;
+    const cypher::math::vec3d_t *wire;
+    const u64 *roots;
+    u64 revision, selectionRevision, nextId;
+    undo_state_token_t token;
+    usize applied, steps;
+    explicit history_published_t( const map_workspace_t &ws ) : document( ws.pDocument ), wire( ws.wire.points.pData ),
+        roots( ws.selection.ids.pData ), revision( ws.pDocument->geometry.revision ), selectionRevision( ws.selection.revision ),
+        nextId( ws.pDocument->nextId ), token( UndoRedo_StateToken( ws.history.pUndo ) ),
+        applied( EditorHistory_AppliedStepCount( &ws.history ) ), steps( EditorHistory_StepCount( &ws.history ) ) {}
+    void Check( const map_workspace_t &ws ) const
+    {
+        CHECK( ws.pDocument == document ); CHECK( ws.wire.points.pData == wire ); CHECK( ws.selection.ids.pData == roots );
+        CHECK( ws.pDocument->geometry.revision == revision ); CHECK( ws.selection.revision == selectionRevision );
+        CHECK( ws.pDocument->nextId == nextId ); CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+        CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    }
+};
+}
+
+TEST_CASE( "History owns old boundary and new extension rim before publication", "[map][gui][component-history][snapshot]" )
+{
+    session_t session; auto &ws = session.workspace;
+    const u64 id = HistoryQuad( ws ); const auto old = HistoryEdges( ws, id ).front();
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::EDGES );
+    REQUIRE( MapWorkspace_SelectMeshEdge( &ws, id, old, MAP_SELECT_REPLACE ) );
+    history_extend_t edit( id, old );
+    map_prepared_component_selection_t result{ &edit.next };
+    const usize steps = EditorHistory_AppliedStepCount( &ws.history );
+    REQUIRE( MapWorkspace_ApplyEdit( &ws, "Extend boundary", &history_extend_t::Apply, &edit, &result ) );
+    REQUIRE( edit.next.edges.nCount == 1 ); const auto rim = edit.next.edges.pData[0];
+    CHECK( rim.a.value != old.a.value ); CHECK( rim.b.value != old.b.value );
+    HistoryCheckEdges( ws, id, { rim }, rim );
+    CHECK( EditorHistory_AppliedStepCount( &ws.history ) == steps + 1 );
+    // Mutate/destroy the borrowed tool output; history and live selection own
+    // independent storage, including the after-rim produced inside the callback.
+    history_geo::MeshSelection_Shutdown( &edit.next );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); HistoryCheckEdges( ws, id, { old }, old );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); HistoryCheckEdges( ws, id, { rim }, rim );
+    history_extend_t continuation( id, ws.meshSelection.edges.pData[0] );
+    map_prepared_component_selection_t next{ &continuation.next };
+    REQUIRE( MapWorkspace_ApplyEdit( &ws, "Continue boundary", &history_extend_t::Apply, &continuation, &next ) );
+    CHECK( EditorHistory_AppliedStepCount( &ws.history ) == steps + 2 );
+    REQUIRE( continuation.next.edges.nCount == 1 );
+    HistoryCheckEdges( ws, id, { continuation.next.edges.pData[0] }, continuation.next.edges.pData[0] );
+}
+
+TEST_CASE( "Component history retains full sets seeds active faces and projected vertex columns", "[map][gui][component-history][snapshot]" )
+{
+    session_t session; auto &ws = session.workspace;
+    REQUIRE( MapWorkspace_CreateBox( &ws, Box( 0 ) ) ); REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) );
+    const u64 id = ws.selection.ids.pData[0]; const auto vertices = HistoryVertices( ws, id );
+    history_move_t edit{ id, { vertices.data(), vertices.size() } };
+    SECTION( "Selected edges and nonfirst loop seed" ) {
+        const auto edges = HistoryEdges( ws, id ); REQUIRE( edges.size() > 2 );
+        MapWorkspace_SetElementMode( &ws, map_element_mode_t::EDGES );
+        REQUIRE( MapWorkspace_SelectMeshEdge( &ws, id, edges[0], MAP_SELECT_REPLACE ) );
+        REQUIRE( MapWorkspace_SelectMeshEdge( &ws, id, edges[2], MAP_SELECT_ADD ) );
+        REQUIRE( MapWorkspace_ApplyEdit( &ws, "Move selected edges", &history_move_t::Apply, &edit ) );
+        HistoryCheckEdges( ws, id, { edges[0], edges[2] }, edges[2] );
+        REQUIRE( MapWorkspace_SelectMeshEdge( &ws, id, edges[1], MAP_SELECT_REPLACE ) );
+        REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); HistoryCheckEdges( ws, id, { edges[0], edges[2] }, edges[2] );
+        REQUIRE( MapWorkspace_SelectMeshEdge( &ws, id, edges[1], MAP_SELECT_REPLACE ) );
+        REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); HistoryCheckEdges( ws, id, { edges[0], edges[2] }, edges[2] );
+    }
+    SECTION( "Vertex set and column axis are restamped with the new selection revision" ) {
+        MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+        REQUIRE( MapWorkspace_SetMeshComponents( &ws, id, { vertices.data(), 3 }, {} ) );
+        ws.meshVertexColumnAxis = 2; ws.meshVertexColumnRevision = ws.selection.revision;
+        const auto check = [&] {
+            REQUIRE( ws.meshSelection.vertices.nCount == 3 ); CHECK( ws.meshSelection.meshId.value == id );
+            for ( usize i = 0; i < 3; ++i ) { CHECK( ws.meshSelection.vertices.pData[i].value == vertices[i].value ); }
+            CHECK( ws.meshVertexColumnAxis == 2 ); CHECK( ws.meshVertexColumnRevision == ws.selection.revision );
+            CHECK( MapWorkspace_HasMeshVertices( &ws ) );
+        };
+        REQUIRE( MapWorkspace_ApplyEdit( &ws, "Move vertex column", &history_move_t::Apply, &edit ) ); check();
+        REQUIRE( MapWorkspace_SelectMeshVertex( &ws, id, vertices.back(), MAP_SELECT_REPLACE ) );
+        REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); check();
+        REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); check();
+    }
+    SECTION( "Complete face set and active face replace unrelated later highlights" ) {
+        std::vector<u64> faces;
+        for ( usize i = 0; i < ws.wire.faces.nCount; ++i ) { if ( ws.wire.faces.pData[i].id == id ) { faces.push_back( ws.wire.faces.pData[i].faceId ); } }
+        REQUIRE( faces.size() == 6 ); std::sort( faces.begin(), faces.end() );
+        REQUIRE( MapWorkspace_SetMeshFaces( &ws, id, { faces.data(), 3 }, faces[1] ) );
+        const auto check = [&] {
+            CHECK( ws.selectedMeshFaceObject == id ); CHECK( ws.selectedMeshFaceId == faces[1] );
+            const auto selected = MapWorkspace_MeshFaces( &ws ); REQUIRE( selected.nCount == 3 );
+            for ( usize i = 0; i < 3; ++i ) { CHECK( selected.pData[i] == faces[i] ); }
+            CHECK( ws.meshSelection.vertices.nCount == 0 ); CHECK( ws.meshSelection.edges.nCount == 0 );
+        };
+        REQUIRE( MapWorkspace_ApplyEdit( &ws, "Move selected faces", &history_move_t::Apply, &edit ) ); check();
+        REQUIRE( MapWorkspace_SetMeshFaces( &ws, id, { faces.data() + 3, 3 }, faces[5] ) );
+        REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); check();
+        REQUIRE( MapWorkspace_SetMeshFaces( &ws, id, { faces.data() + 3, 3 }, faces[4] ) );
+        REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); check();
+    }
+}
+
+TEST_CASE( "Component history respects the current mode and session layer locks", "[map][gui][component-history][snapshot]" )
+{
+    session_t session; auto &ws = session.workspace; const u64 id = HistoryQuad( ws );
+    const auto vertices = HistoryVertices( ws, id ); const auto edges = HistoryEdges( ws, id );
+    REQUIRE( MapDocument_AddLayer( ws.pDocument, StringView_FromCString( "history" ), StringView_FromCString( "History" ) ) == map_status_t::OK );
+    REQUIRE( MapDocument_SetGeometryLayer( ws.pDocument, id, StringView_FromCString( "history" ) ) == map_status_t::OK );
+    MapWorkspace_DocumentChanged( &ws );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::EDGES );
+    REQUIRE( MapWorkspace_SelectMeshEdge( &ws, id, edges[0], MAP_SELECT_REPLACE ) );
+    history_move_t edit{ id, { vertices.data(), vertices.size() } };
+    REQUIRE( MapWorkspace_ApplyEdit( &ws, "Move edge context", &history_move_t::Apply, &edit ) );
+    bool locked = false;
+    SECTION( "Objects mode stays Objects with no component highlights" ) { MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS ); }
+    SECTION( "Vertices mode cannot revive an old edge selection" ) { MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES ); }
+    SECTION( "Current locked layer clears the complete restored root and components" ) { locked = true; REQUIRE( MapLayers_SetLocked( &ws, QStringLiteral( "history" ), true ) ); }
+    const auto mode = ws.elementMode; const auto tool = ws.tool;
+    for ( const bool redo : { false, true } ) {
+        REQUIRE( ( redo ? MapWorkspace_Redo( &ws ) : MapWorkspace_Undo( &ws ) ) == editor_history_status_t::OK );
+        CHECK( ws.elementMode == mode ); CHECK( ws.tool == tool );
+        CHECK( ws.meshSelection.edges.nCount == 0 ); CHECK( ws.meshSelection.vertices.nCount == 0 );
+        CHECK( ws.selectedMeshFaceObject == 0 ); CHECK( ws.meshFaceSet.nCount == 0 );
+        CHECK( ws.selection.ids.nCount == ( locked ? 0 : 1 ) );
+        const auto *object = MapWireframe_FindObject( ws.wire, id ); REQUIRE( object != nullptr );
+        CHECK( object->bounds.box.minimum.x == Catch::Approx( redo ? 16 : 0 ) );
+    }
+    // Snapshots retain their original IDs even when a replay was incompatible.
+    if ( locked ) { REQUIRE( MapLayers_SetLocked( &ws, QStringLiteral( "history" ), false ) ); }
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::EDGES );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); HistoryCheckEdges( ws, id, { edges[0] }, edges[0] );
+}
+
+TEST_CASE( "Invalid prepared component results refuse the authored edit before history publication", "[map][gui][component-history][atomic]" )
+{
+    session_t session; auto &ws = session.workspace; const u64 id = HistoryQuad( ws );
+    const auto vertices = HistoryVertices( ws, id ); const auto edges = HistoryEdges( ws, id );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::EDGES );
+    REQUIRE( MapWorkspace_SelectMeshEdge( &ws, id, edges[0], MAP_SELECT_REPLACE ) );
+    history_move_t edit{ id, { vertices.data(), vertices.size() } };
+    history_geo::mesh_selection_t next{};
+    REQUIRE( history_geo::MeshSelection_Init( &next, Allocator_GetSystem(), { id } ) == history_geo::geometry_status_t::OK );
+    REQUIRE( history_geo::MeshSelection_TryAddEdge( &next, edges[0] ) == history_geo::geometry_status_t::OK );
+    map_prepared_component_selection_t result{ &next };
+    SECTION( "Missing persistent endpoint" ) { next.edges.pData[0].b.value = CY_U64_MAX - 1; }
+    SECTION( "Different root" ) { next.meshId.value = CY_U64_MAX - 1; }
+    SECTION( "Wrong component category" ) {
+        Vector_Clear( &next.edges ); REQUIRE( history_geo::MeshSelection_TryAddVertex( &next, vertices[0] ) == history_geo::geometry_status_t::OK );
+    }
+    SECTION( "Noncanonical repeated edge" ) { REQUIRE( Vector_PushBack( &next.edges, edges[0] ) ); }
+    SECTION( "Missing borrowed output" ) { result.pMeshSelection = nullptr; }
+    const history_published_t before( ws );
+    CHECK_FALSE( MapWorkspace_ApplyEdit( &ws, "Invalid selection", &history_move_t::Apply, &edit, &result ) );
+    before.Check( ws ); HistoryCheckEdges( ws, id, { edges[0] }, edges[0] );
+    CHECK( ws.lastEdit.status == map_status_t::INVALID_ARGUMENT );
+    result.pMeshSelection = nullptr;
+    REQUIRE( MapWorkspace_ApplyEdit( &ws, "Retry valid selection", &history_move_t::Apply, &edit ) );
+    HistoryCheckEdges( ws, id, { edges[0] }, edges[0] );
+}
+
+TEST_CASE( "Selection snapshot allocation failures leave map components and history exact for retry", "[map][gui][component-history][allocation][atomic]" )
+{
+    usize allocationCount = 0;
+    {
+        allocation_failure_t audit; const allocator_t allocator{ &Allocate, nullptr, &Free, &audit };
+        {
+            session_t session; auto &ws = session.workspace; const u64 id = HistoryQuad( ws );
+            const auto vertices = HistoryVertices( ws, id ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+            REQUIRE( MapWorkspace_SetMeshComponents( &ws, id, { vertices.data(), 2 }, {} ) );
+            ws.meshVertexColumnAxis = 2; ws.meshVertexColumnRevision = ws.selection.revision;
+            history_move_t edit{ id, { vertices.data(), vertices.size() } };
+            session.gui.pAllocator = &allocator;
+            REQUIRE( MapWorkspace_ApplyEdit( &ws, "Probe context allocations", &history_move_t::Apply, &edit ) );
+            allocationCount = audit.calls;
+        }
+        CHECK( audit.live == 0 );
+    }
+    REQUIRE( allocationCount >= 3 );
+    // Fail the final after-root copy and the before/after vertex-set copies,
+    // after the candidate wire and its live component selection are ready.
+    for ( usize failOn = allocationCount - 2; failOn <= allocationCount; ++failOn ) {
+        CAPTURE( failOn, allocationCount ); allocation_failure_t audit; const allocator_t allocator{ &Allocate, nullptr, &Free, &audit };
+        {
+            session_t session; auto &ws = session.workspace; const u64 id = HistoryQuad( ws );
+            const auto vertices = HistoryVertices( ws, id ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+            REQUIRE( MapWorkspace_SetMeshComponents( &ws, id, { vertices.data(), 2 }, {} ) );
+            ws.meshVertexColumnAxis = 2; ws.meshVertexColumnRevision = ws.selection.revision;
+            history_move_t edit{ id, { vertices.data(), vertices.size() } }; const history_published_t before( ws );
+            const auto *components = ws.meshSelection.vertices.pData;
+            session.gui.pAllocator = &allocator; audit.failOn = failOn;
+            CHECK_FALSE( MapWorkspace_ApplyEdit( &ws, "Fail context allocation", &history_move_t::Apply, &edit ) );
+            CHECK( audit.calls >= failOn ); CHECK( audit.live == 0 ); before.Check( ws );
+            CHECK( ws.meshSelection.vertices.pData == components ); CHECK( ws.meshSelection.vertices.nCount == 2 );
+            CHECK( ws.meshVertexColumnAxis == 2 ); CHECK( ws.meshVertexColumnRevision == ws.selection.revision );
+            audit.failOn = 0;
+            REQUIRE( MapWorkspace_ApplyEdit( &ws, "Retry context allocation", &history_move_t::Apply, &edit ) );
+            CHECK( ws.meshSelection.vertices.nCount == 2 );
+            REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+            CHECK( ws.meshSelection.vertices.nCount == 2 );
+        }
+        CHECK( audit.live == 0 );
+    }
+}
+
+TEST_CASE( "Undo and redo component allocation refusal preserves live continuation state", "[map][gui][component-history][allocation][snapshot]" )
+{
+    allocation_failure_t audit; const allocator_t allocator{ &Allocate, nullptr, &Free, &audit };
+    {
+        session_t session; auto &ws = session.workspace; const u64 id = HistoryQuad( ws ); const auto old = HistoryEdges( ws, id )[0];
+        MapWorkspace_SetElementMode( &ws, map_element_mode_t::EDGES ); REQUIRE( MapWorkspace_SelectMeshEdge( &ws, id, old, MAP_SELECT_REPLACE ) );
+        history_extend_t edit( id, old ); map_prepared_component_selection_t result{ &edit.next };
+        REQUIRE( MapWorkspace_ApplyEdit( &ws, "Extend for restore refusal", &history_extend_t::Apply, &edit, &result ) );
+        const auto rim = edit.next.edges.pData[0];
+        bool redo = false;
+        SECTION( "Undo context clone" ) {}
+        SECTION( "Redo context clone" ) { redo = true; }
+        session.gui.pAllocator = &allocator;
+        // Measure a complete restore, return to the same state, then fail its
+        // final component copy. All successful transfers use this outer audit.
+        REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+        const usize undoCalls = audit.calls; audit.calls = 0;
+        REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
+        const usize redoCalls = audit.calls;
+        if ( redo ) { REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); }
+        const usize live = audit.live; const history_published_t before( ws ); const auto *components = ws.meshSelection.edges.pData;
+        audit.calls = 0; audit.failOn = redo ? redoCalls : undoCalls;
+        CHECK( ( redo ? MapWorkspace_Redo( &ws ) : MapWorkspace_Undo( &ws ) ) == editor_history_status_t::APPLY_FAILED );
+        CHECK( audit.calls >= audit.failOn ); CHECK( audit.live == live ); before.Check( ws );
+        CHECK( ws.meshSelection.edges.pData == components ); HistoryCheckEdges( ws, id, { redo ? old : rim }, redo ? old : rim );
+        audit.failOn = 0;
+        REQUIRE( ( redo ? MapWorkspace_Redo( &ws ) : MapWorkspace_Undo( &ws ) ) == editor_history_status_t::OK );
+        HistoryCheckEdges( ws, id, { redo ? rim : old }, redo ? rim : old );
+    }
+    CHECK( audit.live == 0 );
+}
+
+namespace
+{
+struct region_description_t {
+    history_geo::mesh_source_description_t value{};
+    region_description_t( const map_workspace_t &ws, u64 mesh )
+    {
+        REQUIRE( history_geo::MeshSourceDescription_Init( &value, Allocator_GetSystem(), { mesh } ) == history_geo::geometry_status_t::OK );
+        const auto *source = history_geo::GeometryDocument_FindMesh( &ws.pDocument->geometry, { mesh } ); REQUIRE( source != nullptr );
+        REQUIRE( history_geo::MeshSource_TryDescribe( source, &value ) == history_geo::geometry_status_t::OK );
+    }
+    ~region_description_t() { history_geo::MeshSourceDescription_Shutdown( &value ); }
+};
+u64 RegionTwoQuads( map_workspace_t &ws, std::vector<u64> &faces )
+{
+    REQUIRE( MapWorkspace_RegisterCommands( &ws, &ws.pGui->commands ) == command_registry_status_t::OK );
+    map_primitive_desc_t quad{}; quad.kind = map_primitive_kind_t::QUAD; quad.axis = 2;
+    quad.bounds = { { 0, 0, 0 }, { 128, 64, 0 } };
+    REQUIRE( MapWorkspace_CreatePrimitive( &ws, quad ) ); REQUIRE( ws.selection.ids.nCount == 1 );
+    const u64 mesh = ws.selection.ids.pData[0];
+    MapWorkspace_SetTool( &ws, map_tool_t::SELECT ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::FACES );
+    u64 face = 0;
+    for ( usize i = 0; i < ws.wire.faces.nCount; ++i ) { if ( ws.wire.faces.pData[i].id == mesh ) { face = ws.wire.faces.pData[i].faceId; } }
+    REQUIRE( face != 0 ); MapWorkspace_SelectMeshFace( &ws, mesh, face );
+    REQUIRE( MapWorkspace_QuadSliceMeshFace( &ws, 2, 1 ) );
+    for ( usize i = 0; i < ws.wire.faces.nCount; ++i ) { if ( ws.wire.faces.pData[i].id == mesh ) { faces.push_back( ws.wire.faces.pData[i].faceId ); } }
+    std::sort( faces.begin(), faces.end() ); REQUIRE( faces.size() == 2 );
+    REQUIRE( MapWorkspace_SetMeshFaces( &ws, mesh, { faces.data(), faces.size() }, faces[1] ) );
+    return mesh;
+}
+void RegionCheckSelection( const map_workspace_t &ws, u64 mesh, const std::vector<u64> &faces )
+{
+    REQUIRE( ws.selection.ids.nCount == 1 ); CHECK( ws.selection.ids.pData[0] == mesh );
+    CHECK( ws.selectedMeshFaceObject == mesh ); CHECK( ws.selectedMeshFaceId == faces[1] );
+    const auto selected = MapWorkspace_MeshFaces( &ws ); REQUIRE( selected.nCount == faces.size() );
+    for ( usize i = 0; i < selected.nCount; ++i ) { CHECK( selected.pData[i] == faces[i] ); }
+}
+}
+
+TEST_CASE( "Numeric Extrude raises the full connected face region with one history step", "[map][gui][geometry-edit][region-extrude][component-history]" )
+{
+    session_t session; auto &ws = session.workspace;
+    settings_scope_tester_t settings( &session.gui.settings ); settings.Real( "editor.map.mesh_extrude_distance", 16 );
+    std::vector<u64> faces; const u64 mesh = RegionTwoQuads( ws, faces );
+    region_description_t before( ws, mesh ); REQUIRE( before.value.faces.nCount == 2 ); REQUIRE( before.value.vertices.nCount == 6 );
+    const usize steps = EditorHistory_AppliedStepCount( &ws.history );
+    REQUIRE( ( EditorCommands_State( &session.gui.commands, StringView_FromCString( "map.mesh.extrude" ) ) & COMMAND_STATE_ENABLED ) != 0 );
+    REQUIRE( EditorCommands_Execute( &session.gui.commands, StringView_FromCString( "map.mesh.extrude" ), {} ) == command_result_t::OK );
+    CHECK( EditorHistory_AppliedStepCount( &ws.history ) == steps + 1 ); RegionCheckSelection( ws, mesh, faces );
+    region_description_t after( ws, mesh ); REQUIRE( after.value.faces.nCount == 8 ); REQUIRE( after.value.vertices.nCount == 12 );
+    usize caps = 0, walls = 0;
+    for ( usize f = 0; f < after.value.faces.nCount; ++f ) {
+        const auto &face = after.value.faces.pData[f]; REQUIRE( face.cCorners == 4 );
+        const auto old = std::find_if( before.value.faces.pData, before.value.faces.pData + before.value.faces.nCount,
+            [&]( const auto &source ) { return source.sourceId.value == face.sourceId.value; } );
+        if ( old != before.value.faces.pData + before.value.faces.nCount ) {
+            ++caps; CHECK( face.attributes.material.value == old->attributes.material.value );
+            for ( u32 c = 0; c < face.cCorners; ++c ) {
+                const auto &corner = after.value.corners.pData[face.iFirstCorner + c];
+                const auto &p = after.value.vertices.pData[corner.iVertex].position;
+                CHECK( p.z == Catch::Approx( 16 ) );
+                usize matching = 0;
+                for ( u32 k = 0; k < old->cCorners; ++k ) {
+                    const auto &sourceCorner = before.value.corners.pData[old->iFirstCorner + k];
+                    const auto &sourcePosition = before.value.vertices.pData[sourceCorner.iVertex].position;
+                    if ( std::fabs( p.x - sourcePosition.x ) > 1e-6 || std::fabs( p.y - sourcePosition.y ) > 1e-6 ) { continue; }
+                    ++matching;
+                    CHECK( corner.attributes.uv0.x == sourceCorner.attributes.uv0.x ); CHECK( corner.attributes.uv0.y == sourceCorner.attributes.uv0.y );
+                    CHECK( corner.attributes.uv1.x == sourceCorner.attributes.uv1.x ); CHECK( corner.attributes.uv1.y == sourceCorner.attributes.uv1.y );
+                    CHECK( corner.attributes.colorRgba == sourceCorner.attributes.colorRgba );
+                }
+                CHECK( matching == 1 );
+            }
+        } else {
+            ++walls;
+            bool allOnInternalSeam = true; usize bottom = 0, top = 0;
+            for ( u32 c = 0; c < face.cCorners; ++c ) {
+                const auto &p = after.value.vertices.pData[after.value.corners.pData[face.iFirstCorner + c].iVertex].position;
+                allOnInternalSeam = allOnInternalSeam && std::fabs( p.x - 64 ) < 1e-6;
+                bottom += std::fabs( p.z ) < 1e-6; top += std::fabs( p.z - 16 ) < 1e-6;
+            }
+            CHECK_FALSE( allOnInternalSeam ); CHECK( bottom == 2 ); CHECK( top == 2 );
+        }
+    }
+    CHECK( caps == 2 ); CHECK( walls == 6 );
+    // Undo/Redo must carry both caps and the non-first active face, even if
+    // the user picks a different face after the operation.
+    MapWorkspace_SelectMeshFace( &ws, mesh, faces[0] );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); RegionCheckSelection( ws, mesh, faces );
+    { region_description_t restored( ws, mesh ); CHECK( history_geo::MeshSourceDescription_Equal( &before.value, &restored.value ) ); }
+    MapWorkspace_SelectMeshFace( &ws, mesh, faces[0] );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); RegionCheckSelection( ws, mesh, faces );
+    { region_description_t restored( ws, mesh ); CHECK( history_geo::MeshSourceDescription_Equal( &after.value, &restored.value ) ); }
+}
+
+TEST_CASE( "Noncoplanar numeric region Extrude refuses the whole selection", "[map][gui][geometry-edit][region-extrude][atomic]" )
+{
+    session_t session; auto &ws = session.workspace;
+    REQUIRE( MapWorkspace_RegisterCommands( &ws, &session.gui.commands ) == command_registry_status_t::OK );
+    REQUIRE( MapWorkspace_CreateBox( &ws, Box( 0 ) ) ); REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) );
+    const u64 mesh = ws.selection.ids.pData[0]; MapWorkspace_SetElementMode( &ws, map_element_mode_t::FACES );
+    std::vector<u64> faces;
+    for ( usize i = 0; i < ws.wire.faces.nCount; ++i ) {
+        const auto &face = ws.wire.faces.pData[i];
+        if ( face.id == mesh && ( face.normal.z > 0.99 || face.normal.x > 0.99 ) ) { faces.push_back( face.faceId ); }
+    }
+    std::sort( faces.begin(), faces.end() ); REQUIRE( faces.size() == 2 );
+    REQUIRE( MapWorkspace_SetMeshFaces( &ws, mesh, { faces.data(), faces.size() }, faces[1] ) );
+    const history_published_t published( ws ); region_description_t before( ws, mesh ); const auto *set = ws.meshFaceSet.pData;
+    CHECK( EditorCommands_Execute( &session.gui.commands, StringView_FromCString( "map.mesh.extrude" ), {} ) == command_result_t::FAILED );
+    published.Check( ws ); RegionCheckSelection( ws, mesh, faces ); CHECK( ws.meshFaceSet.pData == set );
+    { region_description_t unchanged( ws, mesh ); CHECK( history_geo::MeshSourceDescription_Equal( &before.value, &unchanged.value ) ); }
+}
+
+TEST_CASE( "Numeric Corner Inset disables multiple faces in API command and panel", "[map][gui][geometry-edit][region-extrude][inset][tool-properties]" )
+{
+    session_t session; auto &ws = session.workspace; std::vector<u64> faces; const u64 mesh = RegionTwoQuads( ws, faces );
+    std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &ws ) ); REQUIRE( panel != nullptr );
+    auto *controls = panel->findChild<QWidget *>( QStringLiteral( "MapMeshFaceControls" ) ); REQUIRE( controls != nullptr );
+    auto *inset = controls->findChild<QPushButton *>( QStringLiteral( "map.mesh.inset" ) ); REQUIRE( inset != nullptr );
+    auto *extrude = controls->findChild<QPushButton *>( QStringLiteral( "map.mesh.extrude" ) ); REQUIRE( extrude != nullptr );
+    CHECK_FALSE( inset->isEnabled() ); CHECK( extrude->isEnabled() );
+    const history_published_t published( ws );
+    CHECK( ( EditorCommands_State( &session.gui.commands, StringView_FromCString( "map.mesh.inset" ) ) & COMMAND_STATE_ENABLED ) == 0 );
+    CHECK( EditorCommands_Execute( &session.gui.commands, StringView_FromCString( "map.mesh.inset" ), {} ) == command_result_t::DISABLED );
+    CHECK_FALSE( MapWorkspace_InsetMeshFace( &ws, 8 ) ); published.Check( ws ); RegionCheckSelection( ws, mesh, faces );
+    MapWorkspace_SelectMeshFace( &ws, mesh, faces[0] ); QCoreApplication::processEvents();
+    // Single-face inset retains its existing command and control workflow.
+    CHECK( inset->isEnabled() );
+    REQUIRE( EditorCommands_Execute( &session.gui.commands, StringView_FromCString( "map.mesh.inset" ), {} ) == command_result_t::OK );
+    CHECK( ws.selectedMeshFaceId == faces[0] ); CHECK( MapWorkspace_MeshFaces( &ws ).nCount == 1 );
+}
+
+TEST_CASE( "Numeric region face snapshot allocation refusal preserves all selection and history", "[map][gui][geometry-edit][region-extrude][allocation]" )
+{
+    allocation_failure_t audit; const allocator_t allocator{ &Allocate, nullptr, &Free, &audit };
+    {
+        session_t session; auto &ws = session.workspace; std::vector<u64> faces; const u64 mesh = RegionTwoQuads( ws, faces );
+        const history_published_t published( ws ); region_description_t before( ws, mesh ); const auto *set = ws.meshFaceSet.pData;
+        session.gui.pAllocator = &allocator; audit.failOn = 1;
+        CHECK( EditorCommands_Execute( &session.gui.commands, StringView_FromCString( "map.mesh.extrude" ), {} ) == command_result_t::FAILED );
+        CHECK( audit.calls == 1 ); CHECK( audit.live == 0 ); CHECK( ws.lastEdit.status == map_status_t::OUT_OF_MEMORY );
+        published.Check( ws ); RegionCheckSelection( ws, mesh, faces ); CHECK( ws.meshFaceSet.pData == set );
+        { region_description_t unchanged( ws, mesh ); CHECK( history_geo::MeshSourceDescription_Equal( &before.value, &unchanged.value ) ); }
+        audit.failOn = 0;
+        REQUIRE( EditorCommands_Execute( &session.gui.commands, StringView_FromCString( "map.mesh.extrude" ), {} ) == command_result_t::OK );
+        RegionCheckSelection( ws, mesh, faces );
+        region_description_t after( ws, mesh ); CHECK( after.value.faces.nCount == 8 );
+    }
+    CHECK( audit.live == 0 );
 }

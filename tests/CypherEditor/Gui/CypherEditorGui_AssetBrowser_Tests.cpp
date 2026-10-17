@@ -44,6 +44,7 @@
 #include <QTextCursor>
 #include <QWidget>
 
+#include <algorithm>
 #include <memory>
 
 using namespace cypher::common;
@@ -490,15 +491,14 @@ TEST_CASE( "Shader activation inspects real stage sources with search and reload
     CHECK( activation.path.isEmpty() );
 }
 
-TEST_CASE( "Map inspection exposes authored structure and chunks without opening a document", "[editor][gui][assets][preview]" )
+TEST_CASE( "Map inspection exposes the whole level without opening a document", "[editor][gui][assets][preview]" )
 {
     project_t p;
     const QString path = QStringLiteral( "maps/room.cymap" );
     WriteFile( p.main + QLatin1Char( '/' ) + path,
-        "@cykv 1\n@schema \"cypher.map\" 10\n{ name = \"Test Room\" layers = [ { id = \"structure\" name = \"Structure\" } ] }" );
-    const QString chunk = QStringLiteral( "maps/room/structure/x0_y0.cymapchunk" );
-    WriteFile( p.main + QLatin1Char( '/' ) + chunk,
-        "@cykv 1\n@schema \"cypher.map_chunk\" 10\n{ brushes = [ { id = 1000u name = \"floor\" } ] entities = [] }" );
+        "@cykv 1\n@schema \"cypher.map\" 11\n{ name = \"Test Room\" "
+        "layers = [ { id = \"structure\" name = \"Structure\" info = { brushes = 1 } brushes = [ { id = 1000u name = \"floor\" } ] },"
+        " { id = \"detail\" info = { brushes = 2 entities = 1 } } ] }" );
     std::unique_ptr<QWidget> browser( EditorAssetBrowser_Create( nullptr, &p.gui ) );
     EditorAssetBrowser_SetRoots( browser.get(), { p.main } );
     activation_t activation;
@@ -514,19 +514,20 @@ TEST_CASE( "Map inspection exposes authored structure and chunks without opening
     REQUIRE( metadata != nullptr );
     const auto schemas = metadata->findItems( QStringLiteral( "Schema" ), Qt::MatchExactly );
     REQUIRE( schemas.size() == 1 );
-    CHECK( schemas.front()->text( 1 ) == QStringLiteral( "cypher.map · version 10" ) );
+    CHECK( schemas.front()->text( 1 ) == QStringLiteral( "cypher.map · version 11" ) );
     auto *files = preview->findChild<QComboBox *>( QStringLiteral( "AssetPreviewFiles" ) );
     REQUIRE( files != nullptr );
-    REQUIRE( files->findData( chunk ) >= 0 );
-    files->setCurrentIndex( files->findData( chunk ) );
+    CHECK( files->count() == 1 ); // One file holds the whole level.
     auto *structure = preview->findChild<QTreeWidget *>( QStringLiteral( "AssetPreviewStructure" ) );
     REQUIRE( structure != nullptr );
     const auto names = structure->findItems( QStringLiteral( "name" ), Qt::MatchExactly | Qt::MatchRecursive );
-    REQUIRE( names.size() == 1 );
-    CHECK( names.front()->text( 1 ) == QStringLiteral( "floor" ) );
+    CHECK( std::any_of( names.begin(), names.end(), []( const QTreeWidgetItem *item ) { return item->text( 1 ) == QStringLiteral( "floor" ); } ) );
     const auto brushes = metadata->findItems( QStringLiteral( "brushes" ), Qt::MatchExactly );
     REQUIRE( brushes.size() == 1 );
-    CHECK( brushes.front()->text( 1 ) == QStringLiteral( "1 items" ) );
+    CHECK( brushes.front()->text( 1 ) == QStringLiteral( "3" ) ); // Added up across layers.
+    const auto entities = metadata->findItems( QStringLiteral( "entities" ), Qt::MatchExactly );
+    REQUIRE( entities.size() == 1 );
+    CHECK( entities.front()->text( 1 ) == QStringLiteral( "1" ) );
     CHECK( activation.path.isEmpty() );
 }
 
@@ -572,14 +573,14 @@ TEST_CASE( "Asset inspectors retain unchanged roots and invalidate when mount re
     CHECK_FALSE( replacement->findChild<QPlainTextEdit *>( QStringLiteral( "AssetPreviewSource" ) )->toPlainText().contains( QStringLiteral( "shaders/surface.cyshader" ) ) );
 }
 
-TEST_CASE( "A deleted map preview never discovers chunks from the process working directory", "[editor][gui][assets][preview]" )
+TEST_CASE( "A deleted map preview reports the file missing, whatever the working directory holds", "[editor][gui][assets][preview]" )
 {
     project_t p;
     const QString path = QStringLiteral( "maps/vanished.cymap" );
     const QString rootFile = p.main + QLatin1Char( '/' ) + path;
-    WriteFile( rootFile, "@cykv 1\n@schema \"cypher.map\" 10\n{}" );
-    const QString unrelated = p.folder.filePath( QStringLiteral( "unrelated/structure/x0_y0.cymapchunk" ) );
-    WriteFile( unrelated, "@cykv 1\n@schema \"cypher.map_chunk\" 10\n{ name = \"Unrelated\" }" );
+    WriteFile( rootFile, "@cykv 1\n@schema \"cypher.map\" 11\n{}" );
+    const QString unrelated = p.folder.filePath( QStringLiteral( "unrelated/maps/vanished.cymap" ) );
+    WriteFile( unrelated, "@cykv 1\n@schema \"cypher.map\" 11\n{ name = \"Unrelated\" }" );
     struct working_directory_t {
         QString previous{ QDir::currentPath() };
         ~working_directory_t() { ( void )QDir::setCurrent( previous ); }

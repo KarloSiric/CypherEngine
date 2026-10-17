@@ -15,11 +15,13 @@
 
 #include "CypherMap_Files.h"
 #include "CypherMap_Wireframe.h"
+#include "CypherMap_Modifiers.h"
 
 #include "CypherGeometry_BrushGenerator.h"
 #include "CypherGeometry_DocumentMeshes.h"
 #include "CypherGeometry_DocumentSurfaces.h"
 #include "CypherGeometry_MeshSelection.h"
+#include "CypherGeometry_RaycastQueries.h"
 
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 
@@ -69,16 +71,11 @@ u64 AddEntity( map_document_t *pMap, const char *pClass, math::vec3d_t origin )
 
 void LoadEntityMap( map_document_t &map, const std::string &entities )
 {
-    constexpr const char *root = R"(@cykv 1
-@schema "cypher.map" 10
+    const std::string text = std::string( R"(@cykv 1
+@schema "cypher.map" 11
 { map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b" name = "Connections" game = "reap"
-  next_id = 100u layers = [ { id = "default" } ] })";
-    const std::string chunk = std::string( R"(@cykv 1
-@schema "cypher.map_chunk" 10
-{ map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b" layer = "default" cell = "global"
-  entities = [ )" ) + entities + "] }";
-    const map_chunk_input_t input{ StringView_FromCString( "default/global.cymapchunk" ), { chunk.data(), chunk.size() } };
-    REQUIRE( MapDocument_Load( &map, Allocator_GetSystem(), StringView_FromCString( root ), { &input, 1u } ) == map_status_t::OK );
+  next_id = 100u layers = [ { id = "default" entities = [ )" ) + entities + "] } ] }";
+    REQUIRE( MapDocument_Load( &map, Allocator_GetSystem(), { text.data(), text.size() } ) == map_status_t::OK );
 }
 
 struct allocation_audit_t {
@@ -112,6 +109,7 @@ void CheckEmpty( const map_wireframe_t &wire )
     CHECK( wire.connections.nCount == 0u );
     CHECK( wire.faces.nCount == 0u );
     CHECK( wire.faceIndices.nCount == 0u );
+    CHECK( wire.meshSurfaces.nCount == 0u );
     CHECK( wire.nBrokenBrushes == 0u );
     CHECK_FALSE( wire.bounds.bHas );
 }
@@ -122,7 +120,7 @@ void CheckEmpty( const map_wireframe_t &wire )
 void SweepBuildFailures( const map_document_t &map, u64 id )
 {
     allocation_audit_t audit;
-    usize allocations = 0u, expectedPoints = 0u, expectedLines = 0u, expectedFaces = 0u;
+    usize allocations = 0u, expectedPoints = 0u, expectedLines = 0u, expectedFaces = 0u, expectedSurfaces = 0u;
     {
         map_wireframe_t wire{}; REQUIRE( MapWireframe_Init( &wire, &audit.allocator ) );
         const auto callsBefore = audit.calls;
@@ -130,6 +128,7 @@ void SweepBuildFailures( const map_document_t &map, u64 id )
         allocations = audit.calls - callsBefore;
         REQUIRE( MapWireframe_FindObject( wire, id ) != nullptr );
         expectedPoints = wire.points.nCount; expectedLines = wire.lines.nCount; expectedFaces = wire.faces.nCount;
+        expectedSurfaces = wire.meshSurfaces.nCount;
         REQUIRE( wire.pointSourceIds.nCount == expectedPoints );
         REQUIRE( expectedPoints != 0u ); REQUIRE( expectedFaces != 0u );
     }
@@ -145,6 +144,8 @@ void SweepBuildFailures( const map_document_t &map, u64 id )
             REQUIRE( MapWireframe_Build( &wire, map ) == map_status_t::OK );
             CHECK( wire.points.nCount == expectedPoints ); CHECK( wire.lines.nCount == expectedLines ); CHECK( wire.faces.nCount == expectedFaces );
             CHECK( wire.pointSourceIds.nCount == expectedPoints );
+            CHECK( wire.meshSurfaces.nCount == expectedSurfaces );
+            for ( usize i = 0u; i < wire.meshSurfaces.nCount; ++i ) { CHECK( wire.meshSurfaces.pData[i]->status == geo::geometry_status_t::OK ); }
             CHECK( MapWireframe_FindObject( wire, id ) != nullptr );
         }
         CHECK( audit.bytes == 0u );
@@ -514,7 +515,7 @@ TEST_CASE( "Wire rebuilds remove stale connections and do not retain document po
     CHECK( wire.connections.nCount == 0u );
 }
 
-TEST_CASE( "The all-names wildcard excludes unnamed entities and skips damaged chunks", "[map][wireframe][connections]" )
+TEST_CASE( "The all-names wildcard excludes unnamed entities", "[map][wireframe][connections]" )
 {
     map_document_t map{};
     LoadEntityMap( map, R"(
@@ -527,10 +528,6 @@ TEST_CASE( "The all-names wildcard excludes unnamed entities and skips damaged c
     REQUIRE( MapWireframe_Build( &wire, map ) == map_status_t::OK );
     REQUIRE( wire.connections.nCount == 1u );
     CHECK( wire.connections.pData[0].targetId == 2u );
-    REQUIRE( map.chunks.nCount == 1u );
-    map.chunks.pData[0]->bDamaged = CY_TRUE;
-    REQUIRE( MapWireframe_Build( &wire, map ) == map_status_t::OK );
-    CHECK( wire.connections.nCount == 0u );
 }
 
 TEST_CASE( "A connection rebuild allocation failure clears stale viewport data", "[map][wireframe][connections]" )
@@ -631,6 +628,86 @@ TEST_CASE( "Open mesh wire components retain source identities and unique real p
     CHECK( MapWireframe_Pick2D( wire, 0u, 1u, 32.0, 32.0, 0.1 ) == 0u );
     CHECK( MapWireframe_Pick2D( wire, 0u, 1u, 64.0, 32.0, 0.1 ) == meshId );
     SweepBuildFailures( map, meshId );
+}
+
+TEST_CASE( "Modifier query surfaces retain owner and cage face provenance without allocating authored identities", "[map][wireframe][modifier-picking]" )
+{
+    map_document_t map{}; CreateMap( &map ); const u64 meshId = AddOpenRampMesh( map );
+    // The raw geometry fixture needs the map placement that editor-created
+    // meshes already have before a modifier record can be authored.
+    REQUIRE( MapDocument_SetGeometryOwner( &map, meshId, 0u ) == map_status_t::OK );
+    const auto *source = geo::GeometryDocument_FindMesh( &map.geometry, { meshId } ); REQUIRE( source != nullptr );
+    geo::mesh_source_description_t before{};
+    REQUIRE( geo::MeshSourceDescription_Init( &before, Allocator_GetSystem(), { meshId } ) == geo::geometry_status_t::OK );
+    REQUIRE( geo::MeshSource_TryDescribe( source, &before ) == geo::geometry_status_t::OK );
+    geo::modifier_t array{}; array.kind = geo::modifier_kind_t::LINEAR_ARRAY; array.cCopies = 2u; array.step = { 0, 256, 0 };
+    bool changed = false; REQUIRE( MapModifiers_Write( &map, meshId, { array }, &changed ) == map_status_t::OK ); REQUIRE( changed );
+    const auto revision = map.geometry.revision, nextId = map.geometry.sourceIds.allocator.next.value;
+    map_wireframe_t wire{}; REQUIRE( MapWireframe_Init( &wire, Allocator_GetSystem() ) );
+    REQUIRE( MapWireframe_Build( &wire, map ) == map_status_t::OK );
+    const auto *surface = MapWireframe_FindMeshSurface( wire, meshId ); REQUIRE( surface != nullptr );
+    REQUIRE( surface->status == geo::geometry_status_t::OK ); CHECK( surface->id == meshId );
+    CHECK( geo::EditableMesh_FaceCount( &surface->mesh ) == 4u );
+    CHECK( geo::EditableMesh_VertexCount( &surface->mesh ) == 12u );
+    REQUIRE( surface->faceSourceIds.nCount == surface->mesh.faces.cSlots );
+    usize originalFaces = 0u, copiedFaces = 0u; bool validProvenance = true;
+    (void)GenerationPool_ForEach( &surface->mesh.faces,
+        [&]( geo::geometry_mesh_face_handle_t face, const geo::mesh_face_record_t & ) noexcept -> bool_t {
+            if ( face.nSlot >= surface->faceSourceIds.nCount ) { validProvenance = false; return true; }
+            const u64 faceId = surface->faceSourceIds.pData[face.nSlot];
+            if ( faceId == 0u ) { ++copiedFaces; return true; }
+            geo::geometry_mesh_face_handle_t authored{};
+            validProvenance = validProvenance && geo::MeshSource_TryFindFace( source, { faceId }, &authored );
+            ++originalFaces;
+            return true;
+        } );
+    CHECK( validProvenance );
+    CHECK( originalFaces == 2u ); CHECK( copiedFaces == 2u );
+    const auto raycast = [&]( const geo::editable_mesh_t &mesh, f64 y ) {
+        usize bytes = 0u; REQUIRE( geo::MeshQueries_TryGetRaycastScratchSize( &mesh, map.geometryPolicy, &bytes ) == geo::geometry_status_t::OK );
+        geo::geometry_scratch_t scratch{}; geo::geometry_scratch_desc_t desc{};
+        desc.pFallbackAllocator = Allocator_GetSystem(); desc.cbCapacity = bytes; desc.cbBudget = 1024u * 1024u;
+        REQUIRE( geo::GeometryScratch_Acquire( &scratch, desc ) == geo::geometry_status_t::OK );
+        geo::geometry_raycast_options_t options{}; options.meshSurfaceMode = geo::geometry_mesh_raycast_surface_t::PROJECTED_TRIANGLES;
+        geo::mesh_raycast_hit_t hit{};
+        REQUIRE( geo::MeshQueries_TryRaycast( &mesh, { meshId }, { { 32, y, 112 }, { 0, 0, -1 } }, options, map.geometryPolicy, &scratch, &hit ) == geo::geometry_status_t::OK );
+        REQUIRE( geo::GeometryScratch_Release( &scratch ) == geo::geometry_status_t::OK ); return hit;
+    };
+    const auto authored = raycast( source->mesh, 32.0 ), original = raycast( surface->mesh, 32.0 ), copy = raycast( surface->mesh, 288.0 );
+    REQUIRE( authored.bHit ); REQUIRE( original.bHit ); REQUIRE( copy.bHit );
+    CHECK( original.meshSourceId.value == meshId ); CHECK( copy.meshSourceId.value == meshId );
+    CHECK( std::abs( original.position.z - 12.0 ) < 1e-9 ); CHECK( std::abs( copy.position.z - 12.0 ) < 1e-9 );
+    CHECK( surface->faceSourceIds.pData[original.hFace.nSlot] == geo::MeshSource_FaceId( source, authored.hFace ).value );
+    CHECK( surface->faceSourceIds.pData[copy.hFace.nSlot] == 0u );
+    CHECK_FALSE( raycast( source->mesh, 288.0 ).bHit );
+    CHECK( map.geometry.revision == revision ); CHECK( map.geometry.sourceIds.allocator.next.value == nextId );
+    geo::mesh_source_description_t after{}; REQUIRE( geo::MeshSourceDescription_Init( &after, Allocator_GetSystem(), { meshId } ) == geo::geometry_status_t::OK );
+    REQUIRE( geo::MeshSource_TryDescribe( source, &after ) == geo::geometry_status_t::OK ); CHECK( geo::MeshSourceDescription_Equal( &before, &after ) );
+    geo::MeshSourceDescription_Shutdown( &before ); geo::MeshSourceDescription_Shutdown( &after );
+
+    // A zero-step welded array produces duplicate faces. Remember its failure
+    // instead of accidentally granting permission to query the hidden cage.
+    array.step = {}; REQUIRE( MapModifiers_Write( &map, meshId, { array }, &changed ) == map_status_t::OK );
+    REQUIRE( MapWireframe_Build( &wire, map ) == map_status_t::OK );
+    surface = MapWireframe_FindMeshSurface( wire, meshId ); REQUIRE( surface != nullptr );
+    CHECK( surface->status != geo::geometry_status_t::OK ); CHECK_FALSE( geo::EditableMesh_IsInitialized( &surface->mesh ) ); CHECK( surface->faceSourceIds.nCount == 0u );
+    REQUIRE( MapModifiers_Write( &map, meshId, {}, &changed ) == map_status_t::OK );
+    REQUIRE( MapWireframe_Build( &wire, map ) == map_status_t::OK );
+    CHECK( wire.meshSurfaces.nCount == 0u ); CHECK( MapWireframe_FindMeshSurface( wire, meshId ) == nullptr );
+    CheckMeshIdentities( map, wire, meshId );
+    MapWireframe_Shutdown( &wire ); CheckEmpty( wire ); MapWireframe_Shutdown( &wire );
+}
+
+TEST_CASE( "Every modifier surface cache allocation failure clears the wire and permits a complete retry", "[map][wireframe][modifier-picking][allocation]" )
+{
+    map_document_t map{}; CreateMap( &map ); const u64 meshId = AddOpenRampMesh( map );
+    REQUIRE( MapDocument_SetGeometryOwner( &map, meshId, 0u ) == map_status_t::OK );
+    geo::modifier_t array{}; array.kind = geo::modifier_kind_t::LINEAR_ARRAY; array.cCopies = 2u; array.step = { 0, 256, 0 };
+    bool changed = false; REQUIRE( MapModifiers_Write( &map, meshId, { array }, &changed ) == map_status_t::OK );
+    const auto revision = map.geometry.revision, nextId = map.geometry.sourceIds.allocator.next.value;
+    SweepBuildFailures( map, meshId );
+    CHECK( map.geometry.revision == revision ); CHECK( map.geometry.sourceIds.allocator.next.value == nextId );
+    CHECK( geo::EditableMesh_FaceCount( &geo::GeometryDocument_FindMesh( &map.geometry, { meshId } )->mesh ) == 2u );
 }
 
 TEST_CASE( "Authored mesh cache identities survive shifted point ranges and save reload", "[map][wireframe][mesh-components][files]" )

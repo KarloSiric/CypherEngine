@@ -17,6 +17,16 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherMapGui_Workspace.h"
+#include "CypherMapGui_EntityLook.h"
+#include "CypherMapGui_ObjectTools.h"
+#include "CypherMapGui_Layers.h"
+#include "CypherMapGui_Instances.h"
+#include "CypherMapGui_Hierarchy.h"
+#include "CypherMapGui_Notice.h"
+#include "CypherMapGui_GeometryCommands.h"
+#include "CypherMapGui_ToolGestures.h"
+#include "CypherMapGui_EntityIo.h"
+#include "CypherMapGui_Hotspots.h"
 
 #include "CypherCommon/Tier0/CypherCommon_Assert.h"
 #include "CypherCommon/Tier0/CypherCommon_Log.h"
@@ -48,13 +58,29 @@ constexpr usize kProblemsLogged = 50u; // A damaged map can report thousands; th
 // ---------------------------------------------------------------------------
 
 constexpr const char *kMapPage = "Map Editing";
-constexpr const char *kBrushShapes[]{ "box", "wedge", "cylinder", "spike", "sphere", "quad" };
+constexpr const char *kBrushShapes[]{ "box", "wedge", "cylinder", "spike", "sphere", "quad", "arch", "stairs", "spiral_stairs", "pipe", "torus" };
+constexpr const char *kStairsDirections[]{ "+X", "-X", "+Y", "-Y", "+Z", "-Z" };
 constexpr const char *kPrimitiveAxes[]{ "X", "Y", "Z" };
 constexpr const char *kClipModes[]{ "both", "front", "back" };
 constexpr const char *kClipAxes[]{ "x", "y", "z" };
+constexpr const char *kClipPlacements[]{ "surface", "plane" };
+constexpr const char *kCurveShapes[]{ "straight", "smooth", "lathe", "walls", "hollow_pipe" };
+constexpr const char *kWallJoins[]{ "miter", "bevel", "round" };
+constexpr const char *kSweepPaths[]{ "straight", "arc", "s_bend" };
+constexpr const char *kCurveProfiles[]{ "rectangle", "round" };
+constexpr const char *kCurveOutputs[]{ "mesh", "patch" };
+constexpr const char *kDisplaceModes[]{ "push_pull", "smooth", "flatten", "inflate", "pinch", "noise" };
+constexpr const char *kDisplaceNormals[]{ "average", "brush", "view", "z" };
+constexpr const char *kTerrainModes[]{ "raise", "lower", "smooth", "flatten" };
+constexpr const char *kDisplaceFalloffs[]{ "smooth", "linear", "sharp", "constant", "custom" };
+constexpr const char *kDisplaceTargets[]{ "selected", "everything" };
 constexpr const char *kCarveModes[]{ "slice", "precise" };
 constexpr const char *kResizeModes[]{ "Each object", "Selection bounds" };
 constexpr const char *kPasteOffsets[]{ "none", "grid", "cursor" };
+constexpr const char *kBlockOutputs[]{ "mesh", "brush" };
+constexpr const char *kPatchShapes[]{ "plane", "cylinder", "cone", "sphere", "disc", "bevel", "torus" };
+constexpr const char *kPaintChannels[]{ "color", "red", "green", "blue", "alpha" };
+constexpr const char *kEdgeDragActions[]{ "move", "extend" };
 
 constexpr setting_descriptor_t MapSetting( const char *pPath, setting_type_t type, const char *pLabel, const char *pDescription ) noexcept
 {
@@ -115,21 +141,115 @@ constexpr setting_descriptor_t kMapSettings[]{
     MapText( "editor.map.default_material", "materials/dev/dev_grid.cymat", 259u, "Default material", "Material of new brushes (a .cymat path)." ),
     MapFlag( "editor.map.texture_lock", CY_TRUE, "Texture lock", "Textures move with brushes." ),
     MapFlag( "editor.map.texture_scale_lock", CY_FALSE, "Texture scale lock", "Textures scale with brushes." ),
+    MapFlag( "editor.map.snap_to_vertices", CY_FALSE, "Snap to vertices",
+             "Moving objects locks a corner of the selection onto a corner of other geometry within the geometry snap distance on screen (Hammer's Snap to Vertices)." ),
     MapReal( "editor.map.block_depth", 64.0, 1.0, 65536.0, "Block depth", "Thickness along the axis outside a drawn box footprint." ),
+    MapFlag( "editor.map.block_create_on_release", CY_FALSE, "Create blocks on release",
+             "On: a block is created as soon as the drag ends (TrenchBroom). Off: it stays staged with handles to adjust until Enter (Hammer 5); picking another tool creates it too." ),
     MapReal( "editor.map.default_texture_scale", 0.25, 0.001, 64.0, "Default texture scale", "UV repeat size for new faces: 0.25 is 128 world units per repeat." ),
     MapChoice( "editor.map.new_brush_shape", kBrushShapes, "box", "New brush shape", "Shape the block tool draws." ),
+    MapChoice( "editor.map.block_output", kBlockOutputs, "brush", "Block tool creates",
+               "Mesh (Hammer 5): blocks are editable meshes, so vertex, edge and face tools work on them at once. Brush (Quake/TrenchBroom): convex brushes for Clip, Hollow, Carve and brush Merge." ),
+    MapFlag( "editor.map.components_convert_brushes", CY_TRUE, "Convert brushes for mesh editing",
+             "A brush clicked in Vertices or Edges mode, or worked on by a mesh tool (Knife, Loop Cut, Paint, Displace) or a mesh operation (Extrude, Inset, Subdivide...), becomes a mesh first (one undo step), as every Hammer 5 block is a mesh. Off keeps brushes as brushes (TrenchBroom style)." ),
+    MapChoice( "editor.map.edge_drag_action", kEdgeDragActions, "move", "Edge drag",
+               "Move deforms the selected edges. Extend creates connected faces from open boundary edges and selects their new outer edges. Applies to direct edge dragging and move, rotate and scale gizmos. Select shows move arrows; Rotate and Scale use the placed pivot. Shift-dragging an explicit transform gizmo also extends. Numeric transform fields still deform the selection." ),
     MapInteger( "editor.map.cylinder_sides", 16, 3, 128, "Cylinder sides", "Sides of new cylinders and spikes." ),
     MapChoice( "editor.map.primitive_axis", kPrimitiveAxes, "Z", "Primitive axis", "Cylinder or spike length, wedge slope, or numeric Quad normal direction." ),
-    MapInteger( "editor.map.sphere_subdivisions", 1, 0, 1, "Sphere detail", "Subdivision level: 0 is 20 faces; 1 is 80 faces." ),
+    MapInteger( "editor.map.sphere_subdivisions", 1, 0, 1, "Sphere detail", "UV sphere: 0 is 16 sides and 8 latitude bands (128 faces); 1 is 24 sides and 10 bands (240 faces)." ),
     MapReal( "editor.map.cone_top_radius", 0.0, 0.0, 1.0, "Spike top radius", "Top-to-base radius ratio: 0 is a point; 1 is a cylinder." ),
+    MapChoice( "editor.map.project_direction", kStairsDirections, "-Z", "Project toward", "Project onto World drops the selection this way (-Z: down onto the floor or terrain)." ),
+    MapReal( "editor.map.project_offset", 0.0, -1024.0, 1024.0, "Project offset", "Project onto World stops this far short of the surface (a hair above it keeps a strip from z-fighting)." ),
+    MapReal( "editor.map.import_scale", 1.0, 0.0001, 10000.0, "Import scale", "Import OBJ: how many map units one unit of the file becomes." ),
+    MapFlag( "editor.map.import_y_up", CY_FALSE, "Import Y up", "Import OBJ: the file is Y up (most modelling tools); turn it Z up." ),
+    MapText( "editor.map.tie_class", "func_detail", 63u, "Tie class", "Tie to Entity makes a new brush entity of this class (Hammer's default: func_detail)." ),
+    MapReal( "editor.map.arch_thickness", 16.0, 1.0, 4096.0, "Wall width", "Arch and Pipe: how thick the curved wall is, in world units." ),
+    MapReal( "editor.map.arch_angle", 180.0, 1.0, 360.0, "Arc", "Arch: how far round it goes, in degrees (360: a full ring)." ),
+    MapReal( "editor.map.arch_start", 0.0, -360.0, 360.0, "Start angle", "Arch: where it starts, in degrees round the primitive axis." ),
+    MapInteger( "editor.map.stairs_steps", 8, 1, 256, "Steps", "Stairs and Spiral stairs: how many steps." ),
+    MapChoice( "editor.map.stairs_direction", kStairsDirections, "+X", "Rise toward", "Stairs climb toward this world direction (one across the primitive axis)." ),
+    MapReal( "editor.map.spiral_turn", 360.0, -3600.0, 3600.0, "Turn", "Spiral stairs: how far the steps turn in all, in degrees (negative: the other way)." ),
+    MapReal( "editor.map.spiral_inner", 16.0, 0.0, 4096.0, "Inner radius", "Spiral stairs: the open middle, in world units." ),
+    MapReal( "editor.map.torus_tube", 0.25, 0.02, 0.49, "Tube size", "Torus: tube radius as a part of the half footprint." ),
     MapChoice( "editor.map.clip_mode", kClipModes, "both", "Retain", "Back keeps n · p + d ≤ 0; Front keeps n · p + d ≥ 0; Both retains both halves." ),
+    MapFlag( "editor.map.clip_cap", CY_TRUE, "Cap new surfaces", "Close the cut of a clipped mesh with new faces (brushes are always closed). Off leaves the mesh open along the cut." ),
+    MapChoice( "editor.map.clip_3d_placement", kClipPlacements, "surface", "3D placement",
+               "Surface (Hammer 5, TrenchBroom): in a 3D view, draw the cut line across any face, locking onto vertices; it cuts straight through, perpendicular to that face, and a third point tilts it. Plane: draw on the construction plane below. A press off every surface uses the plane." ),
     MapChoice( "editor.map.clip_axis", kClipAxes, "z", "3D plane axis", "In a 3D view, draw on a Clip construction plane through the selection center, perpendicular to this axis. The cutting line defines a Clip plane extruded along this axis. Changing the axis discards a staged plane." ),
     MapChoice( "editor.map.carve_mode", kCarveModes, "slice", "Carve mode", "How Carve splits brushes." ),
     MapReal( "editor.map.hollow_thickness", 16.0, 1.0, 1024.0, "Hollow thickness", "Wall thickness for Hollow (units)." ),
-    MapReal( "editor.map.mesh_extrude_distance", 16.0, 0.001, 1000000.0, "Extrude distance", "Extend the selected mesh face along its normal, retaining it as the cap and creating side walls. Positive units." ),
-    MapReal( "editor.map.mesh_inset_distance", 8.0, 0.001, 1000000.0, "Corner inset distance", "Move every corner toward the face center by this distance. This radial inset does not promise a uniform border width. The inner face keeps its identity." ),
+    MapReal( "editor.map.mesh_extrude_distance", 16.0, 0.001, 1000000.0, "Extrude distance", "Extend one mesh face or an edge-connected coplanar face region along its shared normal. Caps keep their IDs; only the region perimeter receives walls. Positive units." ),
+    MapReal( "editor.map.mesh_inset_distance", 8.0, 0.001, 1000000.0, "Corner inset distance", "Select exactly one mesh face. Move every corner toward its center by this distance. This radial inset does not promise a uniform border width. The inner face keeps its identity." ),
+    MapReal( "editor.map.mesh_inset_width", 8.0, 0.001, 1000000.0, "Inset width", "Perpendicular border width on exactly one planar convex mesh face. Collapsed offsets, concave or warped faces refuse. The inner face keeps its identity." ),
     MapInteger( "editor.map.mesh_slice_u", 2, 1, 64, "Quad Slice U cells", "Cells along the selected quad's corner 0 to corner 1 direction. Quad Slice inserts shared boundary vertices in neighboring faces." ),
     MapInteger( "editor.map.mesh_slice_v", 2, 1, 64, "Quad Slice V cells", "Cells along the selected quad's corner 0 to corner 3 direction. A 1 by 1 grid makes no change." ),
+    MapReal( "editor.map.mesh_bevel_width", 8.0, 0.001, 1000000.0, "Bevel width", "Distance a bevel cuts into each face beside the selected edges. A width the faces cannot hold is rejected unchanged." ),
+    MapInteger( "editor.map.mesh_bevel_segments", 1, 1, 32, "Bevel segments", "1 chamfers the edge flat; more segments round it." ),
+    MapReal( "editor.map.mesh_edge_extrude_distance", 16.0, 0.001, 1000000.0, "Edge extrude distance", "How far Extrude pulls open edges off the surface and Extend continues the surface outward." ),
+    MapReal( "editor.map.mesh_solidify_thickness", 16.0, 0.001, 1000000.0, "Solidify thickness", "Thickness Solidify gives open meshes, grown along their face normals." ),
+    MapChoice( "editor.map.patch_shape", kPatchShapes, "cylinder", "Patch shape", "Shape the Patch tool draws: a box sets its extent; cylinders, cones and discs run along the pane's depth." ),
+    MapChoice( "editor.map.paint_channel", kPaintChannels, "color", "Paint channel", "What the Paint tool paints: the paint colour, or one vertex colour channel taken down from white. Ctrl/Command paints back toward white." ),
+    MapText( "editor.map.paint_color", "#e05a28", 16u, "Paint colour", "Colour the Paint tool paints in colour mode, as #RRGGBB." ),
+    MapReal( "editor.map.paint_radius", 32.0, 0.5, 65536.0, "Paint radius", "Radius of the Paint tool's brush (units)." ),
+    MapReal( "editor.map.paint_strength", 1.0, 0.01, 1.0, "Paint strength", "How far one dab moves a corner toward the painted value." ),
+    MapReal( "editor.map.curve_width", 32.0, 0.5, 65536.0, "Curve width", "Width of the strip the Curve tool sweeps along its points." ),
+    MapReal( "editor.map.curve_height", 16.0, 0.5, 65536.0, "Curve height", "Height of the strip the Curve tool sweeps along its points." ),
+    MapReal( "editor.map.curve_outer_radius", 16.0, 0.5, 65536.0, "Outer radius", "Hollow Pipe: distance from the path centre to the outer wall." ),
+    MapReal( "editor.map.curve_wall_thickness", 4.0, 0.01, 65536.0, "Wall thickness", "Hollow Pipe: wall thickness, greater than zero and smaller than the outer radius." ),
+    MapReal( "editor.map.mesh_smooth_strength", 0.5, 0.01, 1.0, "Smooth strength", "How far one Smooth moves each vertex toward the average of its neighbours." ),
+    MapReal( "editor.map.mesh_offset_distance", 8.0, 0.001, 1000000.0, "Offset distance", "How far Offset moves the selected vertices, edges or face along their normals." ),
+    MapReal( "editor.map.mesh_slide_factor", 0.25, -0.99, 0.99, "Slide factor", "How far Slide Edge Loop moves a loop toward its neighbour: 0.5 is halfway, negative goes the other way." ),
+    MapReal( "editor.map.mesh_weld_distance", 1.0, 0.0001, 1000.0, "Weld distance", "Vertices closer than this join on Weld and Merge by Distance." ),
+    MapChoice( "editor.map.displace_mode", kDisplaceModes, "push_pull", "Brush",
+               "Push/Pull raises the surface (Ctrl/Command lowers it); Smooth evens it out; Flatten presses it onto the plane under the brush; Inflate swells it along its normals; Pinch draws it toward the brush centre; Noise roughens it." ),
+    MapChoice( "editor.map.terrain_mode", kTerrainModes, "raise", "Terrain brush", "Raise or lower the ground under the brush (Ctrl/Command does the opposite), smooth it, or flatten it to the height the stroke started at." ),
+    MapReal( "editor.map.terrain_radius", 256.0, 8.0, 16384.0, "Terrain radius", "Terrain brush radius in world units." ),
+    MapReal( "editor.map.terrain_strength", 25.0, 1.0, 100.0, "Terrain strength", "How much one dab changes the ground (Raise at 100: a quarter of the radius)." ),
+    MapReal( "editor.map.displace_radius", 64.0, 1.0, 4096.0, "Radius", "Brush radius in world units. [ and ] change the radius for the next stroke; an active stroke keeps its starting radius." ),
+    MapFlag( "editor.map.displace_auto_tessellate", CY_TRUE, "Refine coarse quad faces",
+             "Slices a four-sided face wider than the brush into connected cells before sculpting. Preparation and the stroke commit together; cancellation leaves the original geometry unchanged." ),
+    MapReal( "editor.map.displace_strength", 50.0, 1.0, 100.0, "Strength", "How far one dab moves the surface (100: a fifth of the radius)." ),
+    MapReal( "editor.map.displace_smooth", 50.0, 0.0, 100.0, "Smooth amount", "How strongly Smooth evens the surface per dab." ),
+    MapChoice( "editor.map.displace_normal", kDisplaceNormals, "average", "Normal mode",
+               "Direction Push/Pull, Flatten and Noise move along: the average normal under the brush, the normal of the face hit, toward the view, or straight up." ),
+    MapChoice( "editor.map.displace_falloff", kDisplaceFalloffs, "smooth", "Falloff", "How the effect fades from the brush centre to its edge." ),
+    MapText( "editor.map.displace_curve", "0:1 0.5:0.5 1:0", 255u, "Custom falloff", "The Custom falloff: strength against distance from the centre, as x:y points (drag them on the Displacement panel's curve)." ),
+    MapChoice( "editor.map.displace_target", kDisplaceTargets, "selected", "Apply to", "Restrict strokes to selected objects; with no selection, use unlocked visible meshes. Everything includes all unlocked visible meshes under the brush." ),
+    MapReal( "editor.map.compile_walkable_slope", 45.0, 0.0, 90.0, "Walkable slope", "Compile Map: the steepest surface (degrees from flat) the navigation cook counts as walkable." ),
+    MapReal( "editor.map.compile_luxel_size", 16.0, 1.0, 1024.0, "Luxel size", "Compile Map: world units per lightmap texel." ),
+    MapChoice( "editor.map.curve_shape", kCurveShapes, "straight", "Curve shape",
+               "Straight: a strip along the clicked points. Smooth: the profile swept along a smooth curve through them. Lathe: the points are a profile spun about the vertical through the first one (vases, pillars, domes). Walls: walls along the path, Width thick and Height tall, with clean corners. Hollow Pipe: an open smooth path with inner and outer walls and annular end rims; mesh output only." ),
+    MapChoice( "editor.map.wall_join", kWallJoins, "miter", "Wall corners", "How Walls meet at a corner: mitred (sharp), bevelled (cut) or round." ),
+    MapChoice( "editor.map.curve_profile", kCurveProfiles, "rectangle", "Profile", "The cross-section a smooth sweep carries: a width × height rectangle, or a solid round cable as wide as the width. Use Hollow Pipe for an open bore." ),
+    MapChoice( "editor.map.curve_output", kCurveOutputs, "mesh", "Output",
+               "Mesh: editable polygon geometry (Hollow Pipe has an open bore). Patch: one curved patch, as in Radiant - Straight and Walls give a strip with a corner at each point, Smooth an arch pulled toward the inner points, both Height tall; Lathe spins the profile a full turn." ),
+    MapFlag( "editor.map.curve_closed", CY_FALSE, "Closed loop", "A smooth sweep joins its last point back to the first (a ring)." ),
+    MapReal( "editor.map.lathe_angle", 360.0, 1.0, 360.0, "Lathe angle", "How far the lathe spins the profile, in degrees (360: all the way round)." ),
+    MapChoice( "editor.map.sweep_path", kSweepPaths, "straight", "Sweep path", "Brush Sweep moves the face straight out, round an arc, or along an S-bend that ends parallel." ),
+    MapReal( "editor.map.sweep_distance", 128.0, -100000.0, 100000.0, "Sweep distance", "How far a straight or S-bend sweep reaches out from the face." ),
+    MapReal( "editor.map.sweep_sideways", 64.0, -100000.0, 100000.0, "Sweep sideways", "S-bend: how far it shifts across; arc: the radius from the face to the turning axis (unless a pivot is set)." ),
+    MapReal( "editor.map.sweep_angle", 90.0, -359.0, 359.0, "Sweep angle", "How far an arc sweep turns, in degrees." ),
+    MapInteger( "editor.map.sweep_segments", 4, 1, 64, "Sweep segments", "Brushes per sweep (more: a smoother arc or bend)." ),
+    MapInteger( "editor.map.sweep_iterations", 1, 1, 64, "Sweep repeats", "Repeat the sweep from its end (a spiral stair from one arc step)." ),
+    MapChoice( "editor.map.projection_axis", kClipAxes, "z", "Projection axis", "Planar Mapping projects along it; Cylindrical Mapping wraps around it." ),
+    MapInteger( "editor.map.smoothing_group", 1, 1, 32, "Smoothing group", "The group Set Smoothing Group puts faces in (1..32)." ),
+    MapInteger( "editor.map.displacement_power", 3, 1, 4, "Displacement power", "Grid density of Create Displacement: power 2 is 5 × 5 vertices, 3 is 9 × 9, 4 is 17 × 17 (as in Source)." ),
+    MapReal( "editor.map.displacement_elevation", 0.0, -100000.0, 100000.0, "Elevation", "How far the new displacement stands off its face." ),
+    MapReal( "editor.map.displacement_noise", 0.0, 0.0, 100000.0, "Noise amplitude", "Height of random roughness on the new displacement; 0 keeps it flat." ),
+    MapReal( "editor.map.displacement_noise_scale", 64.0, 1.0, 100000.0, "Noise scale", "World units per roughness bump." ),
+    MapInteger( "editor.map.displacement_octaves", 3, 1, 8, "Noise detail", "Layers of finer roughness added to the noise." ),
+    MapInteger( "editor.map.displacement_seed", 1, 0, 1000000, "Noise seed", "Another seed gives other roughness; the same seed gives the same surface." ),
+    MapChoice( "editor.map.array_axis", kClipAxes, "x", "Array axis", "The axis Array copies along (and Bend works along)." ),
+    MapInteger( "editor.map.array_count", 3, 2, 256, "Array copies", "How many copies Array makes, the original included." ),
+    MapReal( "editor.map.array_distance", 0.0, -100000.0, 100000.0, "Array distance", "The step between copies; 0 makes them touch (the mesh's size along the axis)." ),
+    MapInteger( "editor.map.radial_count", 8, 2, 256, "Radial copies", "How many copies Radial Array spreads over a full circle." ),
+    MapReal( "editor.map.bend_angle", 90.0, -3600.0, 3600.0, "Bend angle", "How far Bend curls the mesh, in degrees." ),
+    MapReal( "editor.map.taper_factor", 0.5, 0.0, 100.0, "Taper factor", "The mesh's size at its top relative to its bottom." ),
+    MapReal( "editor.map.thicken_distance", 16.0, 0.001, 100000.0, "Thicken distance", "How thick Thicken Faces makes the new mesh (units)." ),
+    MapReal( "editor.map.patch_thickness", 16.0, 0.01, 4096.0, "Patch thickness", "How far behind a patch Thicken Patch places its copy." ),
+    MapFlag( "editor.map.patch_thicken_seams", CY_TRUE, "Thicken seams", "Thicken Patch also closes the open borders between a patch and its copy." ),
+    MapReal( "editor.map.face_select_angle", 15.0, 0.0, 179.0, "Face select angle", "Select Faces Facing picks faces whose normal is within this many degrees of the active face's." ),
+    MapReal( "editor.map.sharp_edge_angle", 30.0, 0.1, 179.0, "Sharp edge angle", "Select Sharp Edges picks edges whose faces meet at this angle in degrees or more." ),
     MapFlag( "editor.map.select_created", CY_TRUE, "Select created objects", "Select newly created objects." ),
     MapChoice( "editor.map.resize_mode", kResizeModes, "Each object", "Multiple-object resize", "Each extends every selected brush, mesh, or patch by the same grid-snapped distance about its own opposite side. Group scales the combined selection bounds. This choice is captured when grabbing a bounds handle; the Scale tool always scales the group." ),
     MapFlag( "editor.map.resize_from_center", CY_FALSE, "Resize from center", "Bounds handles widen both sides around the captured center. Otherwise the opposite side stays fixed. Hold Shift when grabbing a resize handle to use the center for that gesture. The dragged boundary snaps; the opposite boundary mirrors it around the exact center." ),
@@ -138,7 +258,6 @@ constexpr setting_descriptor_t kMapSettings[]{
     MapText( "editor.map.default_solid_class", "func_detail", 64u, "Default solid class", "Entity class Tie to Entity uses." ),
     MapFlag( "editor.map.write_all_properties", CY_TRUE, "Write all properties", "New entities store every class property (CYMAP.md 4)." ),
     MapFlag( "editor.map.check_before_run", CY_TRUE, "Check before run", "Run Check for Problems before running a map." ),
-    MapReal( "editor.map.cell_size", 8192.0, 0.0, 262144.0, "Chunk cell size", "Chunk cell size for new maps (units)." ),
     MapText( "editor.map.visgroup_presets", "", 2048u, "Visibility presets",
              "Saved Auto Vis Groups visibility (Hammer's Presets), as name=hidden-group-mask pairs separated by ';'." ),
 };
@@ -176,8 +295,10 @@ void OnSettingsChanged( void *pContext, string_view_t path ) noexcept
         bRelevant = bRelevant || StringView_Equals( path, StringView_FromCString( pPath ) );
     }
     const bool_t bGridChanged = bRelevant && ReadGridSettings( pWorkspace );
-    const bool_t bClipChanged = path.cchLength == 0u || StringView_Equals( path, StringView_FromCString( "editor.map.clip_mode" ) );
+    const bool_t bClipChanged = path.cchLength == 0u || StringView_Equals( path, StringView_FromCString( "editor.map.clip_mode" ) ) ||
+                                StringView_Equals( path, StringView_FromCString( "editor.map.clip_cap" ) );
     const bool_t bClipAxisChanged = path.cchLength == 0u || StringView_Equals( path, StringView_FromCString( "editor.map.clip_axis" ) );
+    const bool_t bConversionChanged = path.cchLength == 0u || StringView_Equals( path, StringView_FromCString( "editor.map.components_convert_brushes" ) );
     if ( bClipAxisChanged && pWorkspace->editPreview.bActive && pWorkspace->editPreview.bClip ) {
         // An existing line keeps its original meaning; changing the 3D
         // construction axis requires a new Clip gesture.
@@ -186,7 +307,7 @@ void OnSettingsChanged( void *pContext, string_view_t path ) noexcept
         // A retained-half change updates the staged result, never its plane
         // or the live document. The preview setter publishes the view notice.
         MapWorkspace_SetClipPreview( pWorkspace, pWorkspace->editPreview.clipPlane );
-    } else if ( bGridChanged || bClipChanged || bClipAxisChanged ) { MapWorkspace_Notify( pWorkspace, MAP_CHANGE_VIEW ); }
+    } else if ( bGridChanged || bClipChanged || bClipAxisChanged || bConversionChanged ) { MapWorkspace_Notify( pWorkspace, MAP_CHANGE_VIEW ); }
 }
 
 // Writes a grid setting to the narrowest attached scope; false when no scope is
@@ -279,10 +400,10 @@ struct tool_info_t {
 constexpr tool_info_t kTools[]{
     { "Select", CY_TRUE },     { "Camera", CY_TRUE },   { "Entity", CY_FALSE }, { "Block", CY_TRUE },   { "Texture", CY_TRUE },
     { "Decal", CY_FALSE },     { "Overlay", CY_FALSE }, { "Clip", CY_TRUE },   { "Vertex", CY_FALSE },  { "Path", CY_FALSE },
-    { "Measure", CY_FALSE },   { "Terrain", CY_FALSE }, { "Patch", CY_FALSE },  { "Translate", CY_TRUE }, { "Rotate", CY_TRUE },
+    { "Measure", CY_FALSE },   { "Terrain", CY_TRUE }, { "Patch", CY_FALSE },  { "Translate", CY_TRUE }, { "Rotate", CY_TRUE },
     { "Scale", CY_TRUE },     { "Pivot", CY_FALSE },   { "Polygon", CY_FALSE }, { "Mirror", CY_FALSE }, { "Paint", CY_FALSE },
     { "Extrude", CY_TRUE },   { "Knife", CY_FALSE },   { "Loop Cut", CY_FALSE }, { "Eyedropper", CY_FALSE }, { "Workplane", CY_FALSE },
-    { "Curve", CY_FALSE }, { "Navigation", CY_TRUE },
+    { "Curve", CY_FALSE }, { "Edge Cut", CY_FALSE }, { "Edge Arc", CY_FALSE }, { "Displace", CY_FALSE }, { "Shear", CY_FALSE }, { "Navigation", CY_TRUE },
 };
 static_assert( std::size( kTools ) == static_cast<usize>( map_tool_t::COUNT ), "Tool table and enum diverged" );
 
@@ -290,7 +411,7 @@ static_assert( std::size( kTools ) == static_cast<usize>( map_tool_t::COUNT ), "
 // and edge profiles disclose unavailable picking; Meshes selects real roots.
 constexpr tool_info_t kElementModes[]{
     { "Vertices", CY_TRUE }, { "Edges", CY_TRUE }, { "Faces", CY_TRUE }, { "Meshes", CY_TRUE },
-    { "Objects", CY_TRUE },   { "Groups", CY_TRUE }, { "Navigation", CY_FALSE },
+    { "Objects", CY_TRUE },   { "Groups", CY_TRUE }, { "Navigation", CY_TRUE },
 };
 static_assert( std::size( kElementModes ) == static_cast<usize>( map_element_mode_t::COUNT ), "Mode table and enum diverged" );
 
@@ -314,39 +435,6 @@ CYPHER_NODISCARD map_document_t *CreateDocument( const allocator_t *pAllocator )
     return pDocument;
 }
 
-QString PersistenceKey( const QString &path )
-{
-    const QFileInfo file( path );
-    QDir parent = file.absoluteDir();
-    QString relative = file.fileName();
-    QString canonicalParent = parent.canonicalPath();
-    // New Save As folders may not exist until staging creates them. Resolve
-    // the nearest existing ancestor so the inventory key stays stable then.
-    while ( canonicalParent.isEmpty() && !parent.isRoot() ) {
-        relative = parent.dirName() + QLatin1Char( '/' ) + relative;
-        const QString ancestor = QDir::cleanPath( parent.absoluteFilePath( QStringLiteral( ".." ) ) );
-        if ( ancestor == parent.absolutePath() ) { break; }
-        parent = QDir( ancestor );
-        canonicalParent = parent.canonicalPath();
-    }
-    // Resolve directory aliases, while retaining the leaf name: replacing a
-    // symlink at the root file itself writes that leaf, not its previous target.
-    return QDir::cleanPath( canonicalParent.isEmpty() ? file.absoluteFilePath()
-                                                     : QDir( canonicalParent ).filePath( relative ) );
-}
-
-QStringList PersistedChunkPaths( const map_document_t &document )
-{
-    QStringList paths;
-    for ( usize i = 0u; i < document.chunks.nCount; ++i ) {
-        const map_chunk_t &chunk = *document.chunks.pData[i];
-        if ( chunk.bDamaged || chunk.sourcePath[0] == '\0' ) { continue; }
-        const QString path = QString::fromUtf8( chunk.sourcePath );
-        if ( !paths.contains( path ) ) { paths.append( path ); }
-    }
-    return paths;
-}
-
 bool ClearMeshComponents( map_workspace_t *workspace ) noexcept
 {
     const bool changed = workspace->meshSelection.meshId.value != 0 || workspace->selectedMeshEdgeSeed.a.value != 0;
@@ -367,7 +455,7 @@ bool PruneMeshComponents( map_workspace_t *workspace ) noexcept
     const bool vertices = workspace->elementMode == map_element_mode_t::VERTICES;
     const bool edges = workspace->elementMode == map_element_mode_t::EDGES;
     if ( ( !vertices && !edges ) || mesh == nullptr || wire == nullptr || wire->kind != map_wire_kind_t::MESH ||
-         !MapWorkspace_IsVisible( workspace, *wire ) || workspace->selection.ids.nCount != 1 ||
+         !MapWorkspace_IsVisible( workspace, *wire ) || MapLayers_IsObjectLocked( workspace, selection.meshId.value ) || workspace->selection.ids.nCount != 1 ||
          workspace->selection.ids.pData[0] != selection.meshId.value || selection.faces.nCount != 0 ||
          ( vertices && ( selection.edges.nCount != 0 || workspace->selectedMeshEdgeSeed.a.value != 0 ) ) ||
          ( edges && selection.vertices.nCount != 0 ) ) { return ClearMeshComponents( workspace ); }
@@ -404,9 +492,9 @@ void Adopt( map_workspace_t *pWorkspace, map_document_t *pDocument, const QStrin
     delete pWorkspace->pDocument;
     pWorkspace->pDocument = pDocument;
     pWorkspace->path = path;
-    pWorkspace->persistedChunksByRoot.clear();
-    if ( !path.isEmpty() ) { pWorkspace->persistedChunksByRoot.insert( PersistenceKey( path ), PersistedChunkPaths( *pDocument ) ); }
-    // Another document: nothing of the old history applies to it.
+    // Another document: nothing of the old history applies to it, nor the
+    // tools' staged state (a workplane, the pivot, a knife chain).
+    MapToolGestures_Release( pWorkspace );
     EditorHistory_Clear( &pWorkspace->history );
     EditorHistory_MarkClean( &pWorkspace->history );
     pWorkspace->selectedBrushFaceObject = 0; pWorkspace->selectedBrushFaceSide = 0;
@@ -417,6 +505,7 @@ void Adopt( map_workspace_t *pWorkspace, map_document_t *pDocument, const QStrin
     if ( MapWireframe_Build( &pWorkspace->wire, *pDocument ) != map_status_t::OK ) {
         CY_LOG_WRITE( Error, Editor, "Map views could not be built; the map is open but not drawn" );
     }
+    MapWorkspace_WireRebuilt( pWorkspace );
     MapWorkspace_Notify( pWorkspace, MAP_CHANGE_DOCUMENT | MAP_CHANGE_SELECTION | MAP_CHANGE_TITLE | MAP_CHANGE_HISTORY );
     MapWorkspace_Frame( pWorkspace, CY_FALSE );
 }
@@ -427,7 +516,7 @@ void LogProblems( const map_document_t &map ) noexcept
     for ( usize i = 0u; i < nProblems && i < kProblemsLogged; ++i ) {
         const map_problem_t &problem = map.problems.pData[i];
         QString line = QStringLiteral( "Map problem %1" ).arg( QString::fromUtf8( MapDocument_ProblemName( problem.code ) ) );
-        if ( problem.path[0] != '\0' ) { line += QStringLiteral( " in %1" ).arg( QString::fromUtf8( problem.path ) ); }
+        if ( problem.layer[0] != '\0' ) { line += QStringLiteral( " in layer %1" ).arg( QString::fromUtf8( problem.layer ) ); }
         if ( problem.member[0] != '\0' ) { line += QStringLiteral( " (%1)" ).arg( QString::fromUtf8( problem.member ) ); }
         if ( problem.id != 0u ) { line += QStringLiteral( ", object %1" ).arg( problem.id ); }
         LogText( log_level_t::Warning, line );
@@ -485,10 +574,20 @@ command_result_t ElementModeExecute( void *pContext, const command_args_t & ) no
 {
     if ( !MapWorkspace_IsElementModeAvailable( kMode ) ) { return command_result_t::DISABLED; }
     auto *workspace = static_cast<map_workspace_t *>( pContext );
+    // Selection categories retain an active transform, but leave creation
+    // tools so the next viewport click picks the requested component.
+    const bool keepTool = workspace->tool == map_tool_t::SELECT || workspace->tool == map_tool_t::TRANSLATE ||
+                          workspace->tool == map_tool_t::ROTATE || workspace->tool == map_tool_t::SCALE;
+    if ( !keepTool ) {
+        // Finish staged construction before changing mode: SetElementMode
+        // clears its preview. A failed commit must leave it available to retry.
+        if ( workspace->tool == map_tool_t::BLOCK && MapWorkspace_HasBlockPreview( workspace ) ) {
+            if ( !MapWorkspace_CommitBlockPreview( workspace ) ) { return command_result_t::FAILED; }
+            MapNotice_Post( workspace, map_notice_t::INFO, QStringLiteral( "Created the block you drew (Undo removes it)" ) );
+        }
+        MapWorkspace_SetTool( workspace, map_tool_t::SELECT );
+    }
     MapWorkspace_SetElementMode( workspace, kMode );
-    // Choosing a selection category is an explicit route back from neutral
-    // navigation, without making unrelated mode notifications select a tool.
-    if ( workspace->tool == map_tool_t::NONE ) { MapWorkspace_SetTool( workspace, map_tool_t::SELECT ); }
     return command_result_t::OK;
 }
 
@@ -518,6 +617,11 @@ u32 MeshFaceEditState( void *pContext ) noexcept
 {
     return MapWorkspace_CanEditMeshFace( static_cast<const map_workspace_t *>( pContext ) ) ? COMMAND_STATE_ENABLED : COMMAND_STATE_NONE;
 }
+u32 MeshFaceInsetState( void *pContext ) noexcept
+{
+    const auto *ws = static_cast<const map_workspace_t *>( pContext );
+    return MapWorkspace_CanEditMeshFace( ws ) && MapWorkspace_MeshFaces( ws ).nCount == 1 ? COMMAND_STATE_ENABLED : COMMAND_STATE_NONE;
+}
 command_result_t ExtrudeMeshFace( void *pContext, const command_args_t & ) noexcept
 {
     auto *ws = static_cast<map_workspace_t *>( pContext );
@@ -527,6 +631,11 @@ command_result_t InsetMeshFace( void *pContext, const command_args_t & ) noexcep
 {
     auto *ws = static_cast<map_workspace_t *>( pContext );
     return MapWorkspace_InsetMeshFace( ws, EditorSettings_Real( &ws->pGui->settings, "editor.map.mesh_inset_distance", 8.0 ) ) ? command_result_t::OK : command_result_t::FAILED;
+}
+command_result_t InsetMeshFaceByEdgeWidth( void *pContext, const command_args_t & ) noexcept
+{
+    auto *ws = static_cast<map_workspace_t *>( pContext );
+    return MapWorkspace_InsetMeshFaceByEdgeWidth( ws, EditorSettings_Real( &ws->pGui->settings, "editor.map.mesh_inset_width", 8.0 ) ) ? command_result_t::OK : command_result_t::FAILED;
 }
 u32 QuadSliceState( void *pContext ) noexcept
 {
@@ -550,11 +659,22 @@ command_result_t HollowSelection( void *pContext, const command_args_t & ) noexc
 }
 command_result_t MergeSelection( void *pContext, const command_args_t & ) noexcept
 {
-    return MapWorkspace_MergeSelection( static_cast<map_workspace_t *>( pContext ) ) ? command_result_t::OK : command_result_t::FAILED;
+    auto *ws = static_cast<map_workspace_t *>( pContext );
+    if ( MapWorkspace_MergeSelection( ws ) ) { return command_result_t::OK; }
+    // A brush stays convex: Merge joins two only when together they are one
+    // convex shape. Anything else is a mesh Boolean's job.
+    MapNotice_Post( ws, map_notice_t::WARNING, QStringLiteral( "Merge joins two brushes only when together they make one convex shape (two halves of a box, a wedge on its block). "
+                                                               "For any other shape use Union (CSG > Union), which makes a mesh" ) );
+    return command_result_t::FAILED;
 }
 command_result_t ApplyFaceMaterial( void *pContext, const command_args_t & ) noexcept
 {
-    return MapWorkspace_ApplyFaceMaterial( static_cast<map_workspace_t *>( pContext ) ) ? command_result_t::OK : command_result_t::FAILED;
+    // Shift+T: the picked face(s), or every face of the selected objects.
+    return MapGeometryCommands_ApplyMaterial( static_cast<map_workspace_t *>( pContext ) ) ? command_result_t::OK : command_result_t::FAILED;
+}
+u32 ApplyMaterialState( void *pContext ) noexcept
+{
+    return MapGeometryCommands_CanApplyMaterial( static_cast<const map_workspace_t *>( pContext ) ) ? COMMAND_STATE_ENABLED : COMMAND_STATE_NONE;
 }
 u32 BrushConversionState( void *pContext ) noexcept
 {
@@ -592,6 +712,11 @@ command_result_t SelectEdgeTopology( void *pContext, const command_args_t & ) no
     auto *workspace = static_cast<map_workspace_t *>( pContext );
     if ( !MapWorkspace_CanSelectMeshEdgeTopology( workspace ) ) { return command_result_t::DISABLED; }
     const bool selected = kLoop ? MapWorkspace_SelectMeshEdgeLoop( workspace ) : MapWorkspace_SelectMeshEdgeRing( workspace );
+    if ( !selected ) {
+        // Loops run through corners where four edges meet, rings across quads.
+        MapNotice_Post( workspace, map_notice_t::INFO, kLoop ? QStringLiteral( "Select Loop: the loop goes no further than the edge itself (it stops where three or five edges meet)" )
+                                                             : QStringLiteral( "Select Ring: no strip of quads runs across this edge" ) );
+    }
     return selected ? command_result_t::OK : command_result_t::FAILED;
 }
 
@@ -717,6 +842,12 @@ command_result_t SelectSameClass( void *pContext, const command_args_t & ) noexc
         if ( pObject == nullptr || MapWorkspace_IsVisible( pWorkspace, *pObject ) ) { ids.push_back( entity.id ); }
     }
     MapWorkspace_SetSelection( pWorkspace, ids.data(), ids.size() );
+    // Selecting changes no undo step, so the count is the only sign it ran.
+    std::sort( classes.begin(), classes.end() );
+    classes.erase( std::unique( classes.begin(), classes.end() ), classes.end() );
+    const QString what = classes.size() == 1 ? QString::fromUtf8( classes.front() ) : QStringLiteral( "%1 classes" ).arg( classes.size() );
+    MapNotice_Post( pWorkspace, map_notice_t::INFO, QStringLiteral( "Select Same Class: %1 %2 selected (%3)" )
+        .arg( ids.size() ).arg( ids.size() == 1 ? QStringLiteral( "entity" ) : QStringLiteral( "entities" ), what ) );
     return command_result_t::OK;
 }
 
@@ -893,6 +1024,27 @@ bool_t MapWorkspace_Init( map_workspace_t *pWorkspace, gui::editor_gui_t *pGui )
 void MapWorkspace_Shutdown( map_workspace_t *pWorkspace ) noexcept
 {
     if ( pWorkspace == nullptr ) { return; }
+    // Windows that outlive the workspace (a Find dialog closed with a deferred
+    // delete) must not reach it later. Tell every listener first, from a copy:
+    // a listener may unsubscribe while it is told.
+    map_listener_t listeners[MAP_WORKSPACE_MAX_LISTENERS]{};
+    const usize nListeners = pWorkspace->nListeners;
+    for ( usize i = 0u; i < nListeners; ++i ) { listeners[i] = pWorkspace->listeners[i]; }
+    for ( usize i = 0u; i < nListeners; ++i ) {
+        if ( listeners[i].pfnChanged != nullptr ) { listeners[i].pfnChanged( listeners[i].pContext, MAP_CHANGE_SHUTDOWN ); }
+    }
+    // Asset callbacks can capture objects owned by this workspace's session.
+    // Remove them before teardown, including when its address is later reused.
+    MapHotspots_SetResolver( pWorkspace, {} );
+    MapAssets_SetLister( pWorkspace, {} );
+    MapAssets_SetRoots( pWorkspace, {} );
+    MapToolGestures_Release( pWorkspace );
+    MapEntityIo_Release( pWorkspace );
+    MapEntityLook_Forget( pWorkspace );
+    MapObjectTools_Forget( pWorkspace );
+    MapLayers_Forget( pWorkspace );
+    MapInstances_Forget( pWorkspace );
+    MapHierarchy_Forget( pWorkspace );
     if ( pWorkspace->pGui != nullptr ) { EditorSettings_RemoveListener( &pWorkspace->pGui->settings, &OnSettingsChanged, pWorkspace ); }
     delete pWorkspace->pDocument;
     pWorkspace->pDocument = nullptr;
@@ -901,6 +1053,7 @@ void MapWorkspace_Shutdown( map_workspace_t *pWorkspace ) noexcept
     EditorSelection_Shutdown( &pWorkspace->selection );
     EditorSelection_Shutdown( &pWorkspace->hidden );
     geometry::MeshSelection_Shutdown( &pWorkspace->meshSelection );
+    Vector_Shutdown( &pWorkspace->meshFaceSet ); pWorkspace->meshFaceSetObject = 0;
     pWorkspace->selectedMeshEdgeSeed = {};
     EditorHistory_Shutdown( &pWorkspace->history );
     pWorkspace->nListeners = 0u;
@@ -956,40 +1109,16 @@ map_files_result_t MapWorkspace_SaveAs( map_workspace_t *pWorkspace, const QStri
 {
     CY_ASSERT( pWorkspace != nullptr && pWorkspace->pDocument != nullptr );
     const QByteArray utf8 = path.toUtf8();
-    const QString key = PersistenceKey( path );
-    const QStringList inventory = pWorkspace->persistedChunksByRoot.value( key );
-    std::vector<QByteArray> encoded;
-    std::vector<string_view_t> paths;
-    encoded.reserve( static_cast<usize>( inventory.size() ) );
-    paths.reserve( static_cast<usize>( inventory.size() ) );
-    for ( const QString &chunk : inventory ) { encoded.push_back( chunk.toUtf8() ); }
-    for ( const QByteArray &chunk : encoded ) { paths.push_back( { chunk.constData(), static_cast<usize>( chunk.size() ) } ); }
-    text_buffer_t published{};
-    if ( !TextBuffer_Init( &published, pWorkspace->pDocument->pAllocator ) ) {
-        return { map_files_status_t::DOCUMENT_FAILED, map_status_t::OUT_OF_MEMORY };
-    }
-    const map_files_result_t result = MapFiles_Save( pWorkspace->pDocument, utf8.constData(), { paths.data(), paths.size() }, &published );
-    if ( result.status != map_files_status_t::OK ) {
-        // A rename failure can happen after some chunks were replaced. Keep
-        // exactly those paths owned for cleanup by a later save; unrenamed
-        // destination files remain outside this document's inventory.
-        if ( !TextBuffer_IsEmpty( &published ) ) {
-            QStringList recovery = inventory;
-            const auto replacements = QString::fromUtf8( TextBuffer_Data( &published ), static_cast<qsizetype>( TextBuffer_Length( &published ) ) )
-                .split( QLatin1Char( '\n' ), Qt::SkipEmptyParts );
-            for ( const QString &chunk : replacements ) { if ( !recovery.contains( chunk ) ) { recovery.append( chunk ); } }
-            pWorkspace->persistedChunksByRoot.insert( key, recovery );
-        }
-        return result;
-    }
-    pWorkspace->persistedChunksByRoot.insert( key, PersistedChunkPaths( *pWorkspace->pDocument ) );
+    const map_files_result_t result = MapFiles_Save( pWorkspace->pDocument, utf8.constData() );
+    if ( result.status != map_files_status_t::OK ) { return result; }
     pWorkspace->path = path;
     EditorHistory_MarkClean( &pWorkspace->history );
-    // Saving can assign IDs and move objects between chunks; the records the
-    // panels show may have changed even though nothing moved.
+    // Saving can assign IDs and moves groups to their first member's layer;
+    // the records the panels show may have changed even though nothing moved.
     if ( MapWireframe_Build( &pWorkspace->wire, *pWorkspace->pDocument ) != map_status_t::OK ) {
         CY_LOG_WRITE( Error, Editor, "Map views could not be rebuilt after saving" );
     }
+    MapWorkspace_WireRebuilt( pWorkspace );
     MapWorkspace_Notify( pWorkspace, MAP_CHANGE_DOCUMENT | MAP_CHANGE_TITLE );
     return result;
 }
@@ -1000,11 +1129,47 @@ QString MapWorkspace_DisplayName( const map_workspace_t *pWorkspace )
     return pWorkspace->path.isEmpty() ? QStringLiteral( "Untitled" ) : QFileInfo( pWorkspace->path ).fileName();
 }
 
+namespace
+{
+void LockedSelectionNotice( const map_workspace_t *workspace ) noexcept
+{
+    MapNotice_Post( workspace, map_notice_t::WARNING,
+        QStringLiteral( "The selection includes objects on a locked layer. Unlock the layer before selecting them." ) );
+}
+
+// Groups mode selects a group's members together (CYMAP.md 6.10 groups).
+void SelectGroup( map_workspace_t *pWorkspace, u64 group, u64 clicked, map_select_mode_t mode ) noexcept
+{
+    vector_t<u64> members{}, next{};
+    const auto *allocator = pWorkspace->selection.ids.pAllocator;
+    if ( !Vector_Init( &members, allocator ) || !Vector_Init( &next, allocator ) ) { return; }
+    if ( MapDocument_GroupMembers( pWorkspace->pDocument, group, &members ) != map_status_t::OK || members.nCount == 0 ) { return; }
+    const bool remove = mode == MAP_SELECT_REMOVE || ( mode == MAP_SELECT_TOGGLE && EditorSelection_Contains( &pWorkspace->selection, clicked ) );
+    if ( mode != MAP_SELECT_REPLACE ) {
+        for ( usize i = 0; i < pWorkspace->selection.ids.nCount; ++i ) {
+            const u64 id = pWorkspace->selection.ids.pData[i];
+            if ( ( !remove || std::find( members.pData, members.pData + members.nCount, id ) == members.pData + members.nCount ) &&
+                 !Vector_PushBack( &next, id ) ) { return; }
+        }
+    }
+    if ( !remove && !Vector_Append( &next, { members.pData, members.nCount } ) ) { return; }
+    MapWorkspace_SetSelection( pWorkspace, next.pData, next.nCount );
+}
+} // namespace
+
 void MapWorkspace_Select( map_workspace_t *pWorkspace, u64 id, map_select_mode_t mode ) noexcept
 {
     CY_ASSERT( pWorkspace != nullptr );
     if ( mode != MAP_SELECT_REPLACE && mode != MAP_SELECT_ADD && mode != MAP_SELECT_TOGGLE && mode != MAP_SELECT_REMOVE ) { return; }
     const bool selected = EditorSelection_Contains( &pWorkspace->selection, id );
+    const bool adding = mode == MAP_SELECT_REPLACE || mode == MAP_SELECT_ADD || ( mode == MAP_SELECT_TOGGLE && !selected );
+    if ( adding && id != 0 && MapLayers_IsObjectLocked( pWorkspace, id ) ) { LockedSelectionNotice( pWorkspace ); return; }
+    if ( pWorkspace->elementMode == map_element_mode_t::GROUPS && id != 0 && pWorkspace->pDocument != nullptr ) {
+        const u64 group = MapDocument_GroupOf( pWorkspace->pDocument, id );
+        // A refused or failed group selection must never degrade to selecting
+        // just its clicked member. The whole request belongs to the group.
+        if ( group != 0 ) { SelectGroup( pWorkspace, group, id, mode ); return; }
+    }
     const bool shouldChange = mode == MAP_SELECT_REPLACE ?
         ( id == 0 ? pWorkspace->selection.ids.nCount != 0 : !selected || pWorkspace->selection.ids.nCount != 1 ) :
         mode == MAP_SELECT_TOGGLE ? id != 0 : mode == MAP_SELECT_ADD ? id != 0 && !selected :
@@ -1024,10 +1189,14 @@ void MapWorkspace_Select( map_workspace_t *pWorkspace, u64 id, map_select_mode_t
 void MapWorkspace_SetSelection( map_workspace_t *pWorkspace, const u64 *pIds, usize nIds ) noexcept
 {
     CY_ASSERT( pWorkspace != nullptr && ( pIds != nullptr || nIds == 0u ) );
+    bool hasId = false;
+    for ( usize i = 0; i < nIds; ++i ) {
+        if ( pIds[i] == 0 ) { continue; }
+        if ( MapLayers_IsObjectLocked( pWorkspace, pIds[i] ) ) { LockedSelectionNotice( pWorkspace ); return; }
+        hasId = true;
+    }
     editor_selection_t next{};
     if ( !EditorSelection_Init( &next, pWorkspace->selection.ids.pAllocator ) ) { return; }
-    bool hasId = false;
-    for ( usize i = 0; i < nIds; ++i ) { hasId |= pIds[i] != 0; }
     // Starting from empty distinguishes OOM from Set's no-op return value.
     // Empty requests need no allocation, including arrays containing only 0.
     if ( hasId && !EditorSelection_Set( &next, pIds, nIds ) ) { return; }
@@ -1087,12 +1256,20 @@ editor_history_status_t MapWorkspace_Redo( map_workspace_t *pWorkspace ) noexcep
     return EditorHistory_Redo( &pWorkspace->history );
 }
 
+void MapWorkspace_WireRebuilt( map_workspace_t *pWorkspace ) noexcept
+{
+    if ( pWorkspace == nullptr ) { return; }
+    MapInstances_Refresh( pWorkspace );  // Prefab instances, read from their files.
+    MapEntityLook_Refresh( pWorkspace ); // Class boxes and colours from the game profile.
+}
+
 void MapWorkspace_DocumentChanged( map_workspace_t *pWorkspace, bool rebuildWire ) noexcept
 {
     CY_ASSERT( pWorkspace != nullptr && pWorkspace->pDocument != nullptr );
     if ( rebuildWire && MapWireframe_Build( &pWorkspace->wire, *pWorkspace->pDocument ) != map_status_t::OK ) {
         CY_LOG_WRITE( Error, Editor, "Map views could not be rebuilt after an edit" );
     }
+    MapWorkspace_WireRebuilt( pWorkspace );
     pWorkspace->editPreview = {};
     MapWireframe_Shutdown( &pWorkspace->editPreviewWire );
     if ( !MapWorkspace_HasBrushFace( pWorkspace ) ) { pWorkspace->selectedBrushFaceObject = 0; pWorkspace->selectedBrushFaceSide = 0; }
@@ -1264,6 +1441,55 @@ void MapWorkspace_SetElementMode( map_workspace_t *pWorkspace, map_element_mode_
         MapWireframe_Shutdown( &pWorkspace->editPreviewWire );
     }
     MapWorkspace_Notify( pWorkspace, MAP_CHANGE_VIEW | ( clearedFace || clearedComponents ? MAP_CHANGE_SELECTION : 0u ) );
+    if ( mode == map_element_mode_t::NAVIGATION ) { MapWorkspace_NavigationReport( pWorkspace ); }
+}
+
+f64 MapWorkspace_WalkableSlope( const map_workspace_t *pWorkspace ) noexcept
+{
+    return pWorkspace != nullptr && pWorkspace->pGui != nullptr ? EditorSettings_Real( &pWorkspace->pGui->settings, "editor.map.compile_walkable_slope", 45.0 ) : 45.0;
+}
+
+map_walkable_t MapWorkspace_FaceWalkable( const map_workspace_t *pWorkspace, const map_wire_face_t &face ) noexcept
+{
+    // The navigation cook's rule: a face whose normal is within the walkable
+    // slope of up is floor. Steeper faces that still face up are too steep.
+    const f64 slope = MapWorkspace_WalkableSlope( pWorkspace ) * 3.14159265358979323846 / 180.0;
+    if ( face.normal.z >= std::cos( slope ) - 1e-9 ) { return map_walkable_t::WALKABLE; }
+    return face.normal.z > 1e-6 ? map_walkable_t::TOO_STEEP : map_walkable_t::NOT_FLOOR;
+}
+
+void MapWorkspace_NavigationReport( const map_workspace_t *pWorkspace ) noexcept
+{
+    if ( pWorkspace == nullptr || pWorkspace->pDocument == nullptr ) { return; }
+    const map_wireframe_t &wire = pWorkspace->wire;
+    const bool selection = pWorkspace->selection.ids.nCount != 0;
+    usize walkable = 0, steep = 0;
+    f64 area = 0.0, steepest = 0.0;
+    for ( usize i = 0; i < wire.faces.nCount; ++i ) {
+        const map_wire_face_t &face = wire.faces.pData[i];
+        const map_wire_object_t *pObject = MapWireframe_FindObject( wire, face.id );
+        if ( pObject == nullptr || !MapWorkspace_IsVisible( pWorkspace, *pObject ) || face.nIndices < 3 ) { continue; }
+        if ( selection && EditorSelection_Contains( &pWorkspace->selection, face.id ) == CY_FALSE ) { continue; }
+        const map_walkable_t kind = MapWorkspace_FaceWalkable( pWorkspace, face );
+        if ( kind == map_walkable_t::TOO_STEEP ) { ++steep; continue; }
+        if ( kind != map_walkable_t::WALKABLE ) { continue; }
+        ++walkable;
+        steepest = std::max( steepest, std::acos( std::clamp( face.normal.z, -1.0, 1.0 ) ) * 180.0 / 3.14159265358979323846 );
+        // Polygon area (Newell), in square metres.
+        math::vec3d_t sum{};
+        for ( u32 k = 0; k < face.nIndices; ++k ) {
+            const math::vec3d_t a = wire.points.pData[wire.faceIndices.pData[face.iFirstIndex + k]];
+            const math::vec3d_t b = wire.points.pData[wire.faceIndices.pData[face.iFirstIndex + ( k + 1 ) % face.nIndices]];
+            sum.x += ( a.y - b.y ) * ( a.z + b.z ); sum.y += ( a.z - b.z ) * ( a.x + b.x ); sum.z += ( a.x - b.x ) * ( a.y + b.y );
+        }
+        area += 0.5 * std::sqrt( sum.x * sum.x + sum.y * sum.y + sum.z * sum.z );
+    }
+    constexpr f64 unitsPerMeter = 39.37; // Inches, the game profile's scale.
+    const QString scope = selection ? QStringLiteral( "the selection" ) : QStringLiteral( "the map" );
+    MapNotice_Post( pWorkspace, map_notice_t::INFO,
+        QStringLiteral( "Navigation: %1 has %2 walkable faces (%3 m\u00b2, steepest %4\u00b0; green) and %5 too steep to walk (over %6\u00b0; red). Click an object to measure it" )
+            .arg( scope ).arg( walkable ).arg( area / ( unitsPerMeter * unitsPerMeter ), 0, 'f', 1 ).arg( steepest, 0, 'f', 0 ).arg( steep )
+            .arg( MapWorkspace_WalkableSlope( pWorkspace ), 0, 'f', 0 ) );
 }
 
 map_visgroup_t MapWorkspace_VisgroupOf( const map_workspace_t *pWorkspace, const map_wire_object_t &object ) noexcept
@@ -1277,6 +1503,7 @@ map_visgroup_t MapWorkspace_VisgroupOf( const map_workspace_t *pWorkspace, const
             return object.kind == map_wire_kind_t::BRUSH ? map_visgroup_t::BRUSHES
                                                         : ( object.kind == map_wire_kind_t::MESH ? map_visgroup_t::MESHES : map_visgroup_t::PATCHES );
         case map_wire_kind_t::TERRAIN: return map_visgroup_t::TERRAIN;
+        case map_wire_kind_t::PREFAB: return map_visgroup_t::PREFABS;
         case map_wire_kind_t::ENTITY: break;
     }
     // Entities by class family, the naming convention every Source-style
@@ -1293,6 +1520,13 @@ map_visgroup_t MapWorkspace_VisgroupOf( const map_workspace_t *pWorkspace, const
 bool_t MapWorkspace_IsVisible( const map_workspace_t *pWorkspace, const map_wire_object_t &object ) noexcept
 {
     if ( EditorSelection_Count( &pWorkspace->hidden ) != 0u && EditorSelection_Contains( &pWorkspace->hidden, object.id ) ) { return CY_FALSE; }
+    if ( MapLayers_IsHidden( pWorkspace, object.iLayer ) ) { return CY_FALSE; }
+    if ( MapEntityLook_AnyClassHidden( pWorkspace ) ) {
+        // A hidden entity class takes the brushes its entities own with it.
+        const u64 entity = object.kind == map_wire_kind_t::ENTITY ? object.id : object.owner;
+        const map_wire_entity_t *pEntity = entity != 0u ? MapWireframe_FindEntity( pWorkspace->wire, entity ) : nullptr;
+        if ( pEntity != nullptr && MapEntityLook_IsClassHidden( pWorkspace, pEntity->className ) ) { return CY_FALSE; }
+    }
     if ( pWorkspace->bCordonActive && pWorkspace->cordon.bHas && object.bounds.bHas ) {
         // Touching the cordon is inside: a wall on its edge stays visible.
         const math::aabbd_t &c = pWorkspace->cordon.box;
@@ -1302,8 +1536,19 @@ bool_t MapWorkspace_IsVisible( const map_workspace_t *pWorkspace, const map_wire
             return CY_FALSE;
         }
     }
-    return pWorkspace->hiddenVisgroups == 0u ||
-           ( pWorkspace->hiddenVisgroups & ( 1u << static_cast<u32>( MapWorkspace_VisgroupOf( pWorkspace, object ) ) ) ) == 0u;
+    if ( pWorkspace->hiddenVisgroups == 0u ) { return CY_TRUE; }
+    const auto hidden = [pWorkspace]( const map_wire_object_t &o ) {
+        return ( pWorkspace->hiddenVisgroups & ( 1u << static_cast<u32>( MapWorkspace_VisgroupOf( pWorkspace, o ) ) ) ) != 0u;
+    };
+    if ( hidden( object ) ) { return CY_FALSE; }
+    // A brush entity's geometry also follows its entity's group, as in
+    // Hammer: hiding Triggers hides the trigger volumes, not just their
+    // origin markers.
+    if ( object.owner != 0u ) {
+        const map_wire_object_t *pOwner = MapWireframe_FindObject( pWorkspace->wire, object.owner );
+        if ( pOwner != nullptr && hidden( *pOwner ) ) { return CY_FALSE; }
+    }
+    return CY_TRUE;
 }
 
 void MapWorkspace_SetVisgroupHidden( map_workspace_t *pWorkspace, map_visgroup_t group, bool_t bHidden ) noexcept
@@ -1323,7 +1568,7 @@ bool_t MapWorkspace_IsVisgroupHidden( const map_workspace_t *pWorkspace, map_vis
 
 const char *MapWorkspace_VisgroupName( map_visgroup_t group ) noexcept
 {
-    constexpr const char *kNames[]{ "Brushes", "Meshes", "Patches", "Terrain", "Tied to entities", "Lights", "Info", "Triggers", "Props", "Other" };
+    constexpr const char *kNames[]{ "Brushes", "Meshes", "Patches", "Terrain", "Tied to entities", "Lights", "Info", "Triggers", "Props", "Other", "Prefab instances" };
     static_assert( std::size( kNames ) == static_cast<usize>( map_visgroup_t::COUNT ), "Visgroup names and enum diverged" );
     return group < map_visgroup_t::COUNT ? kNames[static_cast<usize>( group )] : "Unknown";
 }
@@ -1331,10 +1576,12 @@ const char *MapWorkspace_VisgroupName( map_visgroup_t group ) noexcept
 bool_t MapWorkspace_IsSelectableObject( const map_workspace_t *workspace, const map_wire_object_t &object ) noexcept
 {
     if ( workspace == nullptr || !MapWorkspace_IsVisible( workspace, object ) ) { return CY_FALSE; }
+    if ( MapLayers_IsLocked( workspace, object.iLayer ) ) { return CY_FALSE; } // TrenchBroom: a locked layer shows, nothing in it is picked.
     switch ( workspace->elementMode ) {
         case map_element_mode_t::VERTICES:
-        case map_element_mode_t::EDGES:
-        case map_element_mode_t::NAVIGATION: return CY_FALSE;
+        case map_element_mode_t::EDGES: return CY_FALSE;
+        // Navigation inspects the surfaces things walk on.
+        case map_element_mode_t::NAVIGATION: return object.kind != map_wire_kind_t::ENTITY;
         case map_element_mode_t::MESHES:
         case map_element_mode_t::FACES: return object.kind == map_wire_kind_t::BRUSH || object.kind == map_wire_kind_t::MESH;
         case map_element_mode_t::OBJECTS:
@@ -1364,13 +1611,29 @@ void MapWorkspace_SetTool( map_workspace_t *pWorkspace, map_tool_t tool ) noexce
 {
     CY_ASSERT( pWorkspace != nullptr && tool < map_tool_t::COUNT );
     if ( pWorkspace->tool == tool || !MapWorkspace_IsToolAvailable( tool ) ) { return; }
+    const auto mode = pWorkspace->elementMode;
+    if ( tool == map_tool_t::CLIP && ( mode == map_element_mode_t::VERTICES || mode == map_element_mode_t::EDGES || mode == map_element_mode_t::NAVIGATION ) ) {
+        // Clip cuts whole objects. Entered from a component mode (often right
+        // after pulling a mesh's vertices) it works on that mesh in Objects
+        // mode, instead of silently refusing every gesture.
+        const u64 mesh = pWorkspace->meshSelection.meshId.value;
+        MapWorkspace_SetElementMode( pWorkspace, map_element_mode_t::OBJECTS );
+        if ( mesh != 0u && !EditorSelection_Contains( &pWorkspace->selection, mesh ) ) { MapWorkspace_Select( pWorkspace, mesh, MAP_SELECT_REPLACE ); }
+    }
+    // A block drawn but not yet confirmed is created rather than lost when
+    // another tool is picked (Undo removes it).
+    if ( pWorkspace->tool == map_tool_t::BLOCK && MapWorkspace_HasBlockPreview( pWorkspace ) && MapWorkspace_CommitBlockPreview( pWorkspace ) ) {
+        MapNotice_Post( pWorkspace, map_notice_t::INFO, QStringLiteral( "Created the block you drew (Undo removes it)" ) );
+    }
     pWorkspace->tool = tool;
     MapWorkspace_Notify( pWorkspace, MAP_CHANGE_VIEW );
 }
 
 bool_t MapWorkspace_IsToolAvailable( map_tool_t tool ) noexcept
 {
-    return tool < map_tool_t::COUNT && kTools[static_cast<usize>( tool )].bAvailable;
+    // Gesture tools (CypherMapGui_ToolGestures) are available once their
+    // viewport input exists.
+    return tool < map_tool_t::COUNT && ( kTools[static_cast<usize>( tool )].bAvailable || MapToolGestures_Implements( tool ) );
 }
 
 const char *MapWorkspace_ToolName( map_tool_t tool ) noexcept
@@ -1470,7 +1733,8 @@ void MapWorkspace_Notify( map_workspace_t *pWorkspace, u32 changes ) noexcept
            pWorkspace->editPreview.mode != pWorkspace->elementMode || ( changes & MAP_CHANGE_SELECTION ) != 0 ||
            !MapWorkspace_PreviewVisibilityMatches( pWorkspace, pWorkspace->editPreview.visibility ) ||
            !( pWorkspace->editPreview.transform.kind == map_transform_preview_kind_t::TRANSLATE ?
-               MapWorkspace_CanMoveSelection( pWorkspace ) : MapWorkspace_CanEditSelection( pWorkspace ) ) ) ) {
+               MapWorkspace_CanMoveSelection( pWorkspace ) : pWorkspace->editPreview.transform.bResize ?
+               MapWorkspace_CanEditSelection( pWorkspace ) : MapWorkspace_CanTurnSelection( pWorkspace ) ) ) ) {
         // Every observer sees the same valid descriptor even when no pane owns
         // it (programmatic previews, hidden/removed selections, document edits).
         pWorkspace->editPreview = {};
@@ -1478,7 +1742,7 @@ void MapWorkspace_Notify( map_workspace_t *pWorkspace, u32 changes ) noexcept
         changes |= MAP_CHANGE_VIEW;
     }
     if ( pWorkspace->editPreview.bActive && pWorkspace->editPreview.bClip &&
-         ( pWorkspace->tool != map_tool_t::CLIP || !MapWorkspace_CanEditBrushSelection( pWorkspace ) ||
+         ( pWorkspace->tool != map_tool_t::CLIP || !MapWorkspace_CanClipSelection( pWorkspace ) ||
            pWorkspace->editPreview.selectionRevision != pWorkspace->selection.revision || pWorkspace->pDocument == nullptr ||
            pWorkspace->editPreview.documentRevision != pWorkspace->pDocument->geometry.revision ) ) {
         // Every observer must see the same valid presentation, including
@@ -1487,6 +1751,12 @@ void MapWorkspace_Notify( map_workspace_t *pWorkspace, u32 changes ) noexcept
         MapWireframe_Shutdown( &pWorkspace->editPreviewWire );
         changes |= MAP_CHANGE_VIEW;
     }
+    // Surface strokes can target unselected objects. Retire an invalid capture
+    // synchronously: hide/show without another mouse event must not revive it.
+    if ( ( changes & ( MAP_CHANGE_DOCUMENT | MAP_CHANGE_SELECTION | MAP_CHANGE_VIEW ) ) != 0 &&
+         MapToolGestures_ValidateCaptures( pWorkspace ) ) { changes |= MAP_CHANGE_VIEW; }
+    // The order things are picked in (Parent to Last Selected), before any listener reads it.
+    if ( ( changes & MAP_CHANGE_SELECTION ) != 0 ) { MapHierarchy_SelectionChanged( pWorkspace ); }
     // A listener may unsubscribe while being notified (a panel closing), so
     // walk a snapshot.
     map_listener_t snapshot[MAP_WORKSPACE_MAX_LISTENERS];
@@ -1535,8 +1805,10 @@ command_registry_status_t MapWorkspace_RegisterCommands( map_workspace_t *pWorks
           ToolExecute<map_tool_t::PATH>, ToolState<map_tool_t::PATH>, pWorkspace },
         { "map.tool.measure", "Measure Tool", "Measure distances and angles.", "tool-measure", nullptr, kTool,
           ToolExecute<map_tool_t::MEASURE>, ToolState<map_tool_t::MEASURE>, pWorkspace },
-        { "map.tool.terrain", "Terrain Tool", "Sculpt and paint terrain.", "tool-terrain", nullptr, kTool,
+        { "map.tool.terrain", "Terrain Tool", "Create a heightfield, then drag on it to raise, lower, smooth or flatten the ground.", "tool-terrain", nullptr, kTool,
           ToolExecute<map_tool_t::TERRAIN>, ToolState<map_tool_t::TERRAIN>, pWorkspace },
+        { "map.terrain.create", "Create Terrain...", "Open Terrain Tool Properties to choose an exact footprint and create a flat heightfield.", "tool-terrain", nullptr, 0u,
+          ToolExecute<map_tool_t::TERRAIN>, nullptr, pWorkspace },
         { "map.tool.patch", "Patch Tool", "Create and edit curved patches.", "tool-patch", nullptr, kTool,
           ToolExecute<map_tool_t::PATCH>, ToolState<map_tool_t::PATCH>, pWorkspace },
         { "map.tool.translate", "Translate", "Move the selection along the axes.", "tool-translate", nullptr, kTool,
@@ -1551,7 +1823,9 @@ command_registry_status_t MapWorkspace_RegisterCommands( map_workspace_t *pWorks
           ToolExecute<map_tool_t::POLYGON>, ToolState<map_tool_t::POLYGON>, pWorkspace },
         { "map.tool.mirror", "Mirror Tool", "Mirror the selection across a line you draw.", "tool-mirror", nullptr, kTool,
           ToolExecute<map_tool_t::MIRROR>, ToolState<map_tool_t::MIRROR>, pWorkspace },
-        { "map.tool.paint", "Paint Tool", "Paint blend materials on meshes and terrain.", "tool-paint", nullptr, kTool,
+        { "map.tool.shear", "Shear Tool", "Shear the selection by sliding a side of its bounds.", "tool-shear", nullptr, kTool,
+          ToolExecute<map_tool_t::SHEAR>, ToolState<map_tool_t::SHEAR>, pWorkspace },
+        { "map.tool.paint", "Vertex Paint", "Paint mesh corner colours. Brush conversion and painting publish together on release.", "tool-paint", nullptr, kTool,
           ToolExecute<map_tool_t::PAINT>, ToolState<map_tool_t::PAINT>, pWorkspace },
         { "map.select_mode.vertices", "Vertices", "Select authored mesh vertices by their persistent source IDs.", "select-vertices", nullptr, kTool,
           ElementModeExecute<map_element_mode_t::VERTICES>, ElementModeState<map_element_mode_t::VERTICES>, pWorkspace },
@@ -1565,7 +1839,7 @@ command_registry_status_t MapWorkspace_RegisterCommands( map_workspace_t *pWorks
           ElementModeExecute<map_element_mode_t::OBJECTS>, ElementModeState<map_element_mode_t::OBJECTS>, pWorkspace },
         { "map.select_mode.groups", "Groups", "Select whole groups.", "select-groups", nullptr, kTool,
           ElementModeExecute<map_element_mode_t::GROUPS>, ElementModeState<map_element_mode_t::GROUPS>, pWorkspace },
-        { "map.select_mode.navigation", "Navigation", "Select navigation mesh areas.", "select-navigation", nullptr, kTool,
+        { "map.select_mode.navigation", "Navigation", "Show where things can walk: faces within the walkable slope (Compile settings) are green, steeper ones red. Click an object to measure its walkable area.", "select-navigation", nullptr, kTool,
           ElementModeExecute<map_element_mode_t::NAVIGATION>, ElementModeState<map_element_mode_t::NAVIGATION>, pWorkspace },
         { "map.show.world", "Show World Geometry", "Show or hide brushes, meshes, and patches.", "filter-world", nullptr, COMMAND_FLAG_CHECKABLE,
           ShowToggle<kShowWorld>, ShowState<kShowWorld>, pWorkspace },
@@ -1618,10 +1892,12 @@ command_registry_status_t MapWorkspace_RegisterCommands( map_workspace_t *pWorks
           COMMAND_FLAG_NONE, SelectEdgeTopology<true>, EdgeTopologySelectionState, pWorkspace },
         { "map.select.ring", "Select Ring", "Add the authored edge ring through the active selected edge. Selection also works in read-only maps.", "select-ring", nullptr,
           COMMAND_FLAG_NONE, SelectEdgeTopology<false>, EdgeTopologySelectionState, pWorkspace },
-        { "map.mesh.extrude", "Extrude Mesh Face", "Extend one selected authored mesh face by the configured positive distance. The cap retains its face ID; side walls inherit source attributes.", "mesh-extrude", nullptr,
+        { "map.mesh.extrude", "Extrude Mesh Faces", "Extend one face or an edge-connected coplanar region by the configured positive distance. Caps retain their face IDs; only perimeter edges receive walls, inheriting adjacent face attributes.", "mesh-extrude", nullptr,
           COMMAND_FLAG_NONE, ExtrudeMeshFace, MeshFaceEditState, pWorkspace },
-        { "map.mesh.inset", "Inset Mesh Face", "Inset one selected authored mesh face by moving its corners toward the center. The inner face retains its face ID; this is a radial corner inset.", "mesh-inset", nullptr,
-          COMMAND_FLAG_NONE, InsetMeshFace, MeshFaceEditState, pWorkspace },
+        { "map.mesh.inset", "Corner Inset Mesh Face", "Select exactly one authored mesh face. Move its corners toward the center; the inner face retains its ID. This radial inset does not support face regions.", "mesh-inset", nullptr,
+          COMMAND_FLAG_NONE, InsetMeshFace, MeshFaceInsetState, pWorkspace },
+        { "map.mesh.inset_width", "Inset Face (Width)", "Inset exactly one planar convex mesh face by its perpendicular border width. The cap retains its ID. Concave/warped faces, collapsed offsets and face regions refuse.", "mesh-inset", nullptr,
+          COMMAND_FLAG_NONE, InsetMeshFaceByEdgeWidth, MeshFaceInsetState, pWorkspace },
         { "map.mesh.quad_slice", "Quad Slice Mesh Face", "Slice one selected four-corner mesh face into a U/V grid of editable quads. Neighboring faces receive shared edge vertices; UVs, materials and face ancestry are retained.", "mesh-subdivide", nullptr,
           COMMAND_FLAG_NONE, QuadSlice, QuadSliceState, pWorkspace },
         { "map.brush.to_mesh", "Convert to Mesh", "Convert selected brushes to their actual polygon meshes, retaining materials, UVs, root and face identity. Undo restores the brushes.", "brush-to-mesh", nullptr,
@@ -1630,8 +1906,8 @@ command_registry_status_t MapWorkspace_RegisterCommands( map_workspace_t *pWorks
           COMMAND_FLAG_NONE, FlipMeshNormals, MeshEditState, pWorkspace },
         { "map.mesh.triangulate", "Triangulate Meshes", "Split every polygon of the selected authored meshes into triangles, retaining materials, corner UVs and face ancestry. Already triangulated meshes add no undo step.", "mesh-triangulate", nullptr,
           COMMAND_FLAG_NONE, TriangulateMeshSelection, MeshTriangulationState, pWorkspace },
-        { "map.tool.apply_material", "Apply Current Material", "Apply the active material to the selected brush face.", "tool-apply-material", nullptr,
-          COMMAND_FLAG_NONE, ApplyFaceMaterial, FaceEditState, pWorkspace },
+        { "map.tool.apply_material", "Apply Current Material", "Apply the active material to the selected faces, or to every face of the selected brushes, meshes and patches.", "tool-apply-material", nullptr,
+          COMMAND_FLAG_NONE, ApplyFaceMaterial, ApplyMaterialState, pWorkspace },
         { "map.brush.hollow", "Hollow", "Replace selected convex brushes with walls at the configured thickness.", "csg-hollow", nullptr,
           COMMAND_FLAG_NONE, HollowSelection, BrushEditState, pWorkspace },
         { "map.brush.merge", "Merge", "Merge two visible brushes in the same layer and entity into their convex union. Retain the lowest-ID selected brush's name and custom properties, and exact source-face materials and UVs. Nonconvex unions are rejected.", "csg-merge", nullptr,
@@ -1647,7 +1923,7 @@ command_registry_status_t MapWorkspace_RegisterCommands( map_workspace_t *pWorks
           COMMAND_FLAG_NONE, SelectSameClass, HasEntitySelectedState, pWorkspace },
         { "map.tool.extrude", "Extrude Tool", "Push and pull faces along their normals.", "tool-extrude", nullptr, kTool,
           ToolExecute<map_tool_t::EXTRUDE>, ToolState<map_tool_t::EXTRUDE>, pWorkspace },
-        { "map.tool.knife", "Knife Tool", "Cut new edges across faces.", "tool-knife", nullptr, kTool,
+        { "map.tool.knife", "Knife Tool", "Click points on a mesh: the cut follows the straight line between them across every face it crosses, and an end inside a face runs on to that face's edge. Enter cuts.", "tool-knife", nullptr, kTool,
           ToolExecute<map_tool_t::KNIFE>, ToolState<map_tool_t::KNIFE>, pWorkspace },
         { "map.tool.loop_cut", "Loop Cut Tool", "Cut an edge loop around a mesh.", "tool-loop-cut", nullptr, kTool,
           ToolExecute<map_tool_t::LOOP_CUT>, ToolState<map_tool_t::LOOP_CUT>, pWorkspace },
@@ -1657,6 +1933,12 @@ command_registry_status_t MapWorkspace_RegisterCommands( map_workspace_t *pWorks
           ToolExecute<map_tool_t::WORKPLANE>, ToolState<map_tool_t::WORKPLANE>, pWorkspace },
         { "map.tool.curve", "Curve Tool", "Draw curves and sweep profiles along them.", "tool-curve", nullptr, kTool,
           ToolExecute<map_tool_t::CURVE>, ToolState<map_tool_t::CURVE>, pWorkspace },
+        { "map.tool.edge_cut", "Edge Cut Tool", "Click points on mesh edges; Confirm cuts across the faces between them.", "tool-knife", nullptr, kTool,
+          ToolExecute<map_tool_t::EDGE_CUT>, ToolState<map_tool_t::EDGE_CUT>, pWorkspace },
+        { "map.tool.edge_arc", "Edge Arc Tool", "Drag to bend the selected chain of mesh edges into an arc between its ends.", "tool-curve", nullptr, kTool,
+          ToolExecute<map_tool_t::EDGE_ARC>, ToolState<map_tool_t::EDGE_ARC>, pWorkspace },
+        { "map.tool.displace", "Displacement Tool", "Sculpt mesh surfaces with a brush: push and pull, smooth, flatten, inflate, pinch or roughen. Each stroke is one undo step.", "displacement", nullptr, kTool,
+          ToolExecute<map_tool_t::DISPLACE>, ToolState<map_tool_t::DISPLACE>, pWorkspace },
     };
     if ( const command_registry_status_t status = EditorCommands_Register( pRegistry, working, std::size( working ) );
          status != command_registry_status_t::OK ) {
@@ -1747,12 +2029,25 @@ command_registry_status_t MapWorkspace_RegisterCommands( map_workspace_t *pWorks
         { "map.stop", "Stop Game", "Stop the running game.", "map-stop" },
         { "map.leak.show", "Show Leak", "Show the path of the last leak.", "map-leak" },
     };
+    // Operations wired since they were listed register first (with their
+    // own descriptions); their placeholders are skipped.
+    if ( const command_registry_status_t status = MapGeometryCommands_Register( pWorkspace, pRegistry );
+         status != command_registry_status_t::OK ) {
+        return status;
+    }
     std::vector<command_desc_t> planned;
     planned.reserve( std::size( kPlanned ) );
     for ( const planned_t &entry : kPlanned ) {
+        if ( EditorCommands_Find( pRegistry, StringView_FromCString( entry.pId ) ) != nullptr ) { continue; }
         planned.push_back( { entry.pId, entry.pLabel, entry.pDescription, entry.pIcon, nullptr, COMMAND_FLAG_NONE, NotYetAvailable, NeverEnabled, pWorkspace } );
     }
     return EditorCommands_Register( pRegistry, planned.data(), planned.size() );
+}
+
+bool MapWorkspace_IsPlannedCommand( const command_registry_t *pRegistry, string_view_t id ) noexcept
+{
+    const command_desc_t *pCommand = pRegistry != nullptr ? EditorCommands_Find( pRegistry, id ) : nullptr;
+    return pCommand != nullptr && pCommand->pfnExecute == &NotYetAvailable;
 }
 
 } // namespace cypher::editor::map

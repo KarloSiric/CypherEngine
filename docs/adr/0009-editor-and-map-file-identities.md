@@ -41,7 +41,7 @@ documented alias of `.cfg`, the command/CVar script family. TileEditor writes
 | `.cykeymap` | `cypher.editor_keymap` V2 | EditorCore | Every editor shortcut: key chords, held keys, and mouse gestures per editor context |
 | `.cylayout` | `cypher.layout` V2 | EditorCore | Named window arrangements: docks, toolbars, viewport grid, panel state |
 | `.cyfont` | `cypher.font` V2 | CypherCommon Tier2 | Font family shared by editor and runtime: faces, rendering, glyph coverage, fallbacks |
-| `.cymapchunk` | `cypher.map_chunk` V10 | Map workspace | One layer's objects in one cell of a map ([ADR 0011](0011-map-source-format.md)) |
+| `.cymapchunk` | `cypher.map_chunk` V10 | retired | One layer's objects in one cell of a V10 map; retired with V11 ([ADR 0012](0012-single-file-maps.md)) |
 | `.cygame` | `cypher.game` V1 | EditorCore | A game profile: entity class definitions, game map settings, editor defaults |
 | `.cyprefab` | `cypher.prefab` V1 | Map workspace | A reusable piece of a level: the object sections of a chunk in its own ID space, with overridable parameters ([CYMAP.md](../formats/CYMAP.md) 6.12) |
 | `.cyplugin` | `cypher.plugin` V1 | EditorCore | Python editor plugin manifest |
@@ -99,6 +99,9 @@ game's maps. When a game's definitions change, the map keeps values it no
 longer recognises and reports them rather than dropping them.
 
 ### The full map is chunked
+
+> Superseded by [ADR 0012](0012-single-file-maps.md): since `cypher.map` V11
+> a map is one file, read with the map's own parser bounds. Kept as history.
 
 A large map cannot be one text document: the CYKV parser's default policy
 bounds a document at 64 MiB and about one million values, a single file loads

@@ -5,7 +5,7 @@
 //
 //  File: CypherMap_Geometry.h
 //  Purpose: Declares the map's readable geometry codec: brushes, meshes,
-//           patches, and terrains as written in `.cymapchunk` files
+//           patches, and terrains as written in `.cymap` files
 //           (CYMAP.md section 6), converted to and from the geometry
 //           library's in-memory objects, plus the map's material table.
 //  Details: The map owns its file representation. The geometry library's
@@ -63,7 +63,7 @@ enum class map_geometry_kind_t : common::u8 {
     COUNT
 };
 
-// Chunk section name of each kind: "brushes", "meshes", "patches", "terrains".
+// Layer section name of each kind: "brushes", "meshes", "patches", "terrains".
 CYPHER_NODISCARD const char *MapGeometry_SectionName( map_geometry_kind_t kind ) noexcept;
 
 // The member that carries a kind's geometry ("faces", "vertices", "controls",
@@ -186,9 +186,9 @@ CYPHER_NODISCARD common::bool_t MapGeometry_MergeResidual(
 ================
 Bounds
 
-Computed separately from writing because placement needs every object's
-position before it knows which chunk the object is written to. bHas is
-false when an object has none (a degenerate brush).
+Computed separately from writing because the layer summaries (`info`) need
+every object's bounds before the layer is written. bHas is false when an
+object has none (a degenerate brush).
 ================
 */
 struct map_bounds_t {

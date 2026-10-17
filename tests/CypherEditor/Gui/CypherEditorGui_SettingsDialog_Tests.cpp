@@ -96,7 +96,7 @@ TEST_CASE( "The retired 2D selection border leaves no setting row and perspectiv
     fixture_t f;
     EditorSettingsDialog_ShowPage( f.pDialog, QStringLiteral( "Viewports/2D Display" ) );
     const QStringList display2d = EditorSettingsDialog_VisibleSettings( f.pDialog );
-    CHECK( display2d.size() == 11 );
+    CHECK( display2d.size() == 10 ); // Without the retired selection vertex cues.
     CHECK_FALSE( display2d.contains( QStringLiteral( "editor.viewport.show_selection_bounds" ) ) );
     CHECK( EditorSettingsDialog_EditorFor( f.pDialog, QStringLiteral( "editor.viewport.show_selection_bounds" ) ) == nullptr );
     CHECK( display2d.contains( QStringLiteral( "editor.viewport.show_selection_dimensions" ) ) );

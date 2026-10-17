@@ -133,14 +133,14 @@ TEST_CASE( "Entity property edits resolve multiple owners once and retain select
 TEST_CASE( "Entity keys survive save undo redo without losing a selected trigger face", "[map][gui][entity-edit][persistence][face]" )
 {
     session_t session; auto &ws = session.workspace;
-    MapWorkspace_SelectBrushFace( &ws, 111, 1310 );
+    MapWorkspace_SelectBrushFace( &ws, 111, 1350 );
     REQUIRE( MapWorkspace_HasBrushFace( &ws ) );
     const auto geometryRevision = ws.pDocument->geometry.revision;
     value_t script( key_value_type_t::STRING );
     REQUIRE( KeyValue_SetString( script.document, script.Node(), Text( "scripts/waves/start_wave.cy" ) ) );
     REQUIRE( MapWorkspace_SetEntityProperty( &ws, Text( "script" ), script.Node() ) );
     CheckString( ws.pDocument, 110, "script", "scripts/waves/start_wave.cy" );
-    CHECK( ws.selectedBrushFaceObject == 111 ); CHECK( ws.selectedBrushFaceSide == 1310 );
+    CHECK( ws.selectedBrushFaceObject == 111 ); CHECK( ws.selectedBrushFaceSide == 1350 );
     CHECK( ws.pDocument->geometry.revision == geometryRevision );
     CHECK( MapWireframe_FindObject( ws.wire, 111 )->owner == 110 );
     QTemporaryDir folder;
@@ -156,12 +156,12 @@ TEST_CASE( "Entity keys survive save undo redo without losing a selected trigger
     REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
     CHECK( Property( ws.pDocument, 110, "script" ) == nullptr );
     const u64 expected[]{ 111 }; CheckSelection( ws, { expected, 1 } );
-    CHECK( ws.selectedBrushFaceObject == 111 ); CHECK( ws.selectedBrushFaceSide == 1310 );
+    CHECK( ws.selectedBrushFaceObject == 111 ); CHECK( ws.selectedBrushFaceSide == 1350 );
     CHECK( MapWorkspace_IsModified( &ws ) );
     REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
     CheckString( ws.pDocument, 110, "script", "scripts/waves/start_wave.cy" );
     CheckSelection( ws, { expected, 1 } );
-    CHECK( ws.selectedBrushFaceObject == 111 ); CHECK( ws.selectedBrushFaceSide == 1310 );
+    CHECK( ws.selectedBrushFaceObject == 111 ); CHECK( ws.selectedBrushFaceSide == 1350 );
     CHECK_FALSE( MapWorkspace_IsModified( &ws ) );
 }
 
@@ -196,7 +196,7 @@ TEST_CASE( "Light and logic identity edits refresh wire metadata while keeping t
 TEST_CASE( "Rejected entity metadata edits keep live state and history unchanged", "[map][gui][entity-edit][atomic]" )
 {
     session_t session; auto &ws = session.workspace;
-    MapWorkspace_SelectBrushFace( &ws, 111, 1310 );
+    MapWorkspace_SelectBrushFace( &ws, 111, 1350 );
     const auto *document = ws.pDocument;
     const auto *points = ws.wire.points.pData;
     const auto *selection = ws.selection.ids.pData;
@@ -208,7 +208,7 @@ TEST_CASE( "Rejected entity metadata edits keep live state and history unchanged
     CHECK_FALSE( MapWorkspace_SetEntityProperty( &ws, Text( "filter" ), nullptr ) );
     CHECK( ws.pDocument == document ); CHECK( ws.wire.points.pData == points );
     CHECK( ws.selection.ids.pData == selection ); CHECK( ws.selection.revision == selectionRevision );
-    CHECK( ws.selectedBrushFaceObject == 111 ); CHECK( ws.selectedBrushFaceSide == 1310 );
+    CHECK( ws.selectedBrushFaceObject == 111 ); CHECK( ws.selectedBrushFaceSide == 1350 );
     CHECK( EditorHistory_StepCount( &ws.history ) == 0 );
     CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
 
@@ -242,7 +242,7 @@ TEST_CASE( "Entity edit allocation failures cannot publish partial keys selectio
     usize successfulCalls = 0;
     {
         session_t session( &allocator ); auto &ws = session.workspace;
-        MapWorkspace_SelectBrushFace( &ws, 111, 1310 );
+        MapWorkspace_SelectBrushFace( &ws, 111, 1350 );
         audit.calls = 0;
         REQUIRE( MapWorkspace_SetEntityProperty( &ws, Text( "script" ), script.Node() ) );
         successfulCalls = audit.calls;
@@ -253,7 +253,7 @@ TEST_CASE( "Entity edit allocation failures cannot publish partial keys selectio
         CAPTURE( failOn ); audit.failOn = 0;
         {
             session_t session( &allocator ); auto &ws = session.workspace;
-            MapWorkspace_SelectBrushFace( &ws, 111, 1310 );
+            MapWorkspace_SelectBrushFace( &ws, 111, 1350 );
             const auto *document = ws.pDocument;
             const auto *points = ws.wire.points.pData;
             const auto *selection = ws.selection.ids.pData;
@@ -267,7 +267,7 @@ TEST_CASE( "Entity edit allocation failures cannot publish partial keys selectio
             CHECK( ws.pDocument == document ); CHECK( ws.wire.points.pData == points );
             CHECK( ws.selection.ids.pData == selection ); CHECK( ws.selection.revision == selectionRevision );
             CHECK( ws.pDocument->geometry.revision == geometryRevision );
-            CHECK( ws.selectedBrushFaceObject == 111 ); CHECK( ws.selectedBrushFaceSide == 1310 );
+            CHECK( ws.selectedBrushFaceObject == 111 ); CHECK( ws.selectedBrushFaceSide == 1350 );
             CHECK( Property( ws.pDocument, 110, "script" ) == nullptr );
             CHECK( EditorHistory_StepCount( &ws.history ) == 0 );
             CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );

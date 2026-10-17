@@ -54,6 +54,8 @@ inline constexpr common::f64 MAP_GRID_MIN = 1.0;
 inline constexpr common::f64 MAP_GRID_MAX = 4096.0;   // editor.grid.size's limit (CYSETTINGS.md 4.5).
 inline constexpr common::f64 MAP_GRID_DEFAULT = 16.0;  // editor.grid.size's default.
 inline constexpr common::usize MAP_WORKSPACE_MAX_LISTENERS = 32u;
+inline constexpr common::u32 MAP_TERRAIN_TILE_CELLS = 8u;
+inline constexpr common::u32 MAP_TERRAIN_MAX_CELLS = 128u;
 
 enum class map_tool_t : common::u8 {
     SELECT = 0u,
@@ -82,6 +84,10 @@ enum class map_tool_t : common::u8 {
     EYEDROPPER, // Pick a surface's material.
     WORKPLANE,
     CURVE,      // Curve networks and sweeps.
+    EDGE_CUT,   // Cut across faces between clicked edge points.
+    EDGE_ARC,   // Bend a selected edge chain into an arc.
+    DISPLACE,   // Sculpt mesh surfaces with a brush (Hammer 5's Paint Displacement).
+    SHEAR,      // Slide a side of the selection's bounds (TrenchBroom's Shear tool).
     NONE,       // Navigation only; retain inspection context without an editing tool.
     COUNT
 };
@@ -113,6 +119,7 @@ enum class map_visgroup_t : common::u8 {
     TRIGGERS,
     PROPS,
     OTHER_ENTITIES,
+    PREFABS,        // Prefab instances.
     COUNT
 };
 
@@ -124,7 +131,8 @@ enum map_change_flags_t : common::u32 {
     MAP_CHANGE_TITLE = 1u << 3u,     // Path or modified flag.
     MAP_CHANGE_CURSOR = 1u << 4u,    // Cursor position under a 2D view.
     MAP_CHANGE_FRAME = 1u << 5u,     // Views should frame frameBounds.
-    MAP_CHANGE_HISTORY = 1u << 6u    // An edit, undo, redo, or save changed the history.
+    MAP_CHANGE_HISTORY = 1u << 6u,   // An edit, undo, redo, or save changed the history.
+    MAP_CHANGE_SHUTDOWN = 1u << 7u   // Sent alone, once, as the workspace shuts down: drop every pointer to it.
 };
 
 enum class map_frame_target_t : common::u8 { ALL = 0u, ORTHOGRAPHIC, PERSPECTIVE };
@@ -181,6 +189,7 @@ struct map_edit_preview_t {
     common::bool_t bClip{ common::CY_FALSE };
     math::planed_t clipPlane{};
     map_brush_clip_mode_t clipMode{ map_brush_clip_mode_t::BOTH };
+    common::bool_t bClipCap{ common::CY_TRUE }; // Mesh cuts closed (Hammer's "Cap new surfaces").
     char clipMaterial[MAP_MATERIAL_PATH_MAX + 1]{};
     common::u64 documentRevision{}, selectionRevision{};
     map_clip_guide_t clipGuide{};
@@ -204,6 +213,16 @@ struct map_edit_preview_t {
 // asset browser). A null image means none: the panel draws a stand-in.
 using map_material_image_fn = QImage ( * )( void *pContext, const QString &path );
 
+// How the most recent document edit ended, so a command that "failed" can
+// say whether it found nothing to change or could not apply. serial counts
+// edit attempts: a caller compares it with the value it saw last.
+enum class map_edit_outcome_t : common::u8 { NONE = 0u, APPLIED, UNCHANGED, FAILED };
+struct map_edit_report_t {
+    map_edit_outcome_t outcome{ map_edit_outcome_t::NONE };
+    map_status_t status{ map_status_t::OK };
+    common::u64 serial{ 0u };
+};
+
 struct map_workspace_t {
     map_workspace_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( map_workspace_t );
@@ -216,7 +235,6 @@ struct map_workspace_t {
     editor_selection_t hidden{};               // Objects hidden for the session (H, Shift+H; U shows them).
     editor_history_t history{};                // Undo history of the open map; cleared on New and Open.
     QString path{};                            // Root file; empty while untitled.
-    QHash<QString, QStringList> persistedChunksByRoot{}; // Disk inventory; never restored by geometry history.
     common::f64 gridSize{ MAP_GRID_DEFAULT };
     map_tool_t tool{ map_tool_t::SELECT };
     map_element_mode_t elementMode{ map_element_mode_t::OBJECTS };
@@ -228,6 +246,7 @@ struct map_workspace_t {
     common::f64 lastAngleSnap{ 15.0 };                // Restore the last positive step when toggling on.
     common::f64 lastScaleSnap{ 0.25 };
     common::u32 hiddenVisgroups{ 0u };                // Bit n hides map_visgroup_t n in every view.
+    map_edit_report_t lastEdit{};                     // See map_edit_outcome_t.
     math::vec3d_t cursor{};                    // World position under the last hovered 2D view.
     common::u32 cursorAxes{ 0u };              // Bit n: axis n of cursor is meaningful.
     map_bounds_t frameBounds{};                // Target of the last MAP_CHANGE_FRAME.
@@ -246,10 +265,21 @@ struct map_workspace_t {
     // Root selection remains separate; no live pool handle escapes picking.
     common::u64 selectedMeshFaceObject{ 0u };
     common::u64 selectedMeshFaceId{ 0u };
+    // Faces mode's further faces of the same mesh (Shift+click, face
+    // queries), sorted, including the active face above. It counts only
+    // while it holds the active face of meshFaceSetObject; replacing or
+    // clearing the active face leaves it stale, so it never outlives it.
+    common::vector_t<common::u64> meshFaceSet{};
+    common::u64 meshFaceSetObject{ 0u };
     // One authored mesh's vertices or edges, addressed only by persistent IDs.
     // Component modes never mix; edges use canonical endpoint pairs.
     geometry::mesh_selection_t meshSelection{};
     geometry::mesh_edge_ref_t selectedMeshEdgeSeed{};
+    // Only the exact selection made in an orthographic pane has column
+    // semantics. Any other selection/document publication invalidates this
+    // revision stamp without needing to persist view state in the map.
+    int meshVertexColumnAxis{ -1 };
+    common::u64 meshVertexColumnRevision{ 0 };
 };
 
 // Starts a session with a new untitled map.
@@ -279,6 +309,11 @@ CYPHER_NODISCARD editor_history_status_t MapWorkspace_Redo( map_workspace_t *pWo
 // redo): optionally rebuilds the wireframe, drops selected IDs that no longer
 // exist, and notifies. Use false only after publishing a prebuilt wireframe.
 void MapWorkspace_DocumentChanged( map_workspace_t *pWorkspace, bool rebuildWire = true ) noexcept;
+// What the live wireframe gets beyond the document's own objects, once it
+// has been rebuilt from the document: prefab instances (read from their
+// files) and entity boxes and colours from the game profile. Every rebuild
+// of the live wireframe calls this.
+void MapWorkspace_WireRebuilt( map_workspace_t *pWorkspace ) noexcept;
 
 // Entity metadata editing resolves selected entities and tied geometry to
 // distinct owning entities. A private document is published with one undo
@@ -298,9 +333,20 @@ CYPHER_NODISCARD bool MapWorkspace_SetEntityIdentityField(
 // Authored geometry editing. A complete private document is validated before
 // publication; each call records one undo step. Failed operations leave the
 // live document and selection intact. Euler rotation is in world degrees.
+// Check the operation's actual targets. Hierarchy expansion matches Core
+// move/rotate/scale/delete/duplicate; failure to collect targets fails closed.
+// No notifications or selection changes. This does not validate geometry.
+CYPHER_NODISCARD bool MapWorkspace_AreEditTargetsUnlocked( const map_workspace_t *pWorkspace,
+    common::span_t<const common::u64> ids, bool expandHierarchy = false ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_CanEditSelection( const map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_CanMoveSelection( const map_workspace_t *pWorkspace ) noexcept;
+// Rotate and Scale: what Edit allows, plus point entities and prefab
+// instances, which turn with the selection (their angles) and move with a
+// scale (their origin) - Hammer turns a light with the room it is in.
+CYPHER_NODISCARD bool MapWorkspace_CanTurnSelection( const map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_CanEditBrushSelection( const map_workspace_t *pWorkspace ) noexcept;
+// Every selected object is a brush or a mesh: what the Clip tool cuts.
+CYPHER_NODISCARD bool MapWorkspace_CanClipSelection( const map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_CanMergeBrushSelection( const map_workspace_t *pWorkspace ) noexcept;
 // Whole-object mesh operations reject component modes and active previews.
 // Conversion keeps the selected roots; mesh edits address authored topology.
@@ -309,6 +355,11 @@ CYPHER_NODISCARD bool MapWorkspace_CanEditMeshSelection( const map_workspace_t *
 // All-triangle selections have no productive triangulation operation.
 CYPHER_NODISCARD bool MapWorkspace_CanTriangulateMeshSelection( const map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_ConvertBrushSelection( map_workspace_t *pWorkspace ) noexcept;
+// Hammer 5 blocks are meshes. With editor.map.components_convert_brushes, a
+// visible brush clicked in Vertices or Edges mode (Selection tool) becomes a
+// mesh in one undo step, selected, so the click can pick its component. False
+// when the setting is off, the object is not a brush, or nothing can be edited.
+CYPHER_NODISCARD bool MapWorkspace_ConvertBrushForComponents( map_workspace_t *pWorkspace, common::u64 brushId ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_FlipMeshNormals( map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_TriangulateMeshSelection( map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_CreateBox( map_workspace_t *pWorkspace, const map_bounds_t &bounds ) noexcept;
@@ -319,6 +370,17 @@ CYPHER_NODISCARD bool MapWorkspace_CreatePrimitive( map_workspace_t *pWorkspace,
 // Commits the descriptor shown by a successful construction preview, even if
 // creation defaults have changed since the last pointer movement.
 CYPHER_NODISCARD bool MapWorkspace_CreatePrimitive( map_workspace_t *pWorkspace, const map_primitive_desc_t &primitive ) noexcept;
+// Exact flat XY heightfield creation. Cell counts must be multiples of the
+// fixed tile size; no footprint rounding or material assignment is implied.
+struct map_terrain_create_desc_t {
+    math::vec3d_t origin{};
+    common::f64 cellSize{ 64.0 };
+    common::u32 cellsX{ 8u }, cellsY{ 8u };
+};
+CYPHER_NODISCARD bool MapWorkspace_CanCreateTerrain( const map_workspace_t *pWorkspace, const map_terrain_create_desc_t &desc ) noexcept;
+// Prepares geometry, placement, wireframe, selection and history privately;
+// failure preserves the live document, its IDs, selection and undo state.
+CYPHER_NODISCARD bool MapWorkspace_CreateTerrain( map_workspace_t *pWorkspace, const map_terrain_create_desc_t &desc ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_TranslateSelection( map_workspace_t *pWorkspace, math::vec3d_t delta, bool clone = false ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_ResizeSelection( map_workspace_t *pWorkspace, math::vec3d_t sides, math::vec3d_t delta, bool fromCenter ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_ScaleSelection( map_workspace_t *pWorkspace, math::vec3d_t factors, math::vec3d_t pivot ) noexcept;
@@ -335,11 +397,28 @@ CYPHER_NODISCARD bool MapWorkspace_CutSelection( map_workspace_t *pWorkspace ) n
 // Normal paste follows editor.map.paste_offset. In-place preserves coordinates.
 CYPHER_NODISCARD bool MapWorkspace_Paste( map_workspace_t *pWorkspace, bool inPlace = false ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_HasBrushFace( const map_workspace_t *pWorkspace ) noexcept;
+// Face picks retain the active tool. Root/face publication is atomic on OOM.
 void MapWorkspace_SelectBrushFace( map_workspace_t *pWorkspace, common::u64 object, common::u64 side ) noexcept;
 void MapWorkspace_ClearBrushFace( map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_HasMeshFace( const map_workspace_t *pWorkspace ) noexcept;
 void MapWorkspace_SelectMeshFace( map_workspace_t *pWorkspace, common::u64 object, common::u64 face ) noexcept;
 void MapWorkspace_ClearMeshFace( map_workspace_t *pWorkspace ) noexcept;
+// The selected mesh faces: the face set when it holds the active face, else
+// the active face alone, else empty. Borrowed until the selection changes.
+CYPHER_NODISCARD common::span_t<const common::u64> MapWorkspace_MeshFaces( const map_workspace_t *pWorkspace ) noexcept;
+CYPHER_NODISCARD bool MapWorkspace_IsMeshFaceSelected( const map_workspace_t *pWorkspace, common::u64 object, common::u64 face ) noexcept;
+// Adds a face of the active face's mesh and makes it active. False preserves
+// the complete selection. Adding the active face is an allocation-free no-op.
+CYPHER_NODISCARD bool MapWorkspace_AddMeshFace( map_workspace_t *pWorkspace, common::u64 object, common::u64 face ) noexcept;
+// Ctrl+click: removes a selected face; another becomes active, and removing
+// the last clears the face selection.
+CYPHER_NODISCARD bool MapWorkspace_RemoveMeshFace( map_workspace_t *pWorkspace, common::u64 object, common::u64 face ) noexcept;
+// Replaces the face selection with faces of one visible mesh (each must
+// exist); `active` (one of them) becomes the active face. Accepts duplicate IDs
+// and a borrowed MeshFaces span. Allocation/validation failure publishes nothing;
+// an actual change publishes the root, canonical set and active face once.
+CYPHER_NODISCARD bool MapWorkspace_SetMeshFaces( map_workspace_t *pWorkspace, common::u64 object,
+    common::span_t<const common::u64> faces, common::u64 active ) noexcept;
 // Selection only: read-only maps are supported. Add/toggle cannot span meshes.
 // Preparing both component and root sets before publication keeps OOM atomic.
 CYPHER_NODISCARD bool MapWorkspace_HasMeshVertices( const map_workspace_t *pWorkspace ) noexcept;
@@ -350,12 +429,26 @@ CYPHER_NODISCARD bool MapWorkspace_HasMeshEdges( const map_workspace_t *pWorkspa
 CYPHER_NODISCARD bool MapWorkspace_SelectMeshEdge( map_workspace_t *pWorkspace, common::u64 object,
     geometry::mesh_edge_ref_t edge, map_select_mode_t mode = MAP_SELECT_REPLACE ) noexcept;
 void MapWorkspace_ClearMeshEdges( map_workspace_t *pWorkspace ) noexcept;
+// Replaces the component selection with these vertices (Vertices mode) or
+// edges (Edges mode) of one visible mesh in one publication; every ID must
+// resolve. With the Select tool, a transform tool or Edge Arc (which keep
+// what they moved selected). False leaves the selection unchanged.
+CYPHER_NODISCARD bool MapWorkspace_SetMeshComponents( map_workspace_t *pWorkspace, common::u64 object,
+    common::span_t<const geometry::geometry_source_id_t> vertices, common::span_t<const geometry::mesh_edge_ref_t> edges ) noexcept;
+// Adopt a component set prepared on an edit's private document. Its single
+// mesh root must already be selected; no allocation or history change occurs.
+// Input must be canonical/sorted/unique, as built by MeshSelection helpers.
+// On success ownership moves out of pPrepared; invalid input is unchanged.
+CYPHER_NODISCARD bool MapWorkspace_RestorePreparedMeshComponents( map_workspace_t *pWorkspace,
+    geometry::mesh_selection_t *pPrepared ) noexcept;
+
 CYPHER_NODISCARD bool MapWorkspace_CanSelectMeshEdgeTopology( const map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_SelectMeshEdgeLoop( map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_SelectMeshEdgeRing( map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_CanEditMeshFace( const map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_ExtrudeMeshFace( map_workspace_t *pWorkspace, common::f64 distance ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_InsetMeshFace( map_workspace_t *pWorkspace, common::f64 margin ) noexcept;
+CYPHER_NODISCARD bool MapWorkspace_InsetMeshFaceByEdgeWidth( map_workspace_t *pWorkspace, common::f64 width ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_CanQuadSliceMeshFace( const map_workspace_t *pWorkspace, common::u32 cellsU, common::u32 cellsV ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_QuadSliceMeshFace( map_workspace_t *pWorkspace, common::u32 cellsU, common::u32 cellsV ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_PushPullFace( map_workspace_t *pWorkspace, common::f64 distance ) noexcept;
@@ -432,6 +525,14 @@ void MapWorkspace_SetTextureLock( map_workspace_t *pWorkspace, common::bool_t bL
 
 void MapWorkspace_SetElementMode( map_workspace_t *pWorkspace, map_element_mode_t mode ) noexcept;
 
+// Navigation mode: which faces are floor, by the navigation cook's rule (a
+// normal within the walkable slope, editor.map.compile_walkable_slope, of up).
+enum class map_walkable_t : common::u8 { NOT_FLOOR = 0u, WALKABLE, TOO_STEEP };
+CYPHER_NODISCARD common::f64 MapWorkspace_WalkableSlope( const map_workspace_t *pWorkspace ) noexcept;
+CYPHER_NODISCARD map_walkable_t MapWorkspace_FaceWalkable( const map_workspace_t *pWorkspace, const map_wire_face_t &face ) noexcept;
+// Posts the walkable faces, area and steepest slope of the selection (or of
+// the whole map when nothing is selected).
+void MapWorkspace_NavigationReport( const map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD map_visgroup_t MapWorkspace_VisgroupOf( const map_workspace_t *pWorkspace, const map_wire_object_t &object ) noexcept;
 // Views draw and pick only visible objects.
 CYPHER_NODISCARD common::bool_t MapWorkspace_IsVisible( const map_workspace_t *pWorkspace, const map_wire_object_t &object ) noexcept;
@@ -473,6 +574,36 @@ CYPHER_NODISCARD common::bool_t MapWorkspace_IsCordonActive( const map_workspace
 void MapWorkspace_SetMaterialImages( map_workspace_t *pWorkspace, map_material_image_fn pfnImage, void *pContext ) noexcept;
 // The image for a material path; null without a source or an image.
 CYPHER_NODISCARD QImage MapWorkspace_MaterialImage( const map_workspace_t *pWorkspace, const QString &path );
+
+// Publishes one validated edit of a private document copy as one undo step,
+// for operation modules outside this file (CypherMapGui_GeometryCommands).
+// pfnApply edits pCopy and fills pSelectionOut with the roots to select
+// afterwards; any status but OK, or an edit that leaves the geometry revision
+// unchanged, discards the copy and returns false. Valid current components
+// survive publication and are owned by the before/after history snapshots.
+using map_document_edit_fn = map_status_t ( * )( void *pContext, map_document_t *pCopy, common::vector_t<common::u64> *pSelectionOut );
+// Optional resulting vertex/edge selection, borrowed until ApplyEdit returns.
+// The callback may populate this set from newly created persistent IDs. It is
+// validated against the completed candidate and copied before history or live
+// state changes; invalid input or allocation failure refuses the entire edit.
+// The set must be canonical, match the current component mode and name the
+// sole selected root. A zero mesh ID with empty sets explicitly clears it.
+struct map_prepared_component_selection_t {
+    const geometry::mesh_selection_t *pMeshSelection{ nullptr };
+    geometry::mesh_edge_ref_t edgeSeed{};
+    int vertexColumnAxis{ -1 };
+};
+CYPHER_NODISCARD bool MapWorkspace_ApplyEdit( map_workspace_t *pWorkspace, const char *pLabel, map_document_edit_fn pfnApply,
+    void *pContext, const map_prepared_component_selection_t *pPreparedSelection = nullptr ) noexcept;
+// The same for edits that change authored records but not geometry (adding
+// entities, setting their keys): pfnApply sets *pChanged when it changed
+// something, and only then is the step published.
+using map_metadata_edit_fn = map_status_t ( * )( void *pContext, map_document_t *pCopy, common::vector_t<common::u64> *pSelectionOut, bool *pChanged );
+CYPHER_NODISCARD bool MapWorkspace_ApplyMetadataEdit( map_workspace_t *pWorkspace, const char *pLabel, map_metadata_edit_fn pfnApply, void *pContext ) noexcept;
+
+// True for a command the workspace lists as a placeholder: registered for
+// menus and keymaps, with no operation behind it yet.
+CYPHER_NODISCARD bool MapWorkspace_IsPlannedCommand( const command_registry_t *pRegistry, common::string_view_t id ) noexcept;
 
 // Registers the `map.*` commands with pWorkspace as their context.
 CYPHER_NODISCARD command_registry_status_t MapWorkspace_RegisterCommands( map_workspace_t *pWorkspace, command_registry_t *pRegistry ) noexcept;

@@ -1,0 +1,152 @@
+@cykv 1
+@schema "cypher.game" 1
+{
+    id = "reap"
+    name = "REAP"
+    version = 3u
+    units_per_meter = 39.37
+
+    editor = {
+        default_point_class = "info_player_start"
+        default_solid_class = "func_detail"
+        categories = [ "Info", "Waves", "Enemies", "Lights", "Triggers", "Doors", "Props", "Logic" ]
+        sprites = "materials/editor/sprites"
+    }
+
+    map_settings = [
+        { key = "wave_count" type = "integer" default = 10 min = 1 max = 100 label = "Waves" group = "Waves" },
+        { key = "wave_intermission" type = "real" default = 8.0 min = 0.0 max = 120.0 unit = "seconds" label = "Intermission" group = "Waves" },
+        { key = "difficulty" type = "choice" default = "normal" choices = [ "easy", "normal", "hard", "nightmare" ] }
+    ]
+
+    classes = [
+        {
+            name = "targetable"
+            kind = "abstract"
+            properties = [
+                { key = "start_disabled" type = "bool" default = false label = "Start Disabled" group = "Logic" }
+            ]
+            inputs = [ { name = "enable" }, { name = "disable" }, { name = "toggle" } ]
+        },
+        {
+            name = "info_player_start"
+            kind = "point"
+            label = "Player Start"
+            category = "Info"
+            description = "Where a player spawns at the start of the match."
+            editor = { size = [ -16, -16, 0, 16, 16, 72 ] color = "#40c040" model = "models/player/reaper.cymodel" helpers = [ { type = "arrow" } ] }
+            properties = [
+                { key = "team" type = "choice" default = "any" choices = [ "any", "red", "blue" ] label = "Team" },
+                { key = "priority" type = "integer" default = 0 min = 0 max = 100 label = "Priority" description = "Higher starts are used first." }
+            ]
+            outputs = [ { name = "on_spawn" description = "A player spawned here." } ]
+        },
+        {
+            name = "info_wave_start"
+            kind = "point"
+            base = [ "targetable" ]
+            label = "Wave Start"
+            category = "Waves"
+            description = "Begins a wave: enables its spawn group and starts the countdown."
+            editor = { size = [ -24, -24, -24, 24, 24, 24 ] color = "#e05050" icon = "materials/editor/sprites/wave.cymat" }
+            properties = [
+                { key = "wave" type = "integer" default = 1 min = 1 max = 100 label = "Wave" },
+                { key = "spawn_group" type = "string" default = "" label = "Spawn Group" description = "Enemy spawns with this group name activate." },
+                { key = "delay" type = "real" default = 0.0 min = 0.0 max = 600.0 unit = "seconds" label = "Delay" },
+                { key = "announce" type = "asset" default = "" extensions = [ ".cysnd" ] label = "Announcer Line" }
+            ]
+            inputs = [ { name = "start" }, { name = "abort" } ]
+            outputs = [ { name = "on_started" }, { name = "on_cleared" }, { name = "on_failed" } ]
+        },
+        {
+            name = "info_enemy_spawn"
+            kind = "point"
+            base = [ "targetable" ]
+            label = "Enemy Spawn"
+            category = "Enemies"
+            editor = { size = [ -16, -16, 0, 16, 16, 64 ] color = "#c05030" model_from = "enemy" helpers = [ { type = "arrow" } ] }
+            properties = [
+                { key = "enemy" type = "choice" default = "grunt" choices = [ "grunt", "stalker", "brute", "sniper" ] label = "Enemy" },
+                { key = "spawn_group" type = "string" default = "" label = "Spawn Group" },
+                { key = "count" type = "integer" default = 1 min = 1 max = 64 label = "Count" },
+                { key = "flags" type = "flags" default = [ "face_player" ] choices = [ "face_player", "silent", "no_drop", "boss" ] label = "Flags" }
+            ]
+            outputs = [ { name = "on_spawned" }, { name = "on_all_dead" } ]
+        },
+        {
+            name = "light"
+            kind = "point"
+            base = [ "targetable" ]
+            label = "Point Light"
+            category = "Lights"
+            editor = { size = [ -8, -8, -8, 8, 8, 8 ] color_from = "color" icon = "materials/editor/sprites/light.cymat" helpers = [ { type = "radius" property = "range" } ] }
+            properties = [
+                { key = "color" type = "color" default = "#ffffff" label = "Colour" },
+                { key = "intensity" type = "real" default = 300.0 min = 0.0 max = 100000.0 unit = "candela" label = "Intensity" },
+                { key = "range" type = "real" default = 512.0 min = 1.0 max = 65536.0 unit = "units" label = "Range" },
+                { key = "cast_shadows" type = "bool" default = true label = "Cast Shadows" }
+            ]
+            inputs = [ { name = "turn_on" }, { name = "turn_off" }, { name = "set_color" type = "string" } ]
+        },
+        {
+            name = "trigger_once"
+            kind = "solid"
+            base = [ "targetable" ]
+            label = "Trigger Once"
+            category = "Triggers"
+            editor = { color = "#e0a030" material = "materials/editor/trigger.cymat" }
+            properties = [
+                { key = "filter" type = "choice" default = "players" choices = [ "players", "enemies", "everything" ] label = "Filter" }
+            ]
+            outputs = [ { name = "on_trigger" }, { name = "on_start_touch" } ]
+        },
+        {
+            name = "func_door"
+            kind = "solid"
+            base = [ "targetable" ]
+            label = "Door"
+            category = "Doors"
+            editor = { color = "#8090ff" helpers = [ { type = "move_direction" property = "move_dir" distance = "lip" } ] }
+            properties = [
+                { key = "move_dir" type = "angles" default = [ 0.0, 90.0, 0.0 ] label = "Move Direction" },
+                { key = "speed" type = "real" default = 200.0 min = 1.0 max = 10000.0 unit = "units/s" label = "Speed" },
+                { key = "lip" type = "real" default = 8.0 label = "Lip" },
+                { key = "wait" type = "real" default = 3.0 min = -1.0 unit = "seconds" label = "Close Delay" description = "-1 stays open." },
+                { key = "open_sound" type = "asset" default = "" extensions = [ ".cysnd" ] label = "Open Sound" },
+                { key = "locked" type = "bool" default = false label = "Locked" }
+            ]
+            inputs = [ { name = "open" }, { name = "close" }, { name = "lock" }, { name = "unlock" } ]
+            outputs = [ { name = "on_open" }, { name = "on_close" }, { name = "on_locked_use" } ]
+        },
+        {
+            name = "func_detail"
+            kind = "solid"
+            label = "Detail"
+            category = "Props"
+            description = "Brushes that neither seal the world nor split visibility: trims, pillars, props built from brushes."
+        },
+        {
+            name = "prop_static"
+            kind = "point"
+            label = "Static Prop"
+            category = "Props"
+            editor = { model_from = "model" size_from = "model" }
+            properties = [
+                { key = "model" type = "asset" default = "" extensions = [ ".cymodel" ] label = "Model" required = true },
+                { key = "skin" type = "integer" default = 0 min = 0 label = "Skin" },
+                { key = "solid" type = "choice" default = "vphysics" choices = [ "none", "bounds", "vphysics" ] label = "Collision" },
+                { key = "fade_distance" type = "real" default = 0.0 min = 0.0 unit = "units" label = "Fade Distance" }
+            ]
+        },
+        {
+            name = "logic_relay"
+            kind = "point"
+            base = [ "targetable" ]
+            label = "Logic Relay"
+            category = "Logic"
+            editor = { size = [ -8, -8, -8, 8, 8, 8 ] icon = "materials/editor/sprites/relay.cymat" }
+            inputs = [ { name = "trigger" } ]
+            outputs = [ { name = "on_trigger" } ]
+        }
+    ]
+}

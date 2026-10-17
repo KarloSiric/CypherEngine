@@ -4,6 +4,7 @@
 //////////////////////////////////////////////////////////////////////////
 #include "CypherMap_Clipboard.h"
 #include "CypherMap_Edit.h"
+#include "CypherMap_Hierarchy.h"
 #include "CypherMap_Wireframe.h"
 #include "CypherGeometry_DocumentBrushAttributes.h"
 #include "CypherGeometry_DocumentMeshes.h"
@@ -11,6 +12,7 @@
 #include "CypherCommon/Tier1/CypherCommon_KeyValueParser.h"
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -29,29 +31,25 @@ namespace
 string_view_t SV( const std::string &s ) { return { s.data(), s.size() }; }
 string_view_t SV( const char *s ) { return StringView_FromCString( s ); }
 struct files_t {
-    std::string root; std::map<std::string, std::string> chunks;
-    map_save_sink_t Sink()
+    std::string root;
+    map_status_t Save( map_document_t *pMap )
     {
-        return { this,
-            []( void *c, string_view_t p, string_view_t t ) noexcept -> bool_t { static_cast<files_t *>( c )->chunks[std::string( p.pData, p.cchLength )] = std::string( t.pData, t.cchLength ); return CY_TRUE; },
-            []( void *c, string_view_t p ) noexcept -> bool_t { static_cast<files_t *>( c )->chunks.erase( std::string( p.pData, p.cchLength ) ); return CY_TRUE; },
-            []( void *c, string_view_t t ) noexcept -> bool_t { static_cast<files_t *>( c )->root.assign( t.pData, t.cchLength ); return CY_TRUE; } };
+        text_buffer_t text{};
+        if ( !TextBuffer_Init( &text, Allocator_GetSystem() ) ) { return map_status_t::OUT_OF_MEMORY; }
+        const map_status_t status = MapDocument_Save( pMap, &text );
+        if ( status == map_status_t::OK ) { root.assign( TextBuffer_Data( &text ), TextBuffer_Length( &text ) ); }
+        return status;
     }
 };
 void Load( map_document_t &m, const files_t &f, const allocator_t *a = Allocator_GetSystem() )
 {
-    std::vector<map_chunk_input_t> inputs;
-    for ( const auto &[p, t] : f.chunks ) { inputs.push_back( { SV( p ), SV( t ) } ); }
-    REQUIRE( MapDocument_Load( &m, a, SV( f.root ), { inputs.data(), inputs.size() } ) == map_status_t::OK );
+    REQUIRE( MapDocument_Load( &m, a, SV( f.root ) ) == map_status_t::OK );
 }
 void Facility( map_document_t &m )
 {
     const std::filesystem::path dir = CYPHER_MAP_EXAMPLE_DIR;
     const auto read = []( const std::filesystem::path &p ) { std::ifstream in( p ); return std::string( std::istreambuf_iterator<char>( in ), {} ); };
     files_t f; f.root = read( dir / "facility.cymap" );
-    for ( const auto &e : std::filesystem::recursive_directory_iterator( dir / "facility" ) ) {
-        if ( e.path().extension() == ".cymapchunk" ) { f.chunks[e.path().lexically_relative( dir / "facility" ).generic_string()] = read( e.path() ); }
-    }
     Load( m, f );
 }
 void Create( map_document_t &m, const allocator_t *a = Allocator_GetSystem() )
@@ -84,7 +82,7 @@ void CheckTravel( const map_wireframe_t &before, u64 oldId, const map_wireframe_
 }
 void SetString( map_document_t &m, u64 id, const char *key, const char *value )
 {
-    map_chunk_t *chunk = nullptr; auto *record = MapDocument_FindObject( &m, id, &chunk ); REQUIRE( record ); REQUIRE( chunk );
+    map_layer_store_t *chunk = nullptr; auto *record = MapDocument_FindObject( &m, id, &chunk ); REQUIRE( record ); REQUIRE( chunk );
     auto *node = KeyValue_ObjectInsert( chunk->store.pDocument, record, SV( key ), key_value_type_t::STRING ); REQUIRE( node );
     REQUIRE( KeyValue_SetString( chunk->store.pDocument, node, SV( value ) ) );
 }
@@ -107,6 +105,37 @@ struct allocation_audit_t {
         };
     }
 };
+u64 Entity( map_document_t &m, const char *name, math::vec3d_t origin )
+{
+    u64 id = 0;
+    REQUIRE( m.layers.nCount != 0 );
+    REQUIRE( MapDocument_AddEntity( &m, SV( m.layers.pData[0].id ), SV( "info_target" ), origin, &id ) == map_status_t::OK );
+    SetString( m, id, "name", name );
+    return id;
+}
+math::vec3d_t Origin( map_document_t &m, u64 id )
+{
+    const auto *record = MapDocument_FindObject( &m, id, nullptr ); REQUIRE( record );
+    const auto *origin = KeyValue_Find( record, SV( "origin" ) ); REQUIRE( KeyValue_ChildCount( origin ) == 3 );
+    f64 values[3]{};
+    for ( usize i = 0; i < 3; ++i ) { REQUIRE( KeyValue_GetF64( KeyValue_ChildAt( origin, i ), &values[i] ) ); }
+    return { values[0], values[1], values[2] };
+}
+void CheckOriginTravel( map_document_t &before, u64 oldId, map_document_t &after, u64 newId, math::vec3d_t offset )
+{
+    const auto a = Origin( before, oldId ), b = Origin( after, newId );
+    CHECK( b.x == Catch::Approx( a.x + offset.x ) );
+    CHECK( b.y == Catch::Approx( a.y + offset.y ) );
+    CHECK( b.z == Catch::Approx( a.z + offset.z ) );
+}
+u64 OwnedGeometry( const map_document_t &m, u64 owner )
+{
+    u64 found = 0;
+    for ( usize i = 0; i < m.geometryRecords.nCount; ++i ) {
+        if ( m.geometryRecords.pData[i].owner == owner ) { REQUIRE( found == 0 ); found = m.geometryRecords.pData[i].id; }
+    }
+    REQUIRE( found != 0 ); return found;
+}
 const std::string minimal =
     "@cykv 1\n@schema \"cypher.map.clipboard\" 1\n"
     "{ selection = [1u] bounds = [[1.0,2.0,3.0],[1.0,2.0,3.0]] objects = ["
@@ -149,7 +178,7 @@ TEST_CASE( "Map clipboard carries mixed geometry and owned entities across mater
         map_wireframe_t after{}; REQUIRE( MapWireframe_Init( &after, destination.pAllocator ) ); REQUIRE( MapWireframe_Build( &after, destination ) == map_status_t::OK );
         for ( usize i = 0; i < pasted.nCount; ++i ) { CheckTravel( before, ids[i], after, pasted.pData[i], offset ); }
         CHECK( StringView_Equals( SV( destination.layers.pData[Placement( destination, pasted.pData[2] )->iLayer].id ), SV( matchingLayers ? "detail" : "default" ) ) );
-        files_t saved; REQUIRE( MapDocument_Save( &destination, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+        files_t saved; REQUIRE( saved.Save( &destination ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
         REQUIRE( Placement( loaded, pasted.pData[0] ) ); CHECK( Placement( loaded, pasted.pData[0] )->owner == pasted.pData[1] );
         CHECK( Field( loaded, pasted.pData[0], "plugin_shape" ) == "authored brush metadata" );
         CHECK( Field( loaded, pasted.pData[1], "plugin_text" ) == "retain source strings" );
@@ -168,7 +197,7 @@ TEST_CASE( "Map clipboard detaches child-only selections and preserves originles
     map_document_t destination; Create( destination ); vector_t<u64> pasted{}; REQUIRE( Vector_Init( &pasted, destination.pAllocator ) );
     REQUIRE( MapClipboard_Paste( &destination, TextBuffer_View( &clip ), {}, &pasted ) == map_status_t::OK );
     REQUIRE( pasted.nCount == 1 ); REQUIRE( Placement( destination, pasted.pData[0] ) ); CHECK( Placement( destination, pasted.pData[0] )->owner == 0 );
-    map_chunk_t *chunk = nullptr; auto *owner = MapDocument_FindObject( &source, 150, &chunk ); REQUIRE( owner ); REQUIRE( chunk );
+    map_layer_store_t *chunk = nullptr; auto *owner = MapDocument_FindObject( &source, 150, &chunk ); REQUIRE( owner ); REQUIRE( chunk );
     REQUIRE( KeyValue_Remove( chunk->store.pDocument, owner, KeyValue_Find( owner, SV( "origin" ) ) ) );
     // The map reader accepts positive signed IDs from authored CYKV. Retained
     // owner and child records need not already use the canonical U64 kind.
@@ -238,14 +267,14 @@ TEST_CASE( "Map retained geometry records use owned storage without consuming ID
     CHECK( m.nextId == next ); CHECK( m.geometry.revision == revision );
     CHECK( MapDocument_InsertGeometryRecord( &m, map_geometry_kind_t::BRUSH, record ) == map_status_t::INVALID_ARGUMENT );
     KeyValue_DestroyDocument( d ); CHECK( Field( m, id, "name" ) == "retained" );
-    files_t f; REQUIRE( MapDocument_Save( &m, f.Sink() ) == map_status_t::OK ); map_document_t reloaded; Load( reloaded, f ); CHECK( Field( reloaded, id, "name" ) == "retained" );
+    files_t f; REQUIRE( f.Save( &m ) == map_status_t::OK ); map_document_t reloaded; Load( reloaded, f ); CHECK( Field( reloaded, id, "name" ) == "retained" );
 }
 
 TEST_CASE( "Map clipboard accepts authored long classes but never cuts malformed identities", "[map][clipboard]" )
 {
     map_document_t source; Create( source ); u64 id = 0;
     REQUIRE( MapDocument_AddEntity( &source, SV( "default" ), SV( "light" ), {}, &id ) == map_status_t::OK );
-    map_chunk_t *chunk = nullptr; auto *record = MapDocument_FindObject( &source, id, &chunk ); REQUIRE( record ); REQUIRE( chunk );
+    map_layer_store_t *chunk = nullptr; auto *record = MapDocument_FindObject( &source, id, &chunk ); REQUIRE( record ); REQUIRE( chunk );
     const std::string longClass( MAP_NAME_MAX_LENGTH, 'a' );
     REQUIRE( KeyValue_SetString( chunk->store.pDocument, KeyValue_Find( record, SV( "class" ) ), SV( longClass ) ) );
     text_buffer_t text{}; REQUIRE( TextBuffer_Init( &text, source.pAllocator ) );
@@ -265,7 +294,7 @@ TEST_CASE( "Map clipboard canonicalizes integer origins and rejects unsafe sourc
 {
     map_document_t source; Create( source ); u64 id = 0;
     REQUIRE( MapDocument_AddEntity( &source, SV( "default" ), SV( "light" ), { 1, 2, 3 }, &id ) == map_status_t::OK );
-    map_chunk_t *chunk = nullptr; auto *record = MapDocument_FindObject( &source, id, &chunk ); REQUIRE( record ); REQUIRE( chunk );
+    map_layer_store_t *chunk = nullptr; auto *record = MapDocument_FindObject( &source, id, &chunk ); REQUIRE( record ); REQUIRE( chunk );
     REQUIRE( KeyValue_SetI64( chunk->store.pDocument, KeyValue_Find( record, SV( "id" ) ), static_cast<i64>( id ) ) );
     auto *origin = KeyValue_Find( record, SV( "origin" ) ); REQUIRE( origin );
     for ( usize i = 0; i < 3; ++i ) { REQUIRE( KeyValue_SetI64( chunk->store.pDocument, KeyValue_ChildAt( origin, i ), static_cast<i64>( i + 1 ) ) ); }
@@ -310,6 +339,263 @@ TEST_CASE( "Map clipboard allocation failures release private work and preserve 
             CHECK( destination.geometry.revision == revision ); CHECK( destination.nextId == next );
         }
         REQUIRE( pasted ); CHECK( pasteFailures > 8 ); CHECK( destination.geometry.brushes.nCount == 1 );
+    }
+    CHECK( audit.bytes == 0 );
+}
+
+TEST_CASE( "Portable clipboard includes attached descendants and remaps their owned geometry once", "[map][clipboard][hierarchy-clipboard]" )
+{
+    map_document_t source; Facility( source ); source.nextId = 30000;
+    const u64 parent = Entity( source, "clipboard_parent", { 4, 8, 12 } );
+    const u64 child = Entity( source, "clipboard_child", { 48, 96, 128 } );
+    const u64 grandchild = Entity( source, "clipboard_grandchild", { -24, 64, 256 } );
+    const u64 sibling = Entity( source, "clipboard_sibling", { 300, -128, 16 } );
+    const u64 children[]{ child, sibling };
+    REQUIRE( MapHierarchy_SetParent( &source, { children, 2 }, parent ) == map_status_t::OK );
+    REQUIRE( MapHierarchy_SetParent( &source, { &grandchild, 1 }, child ) == map_status_t::OK );
+    const u64 oldEntities[]{ parent, child, grandchild, sibling }, oldGeometry[]{ 151, 1200, 1300 };
+    for ( usize i = 0; i < 3; ++i ) { REQUIRE( MapDocument_SetGeometryOwner( &source, oldGeometry[i], oldEntities[i] ) == map_status_t::OK ); }
+    SetString( source, 151, "plugin_text", "retain owned brush" );
+    files_t sourceBefore; REQUIRE( sourceBefore.Save( &source ) == map_status_t::OK );
+    map_wireframe_t wireBefore{}; REQUIRE( MapWireframe_Init( &wireBefore, source.pAllocator ) );
+    REQUIRE( MapWireframe_Build( &wireBefore, source ) == map_status_t::OK );
+
+    for ( const bool explicitDescendants : { false, true } ) {
+        INFO( "Explicit descendants selected: " << explicitDescendants );
+        const u64 selection[]{ grandchild, parent, child, parent, grandchild };
+        text_buffer_t text{}; REQUIRE( TextBuffer_Init( &text, source.pAllocator ) );
+        REQUIRE( MapClipboard_WriteSelection( &source, explicitDescendants ? span_t<const u64>{ selection, 5 } : span_t<const u64>{ &parent, 1 }, &text ) == map_status_t::OK );
+        map_document_t destination; Create( destination );
+        // A source identity already in the destination must not capture the pasted children.
+        destination.nextId = parent;
+        const u64 collision = Entity( destination, "unrelated_destination", { 900, 800, 700 } ); REQUIRE( collision == parent );
+        destination.nextId = 100000;
+        vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, destination.pAllocator ) );
+        const math::vec3d_t offset{ 64, -32, 16 };
+        REQUIRE( MapClipboard_Paste( &destination, TextBuffer_View( &text ), offset, &roots ) == map_status_t::OK );
+        REQUIRE( roots.nCount == ( explicitDescendants ? 3 : 1 ) );
+        const u64 newParent = roots.pData[explicitDescendants ? 1 : 0];
+        const auto descendants = MapHierarchy_Children( &destination, newParent, true ); REQUIRE( descendants.size() == 3 );
+        std::map<std::string, u64> byName;
+        byName.emplace( Field( destination, newParent, "name" ), newParent );
+        for ( const u64 id : descendants ) { REQUIRE( byName.emplace( Field( destination, id, "name" ), id ).second ); }
+        const u64 newEntities[]{ byName.at( "clipboard_parent" ), byName.at( "clipboard_child" ), byName.at( "clipboard_grandchild" ), byName.at( "clipboard_sibling" ) };
+        CHECK( MapHierarchy_Parent( &destination, newEntities[0] ) == 0 );
+        CHECK( MapHierarchy_Parent( &destination, newEntities[1] ) == newEntities[0] );
+        CHECK( MapHierarchy_Parent( &destination, newEntities[2] ) == newEntities[1] );
+        CHECK( MapHierarchy_Parent( &destination, newEntities[3] ) == newEntities[0] );
+        if ( explicitDescendants ) { CHECK( roots.pData[0] == newEntities[2] ); CHECK( roots.pData[2] == newEntities[1] ); }
+        CHECK( MapHierarchy_Children( &destination, collision, true ).empty() );
+        CHECK( Origin( destination, collision ).x == 900 );
+        CHECK( MapHierarchy_Orphans( &destination ).empty() );
+        for ( usize i = 0; i < 4; ++i ) {
+            CHECK( newEntities[i] >= 100000 );
+            CheckOriginTravel( source, oldEntities[i], destination, newEntities[i], offset );
+        }
+        REQUIRE( destination.geometryRecords.nCount == 3 );
+        map_wireframe_t wireAfter{}; REQUIRE( MapWireframe_Init( &wireAfter, destination.pAllocator ) );
+        REQUIRE( MapWireframe_Build( &wireAfter, destination ) == map_status_t::OK );
+        u64 newGeometry[3]{};
+        for ( usize i = 0; i < 3; ++i ) {
+            newGeometry[i] = OwnedGeometry( destination, newEntities[i] );
+            CHECK( newGeometry[i] != oldGeometry[i] );
+            CheckTravel( wireBefore, oldGeometry[i], wireAfter, newGeometry[i], offset );
+        }
+        CHECK( geo::GeometryDocument_FindBrush( &destination.geometry, { newGeometry[0] } ) != nullptr );
+        CHECK( geo::GeometryDocument_FindMesh( &destination.geometry, { newGeometry[1] } ) != nullptr );
+        CHECK( geo::GeometryDocument_FindPatch( &destination.geometry, { newGeometry[2] } ) != nullptr );
+        CHECK( Field( destination, newGeometry[0], "plugin_text" ) == "retain owned brush" );
+        files_t saved; REQUIRE( saved.Save( &destination ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+        for ( usize i = 0; i < 4; ++i ) {
+            CHECK( MapHierarchy_Parent( &loaded, newEntities[i] ) == MapHierarchy_Parent( &destination, newEntities[i] ) );
+            CheckOriginTravel( source, oldEntities[i], loaded, newEntities[i], offset );
+        }
+        for ( usize i = 0; i < 3; ++i ) { CHECK( OwnedGeometry( loaded, newEntities[i] ) == newGeometry[i] ); }
+        CHECK( MapHierarchy_Orphans( &loaded ).empty() );
+    }
+    files_t sourceAfter; REQUIRE( sourceAfter.Save( &source ) == map_status_t::OK ); CHECK( sourceAfter.root == sourceBefore.root );
+}
+
+TEST_CASE( "Portable clipboard detaches an external entity parent while retaining copied descendants", "[map][clipboard][hierarchy-clipboard]" )
+{
+    map_document_t source; Create( source );
+    const u64 parent = Entity( source, "external_parent", { 1, 2, 3 } );
+    const u64 child = Entity( source, "copied_child", { 10, 20, 30 } );
+    const u64 grandchild = Entity( source, "copied_grandchild", { 40, 50, 60 } );
+    REQUIRE( MapHierarchy_SetParent( &source, { &child, 1 }, parent ) == map_status_t::OK );
+    REQUIRE( MapHierarchy_SetParent( &source, { &grandchild, 1 }, child ) == map_status_t::OK );
+    text_buffer_t text{}; REQUIRE( TextBuffer_Init( &text, source.pAllocator ) );
+    REQUIRE( MapClipboard_WriteSelection( &source, { &child, 1 }, &text ) == map_status_t::OK );
+    map_document_t destination; Create( destination );
+    const u64 collision = Entity( destination, "unrelated", { 100, 200, 300 } ); REQUIRE( collision == parent );
+    destination.nextId = 10000;
+    vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, destination.pAllocator ) );
+    const math::vec3d_t offset{ -64, 128, 32 };
+    REQUIRE( MapClipboard_Paste( &destination, TextBuffer_View( &text ), offset, &roots ) == map_status_t::OK ); REQUIRE( roots.nCount == 1 );
+    const u64 newChild = roots.pData[0];
+    CHECK( MapHierarchy_Parent( &destination, newChild ) == 0 );
+    CHECK( KeyValue_Find( MapDocument_FindObject( &destination, newChild, nullptr ), SV( "parent" ) ) == nullptr );
+    const auto descendants = MapHierarchy_Children( &destination, newChild, true ); REQUIRE( descendants.size() == 1 );
+    CheckOriginTravel( source, child, destination, newChild, offset );
+    CheckOriginTravel( source, grandchild, destination, descendants[0], offset );
+    CHECK( MapHierarchy_Children( &destination, collision, true ).empty() );
+    CHECK( MapHierarchy_Parent( &source, child ) == parent );
+    files_t saved; REQUIRE( saved.Save( &destination ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+    CHECK( MapHierarchy_Parent( &loaded, newChild ) == 0 );
+    CHECK( MapHierarchy_Parent( &loaded, descendants[0] ) == newChild );
+}
+
+TEST_CASE( "Portable clipboard rejects dangling malformed and cyclic entity parents before publication", "[map][clipboard][hierarchy-clipboard]" )
+{
+    map_document_t destination; Create( destination );
+    Entity( destination, "keep destination", { 100, 200, 300 } );
+    files_t original; REQUIRE( original.Save( &destination ) == map_status_t::OK );
+    vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, destination.pAllocator ) ); REQUIRE( Vector_PushBack( &roots, u64{ 777 } ) );
+    const auto bad = [&]( const std::string &text ) {
+        map_bounds_t bounds{ { { -9, -8, -7 }, { 9, 8, 7 } }, CY_TRUE };
+        CHECK( MapClipboard_ReadBounds( destination.pAllocator, SV( text ), &bounds ) != map_status_t::OK );
+        CHECK( bounds.box.minimum.x == -9 ); CHECK( bounds.box.maximum.z == 7 );
+        CHECK( MapClipboard_Paste( &destination, SV( text ), {}, &roots ) != map_status_t::OK );
+        REQUIRE( roots.nCount == 1 ); CHECK( roots.pData[0] == 777 );
+        files_t after; REQUIRE( after.Save( &destination ) == map_status_t::OK ); CHECK( after.root == original.root );
+    };
+    for ( const char *parent : { "99u", "1u", "-1", "1.5", "\"1\"", "[]" } ) {
+        INFO( "Malformed parent: " << parent );
+        auto text = minimal; const auto position = text.find( "class =" ); REQUIRE( position != std::string::npos );
+        text.insert( position, std::string( "parent = " ) + parent + " " ); bad( text );
+    }
+    {
+        map_document_t source; Create( source );
+        const u64 entity = Entity( source, "entity", {} ), brush = Box( source );
+        const u64 selection[]{ entity, brush };
+        text_buffer_t text{}; REQUIRE( TextBuffer_Init( &text, source.pAllocator ) );
+        REQUIRE( MapClipboard_WriteSelection( &source, { selection, 2 }, &text ) == map_status_t::OK );
+        std::string malformed( TextBuffer_Data( &text ), TextBuffer_Length( &text ) );
+        const auto position = malformed.find( "class =" ); REQUIRE( position != std::string::npos );
+        malformed.insert( position, "parent = " + std::to_string( brush ) + "u " );
+        bad( malformed ); // An existing geometry ID is not a valid entity parent.
+    }
+    bad( "@cykv 1\n@schema \"cypher.map.clipboard\" 1\n"
+         "{ selection = [1u] bounds = [[0.0,0.0,0.0],[0.0,0.0,0.0]] objects = ["
+         "{ kind = \"entity\" layer = \"default\" owner = 0u record = { id = 1u class = \"info_target\" parent = 2u } },"
+         "{ kind = \"entity\" layer = \"default\" owner = 0u record = { id = 2u class = \"info_target\" parent = 3u } },"
+         "{ kind = \"entity\" layer = \"default\" owner = 0u record = { id = 3u class = \"info_target\" parent = 1u } } ] }" );
+}
+
+TEST_CASE( "Portable clipboard preserves originless attachment containers without multiplying offsets", "[map][clipboard][hierarchy-clipboard]" )
+{
+    map_document_t source; Create( source );
+    const u64 parent = Entity( source, "originless_parent", {} ), child = Entity( source, "originless_child", {} );
+    const u64 grandchild = Entity( source, "positioned_grandchild", { 12, 24, 48 } ), brush = Box( source );
+    REQUIRE( MapHierarchy_SetParent( &source, { &child, 1 }, parent ) == map_status_t::OK );
+    REQUIRE( MapHierarchy_SetParent( &source, { &grandchild, 1 }, child ) == map_status_t::OK );
+    REQUIRE( MapDocument_SetGeometryOwner( &source, brush, child ) == map_status_t::OK );
+    for ( const u64 id : { parent, child } ) {
+        map_layer_store_t *store = nullptr;
+        auto *record = MapDocument_FindObject( &source, id, &store ); REQUIRE( record ); REQUIRE( store );
+        REQUIRE( KeyValue_Remove( store->store.pDocument, record, KeyValue_Find( record, SV( "origin" ) ) ) );
+    }
+    map_wireframe_t before{}; REQUIRE( MapWireframe_Init( &before, source.pAllocator ) ); REQUIRE( MapWireframe_Build( &before, source ) == map_status_t::OK );
+    text_buffer_t text{}; REQUIRE( TextBuffer_Init( &text, source.pAllocator ) );
+    REQUIRE( MapClipboard_WriteSelection( &source, { &parent, 1 }, &text ) == map_status_t::OK );
+    map_document_t destination; Create( destination ); destination.nextId = 10000;
+    vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, destination.pAllocator ) );
+    const math::vec3d_t offset{ -64, 128, 32 };
+    REQUIRE( MapClipboard_Paste( &destination, TextBuffer_View( &text ), offset, &roots ) == map_status_t::OK ); REQUIRE( roots.nCount == 1 );
+    const u64 newParent = roots.pData[0];
+    const auto children = MapHierarchy_Children( &destination, newParent, false ); REQUIRE( children.size() == 1 );
+    const u64 newChild = children[0];
+    const auto grandchildren = MapHierarchy_Children( &destination, newChild, false ); REQUIRE( grandchildren.size() == 1 );
+    CheckOriginTravel( source, grandchild, destination, grandchildren[0], offset );
+    const u64 newBrush = OwnedGeometry( destination, newChild );
+    map_wireframe_t after{}; REQUIRE( MapWireframe_Init( &after, destination.pAllocator ) ); REQUIRE( MapWireframe_Build( &after, destination ) == map_status_t::OK );
+    CheckTravel( before, brush, after, newBrush, offset );
+    files_t saved; REQUIRE( saved.Save( &destination ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+    for ( const u64 id : { newParent, newChild } ) {
+        CHECK( KeyValue_Find( MapDocument_FindObject( &destination, id, nullptr ), SV( "origin" ) ) == nullptr );
+        CHECK( KeyValue_Find( MapDocument_FindObject( &loaded, id, nullptr ), SV( "origin" ) ) == nullptr );
+    }
+    CHECK( MapHierarchy_Parent( &loaded, newChild ) == newParent );
+    CHECK( MapHierarchy_Parent( &loaded, grandchildren[0] ) == newChild );
+    CHECK( OwnedGeometry( loaded, newChild ) == newBrush );
+    CheckOriginTravel( source, grandchild, loaded, grandchildren[0], offset );
+}
+
+TEST_CASE( "Portable clipboard never publishes malformed or cyclic source attachments", "[map][clipboard][hierarchy-clipboard]" )
+{
+    map_document_t source; Create( source );
+    const u64 parent = Entity( source, "parent", {} ), child = Entity( source, "child", { 32, 64, 96 } );
+    const u64 grandchild = Entity( source, "grandchild", { 64, 128, 192 } );
+    REQUIRE( MapHierarchy_SetParent( &source, { &child, 1 }, parent ) == map_status_t::OK );
+    REQUIRE( MapHierarchy_SetParent( &source, { &grandchild, 1 }, child ) == map_status_t::OK );
+    text_buffer_t text{}; REQUIRE( TextBuffer_Init( &text, source.pAllocator ) ); REQUIRE( TextBuffer_Assign( &text, SV( "keep clipboard" ) ) );
+    const auto revision = source.geometry.revision, nextId = source.nextId;
+    map_layer_store_t *store = nullptr;
+    auto *record = MapDocument_FindObject( &source, parent, &store ); REQUIRE( record ); REQUIRE( store );
+    auto *slot = KeyValue_ObjectInsert( store->store.pDocument, record, SV( "parent" ), key_value_type_t::STRING ); REQUIRE( slot );
+    REQUIRE( KeyValue_SetString( store->store.pDocument, slot, SV( "invalid parent" ) ) );
+    CHECK( MapClipboard_WriteSelection( &source, { &parent, 1 }, &text ) != map_status_t::OK );
+    CHECK( TextBuffer_CStr( &text ) == std::string( "keep clipboard" ) ); CHECK( Field( source, parent, "parent" ) == "invalid parent" );
+    REQUIRE( KeyValue_SetI64( store->store.pDocument, slot, -1 ) );
+    CHECK( MapClipboard_WriteSelection( &source, { &parent, 1 }, &text ) != map_status_t::OK );
+    CHECK( TextBuffer_CStr( &text ) == std::string( "keep clipboard" ) );
+    for ( const u64 cycleTarget : { parent, grandchild } ) {
+        REQUIRE( KeyValue_SetU64( store->store.pDocument, slot, cycleTarget ) );
+        CHECK( MapClipboard_WriteSelection( &source, { &parent, 1 }, &text ) != map_status_t::OK );
+        CHECK( TextBuffer_CStr( &text ) == std::string( "keep clipboard" ) );
+        CHECK( MapHierarchy_Parent( &source, parent ) == cycleTarget );
+    }
+    CHECK( MapHierarchy_Parent( &source, child ) == parent ); CHECK( MapHierarchy_Parent( &source, grandchild ) == child );
+    CHECK( source.geometry.revision == revision ); CHECK( source.nextId == nextId );
+}
+
+TEST_CASE( "Portable hierarchy clipboard allocation failures preserve caller state with bounded probes", "[map][clipboard][hierarchy-clipboard][allocation]" )
+{
+    allocation_audit_t audit;
+    {
+        map_document_t source; Create( source, &audit.allocator );
+        const u64 parent = Entity( source, "parent", { 1, 2, 3 } ), child = Entity( source, "child", { 4, 5, 6 } ), grandchild = Entity( source, "grandchild", { 7, 8, 9 } );
+        REQUIRE( MapHierarchy_SetParent( &source, { &child, 1 }, parent ) == map_status_t::OK );
+        REQUIRE( MapHierarchy_SetParent( &source, { &grandchild, 1 }, child ) == map_status_t::OK );
+        text_buffer_t good{}; REQUIRE( TextBuffer_Init( &good, &audit.allocator ) );
+        audit.calls = 0;
+        REQUIRE( MapClipboard_WriteSelection( &source, { &parent, 1 }, &good ) == map_status_t::OK );
+        const usize copyCalls = audit.calls; REQUIRE( copyCalls > 8 );
+        const usize copyProbes = std::min<usize>( copyCalls, 32 );
+        for ( usize i = 0; i < copyProbes; ++i ) {
+            text_buffer_t out{}; REQUIRE( TextBuffer_Init( &out, &audit.allocator ) ); REQUIRE( TextBuffer_Assign( &out, SV( "keep clipboard" ) ) );
+            const usize before = audit.bytes;
+            audit.calls = 0; audit.failAt = i * ( copyCalls - 1 ) / ( copyProbes - 1 );
+            const auto status = MapClipboard_WriteSelection( &source, { &parent, 1 }, &out ); audit.failAt = CY_USIZE_MAX;
+            REQUIRE( status == map_status_t::OUT_OF_MEMORY );
+            CHECK( TextBuffer_CStr( &out ) == std::string( "keep clipboard" ) ); CHECK( audit.bytes == before );
+        }
+        map_document_t destination; Create( destination, &audit.allocator );
+        Entity( destination, "destination", { 50, 60, 70 } );
+        files_t before; REQUIRE( before.Save( &destination ) == map_status_t::OK );
+        usize pasteCalls = 0;
+        {
+            map_document_t *raw = nullptr; REQUIRE( MapEdit_Clone( &destination, &raw ) == map_status_t::OK );
+            std::unique_ptr<map_document_t> probe( raw );
+            vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, &audit.allocator ) ); REQUIRE( Vector_PushBack( &roots, u64{ 777 } ) );
+            audit.calls = 0;
+            REQUIRE( MapClipboard_Paste( probe.get(), TextBuffer_View( &good ), { 64, 32, 16 }, &roots ) == map_status_t::OK );
+            pasteCalls = audit.calls; REQUIRE( pasteCalls > 8 );
+            REQUIRE( roots.nCount == 1 ); CHECK( MapHierarchy_Children( probe.get(), roots.pData[0], true ).size() == 2 );
+        }
+        const usize pasteProbes = std::min<usize>( pasteCalls, 32 );
+        for ( usize i = 0; i < pasteProbes; ++i ) {
+            vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, &audit.allocator ) ); REQUIRE( Vector_PushBack( &roots, u64{ 777 } ) );
+            const usize baseline = audit.bytes;
+            map_document_t *raw = nullptr; REQUIRE( MapEdit_Clone( &destination, &raw ) == map_status_t::OK );
+            audit.calls = 0; audit.failAt = i * ( pasteCalls - 1 ) / ( pasteProbes - 1 );
+            const auto status = MapClipboard_Paste( raw, TextBuffer_View( &good ), { 64, 32, 16 }, &roots ); audit.failAt = CY_USIZE_MAX;
+            delete raw; // The contract requires discarding a failed private working copy.
+            REQUIRE( status == map_status_t::OUT_OF_MEMORY );
+            REQUIRE( roots.nCount == 1 ); CHECK( roots.pData[0] == 777 ); CHECK( audit.bytes == baseline );
+        }
+        files_t after; REQUIRE( after.Save( &destination ) == map_status_t::OK ); CHECK( after.root == before.root );
+        CHECK( MapHierarchy_Parent( &source, child ) == parent ); CHECK( MapHierarchy_Parent( &source, grandchild ) == child );
     }
     CHECK( audit.bytes == 0 );
 }

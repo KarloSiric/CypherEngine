@@ -122,7 +122,7 @@ TEST_CASE( "The built-in keymap parses completely and has no conflicts within a 
         }
     }
     // The unavailable Z mouselook toggle is omitted so it cannot reserve Z.
-    CHECK( nCommands == 194u ); // 171 bindings, 8 held, 15 mouse actions including captured-look wheel speed.
+    CHECK( nCommands == 220u ); // 197 bindings (Hammer 5 selection modes 1-6, the parity review's object and material keys, the Shear tool and the hierarchy keys included), 8 held, 15 mouse actions including captured-look wheel speed.
 }
 
 namespace

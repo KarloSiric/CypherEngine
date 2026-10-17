@@ -15,7 +15,9 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+#include "CypherMapGui_EntityIo.h"
 #include "CypherMason_MainWindow.h"
+#include "CypherMap_ObjectCreate.h"
 #include "CypherMason_Branding.h"
 
 #include "CypherEditorGui_CommandPalette.h"
@@ -24,6 +26,16 @@
 #include "CypherMapGui_ToolPanels.h"
 #include "CypherMapGui_Panels.h"
 #include "CypherMapGui_Views.h"
+#include "CypherMapGui_ToolGestures.h"
+#include "CypherMapGui_FastTexture.h"
+#include "CypherMapGui_Game.h"
+#include "CypherMapGui_Hotspots.h"
+#include "CypherMapGui_Instances.h"
+#include "CypherMapGui_UvEditor.h"
+#include "CypherMap_Groups.h"
+#include "CypherMap_Hierarchy.h"
+#include "CypherMap_Edit.h"
+#include "CypherMapGui_Notice.h"
 #include "CypherMapGui_Input.h"
 #include "CypherMapGui_EntityProperties.h"
 #include "CypherEditorGui_Section.h"
@@ -40,15 +52,25 @@
 #include "CypherEditorGui_ThemeEditor.h"
 
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
+#include "CypherGeometry_DocumentMeshes.h"
+#include "CypherGeometry_MeshSource.h"
+#include <catch2/catch_approx.hpp>
 
 #include "DockAreaWidget.h"
+#include <algorithm>
+#include <array>
 #include "DockWidget.h"
 #include "DockManager.h"
 #include "FloatingDockContainer.h"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <QTableWidget>
+
+#include <cstdio>
+
 #include <QAction>
+#include <QSet>
 #include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
@@ -64,8 +86,10 @@
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QMenuBar>
+#include <QContextMenuEvent>
 #include <QDialog>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QDialogButtonBox>
 #include <QSpinBox>
 #include <QDoubleSpinBox>
@@ -77,6 +101,9 @@
 #include <QComboBox>
 #include <QMenu>
 #include <QTimer>
+#include <functional>
+#include <map>
+#include <set>
 #include <QMouseEvent>
 #include <QScrollArea>
 #include <QSplashScreen>
@@ -385,7 +412,14 @@ TEST_CASE( "Mason tool controls forward cancellation without stealing input from
     REQUIRE( blockButton != nullptr );
     const auto key = []( QWidget *control, int code, bool exactFocus = true ) {
         INFO( "Control: " << control->metaObject()->className() << " / " << control->objectName().toStdString() << " key " << code );
-        control->window()->activateWindow(); control->setFocus(); QCoreApplication::processEvents();
+        control->window()->activateWindow(); QCoreApplication::processEvents();
+        // This case tests key routing from an already focused control, not
+        // macOS activation policy for a background test executable.
+        QT_WARNING_PUSH
+        QT_WARNING_DISABLE_DEPRECATED
+        QApplication::setActiveWindow( control->window() );
+        QT_WARNING_POP
+        control->setFocus();
         auto *focused = QApplication::focusWidget(); REQUIRE( focused != nullptr );
         if ( exactFocus ) { REQUIRE( focused == control ); }
         else { REQUIRE( ( focused == control || focused == control->focusProxy() || control->isAncestorOf( focused ) || focused->isAncestorOf( control ) ) ); }
@@ -923,7 +957,7 @@ TEST_CASE( "Mason builds its window with menus, tool strip, panels, and shortcut
     const QWidget *pPalette = pTools->findChild<QWidget *>( QStringLiteral( "EditorToolPalette" ) );
     REQUIRE( pPalette != nullptr );
     const auto buttons = pPalette->findChildren<QToolButton *>();
-    REQUIRE( buttons.size() == 38 );
+    REQUIRE( buttons.size() == 42 ); // Edge Cut, Edge Arc and Displacement joined Knife and Loop Cut; Shear joined Mirror.
     CHECK( buttons[0]->defaultAction()->objectName() == QStringLiteral( "map.tool.select" ) );
     CHECK( buttons[1]->defaultAction()->objectName() == QStringLiteral( "map.tool.camera" ) );
     CHECK( buttons[0]->y() == buttons[1]->y() );
@@ -1234,7 +1268,7 @@ TEST_CASE( "Mason left-click menus expose the same actions as their toolbar icon
     CHECK_FALSE( MapWorkspace_IsModified( Mason_MapWorkspace( session.pMason ) ) );
     const auto *pTools = pWindow->findChild<QToolBar *>( QStringLiteral( "EditorToolStrip" ) );
     REQUIRE( pTools != nullptr );
-    CHECK( pTools->findChild<QWidget *>( QStringLiteral( "EditorToolPalette" ) )->findChildren<QToolButton *>().size() == 38 );
+    CHECK( pTools->findChild<QWidget *>( QStringLiteral( "EditorToolPalette" ) )->findChildren<QToolButton *>().size() == 42 );
 }
 
 TEST_CASE( "Top-right utilities search assets and synchronize sound preference", "[mason][smoke][assets]" )
@@ -1609,6 +1643,17 @@ TEST_CASE( "Mason opens, selects, and saves through its commands", "[mason][smok
     CHECK( std::filesystem::exists( directory / "saved.cymap" ) );
     CHECK( pWindow->windowTitle().startsWith( QStringLiteral( "saved.cymap" ) ) );
     CHECK( session.Run( QStringLiteral( "file.save" ) ) == command_result_t::OK );
+    // Revert to Saved: offered only once something changed, and back to the file.
+    auto *pWorkspace = Mason_MapWorkspace( session.pMason );
+    CHECK_FALSE( pWindow->findChild<QAction *>( QStringLiteral( "file.revert" ) )->isEnabled() );
+    const usize objects = pWorkspace->wire.objects.nCount;
+    map::map_bounds_t extra{}; map::MapBounds_AddPoint( extra, { 4000, 4000, 0 } ); map::MapBounds_AddPoint( extra, { 4064, 4064, 64 } );
+    REQUIRE( map::MapWorkspace_CreateBox( pWorkspace, extra ) );
+    QCoreApplication::processEvents();
+    REQUIRE( pWindow->findChild<QAction *>( QStringLiteral( "file.revert" ) )->isEnabled() );
+    REQUIRE( session.Run( QStringLiteral( "file.revert yes" ) ) == command_result_t::OK );
+    CHECK( pWorkspace->wire.objects.nCount == objects );
+    CHECK_FALSE( map::MapWorkspace_IsModified( pWorkspace ) );
     std::filesystem::remove_all( directory );
 
     // A failed open keeps the current map and says why.
@@ -3226,6 +3271,80 @@ TEST_CASE( "Mason clipboard shortcuts copy across maps and keep text editing nat
     QApplication::clipboard()->clear();
 }
 
+TEST_CASE( "Mason clipboard shortcuts preserve attached descendants when only their parent is selected", "[mason][smoke][hierarchy-clipboard][input][workflow]" )
+{
+    REQUIRE( QGuiApplication::platformName() == QStringLiteral( "offscreen" ) );
+    struct saved_clipboard_t {
+        std::map<QString, QByteArray> formats;
+        saved_clipboard_t()
+        {
+            if ( const auto *mime = QApplication::clipboard()->mimeData() ) {
+                for ( const auto &format : mime->formats() ) { formats[format] = mime->data( format ); }
+            }
+        }
+        ~saved_clipboard_t()
+        {
+            auto *mime = new QMimeData();
+            for ( const auto &[format, bytes] : formats ) { mime->setData( format, bytes ); }
+            QApplication::clipboard()->setMimeData( mime );
+        }
+    } savedClipboard;
+    mason_session_t session; auto *ws = Mason_MapWorkspace( session.pMason ); auto *window = Mason_Window( session.pMason );
+    REQUIRE( MapWorkspace_New( ws ) == map_status_t::OK );
+    std::array<u64, 3> original{}, geometry{};
+    const auto origin = []( usize i ) { return math::vec3d_t{ 256.0 * i, 64.0 * i, 32.0 * i }; };
+    for ( usize i = 0; i < original.size(); ++i ) {
+        const auto at = origin( i );
+        REQUIRE( MapDocument_AddEntity( ws->pDocument, StringView_FromCString( "default" ), StringView_FromCString( "func_detail" ), at, &original[i] ) == map_status_t::OK );
+        REQUIRE( MapEdit_CreateBox( ws->pDocument, { at, { at.x + 32, at.y + 48, at.z + 64 } }, StringView_FromCString( "materials/dev/grid" ),
+                                   StringView_FromCString( "default" ), &geometry[i] ) == map_status_t::OK );
+        REQUIRE( MapDocument_SetGeometryOwner( ws->pDocument, geometry[i], original[i] ) == map_status_t::OK );
+        if ( i != 0 ) { REQUIRE( MapHierarchy_SetParent( ws->pDocument, { &original[i], 1 }, original[i - 1] ) == map_status_t::OK ); }
+    }
+    MapWorkspace_DocumentChanged( ws ); MapWorkspace_SetElementMode( ws, map_element_mode_t::OBJECTS );
+    MapWorkspace_SetSelection( ws, &original[0], 1 ); REQUIRE( ws->selection.ids.nCount == 1 );
+    const auto checkHierarchy = [&]() {
+        REQUIRE( ws->selection.ids.nCount == 1 ); CHECK( ws->wire.entities.nCount == 3 ); CHECK( ws->pDocument->geometryRecords.nCount == 3 );
+        u64 parent = 0, current = ws->selection.ids.pData[0];
+        for ( usize i = 0; i < original.size(); ++i ) {
+            CAPTURE( i, current ); CHECK( MapHierarchy_Parent( ws->pDocument, current ) == parent );
+            const auto *entity = MapWireframe_FindEntity( ws->wire, current ); REQUIRE( entity ); CHECK( entity->nOwned == 1 );
+            const auto at = origin( i ); CheckMasonPosition( entity->origin, at );
+            usize owned = 0;
+            for ( usize o = 0; o < ws->wire.objects.nCount; ++o ) {
+                const auto &object = ws->wire.objects.pData[o]; if ( object.owner != current ) { continue; }
+                ++owned; CheckMasonPosition( object.bounds.box.minimum, at ); CheckMasonPosition( object.bounds.box.maximum, { at.x + 32, at.y + 48, at.z + 64 } );
+            }
+            CHECK( owned == 1 ); const auto children = MapHierarchy_Children( ws->pDocument, current, false );
+            if ( i + 1 < original.size() ) { REQUIRE( children.size() == 1 ); parent = current; current = children[0]; }
+            else { CHECK( children.empty() ); }
+        }
+        CHECK( MapHierarchy_Orphans( ws->pDocument ).empty() );
+    };
+    auto *grid = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( grid );
+    QWidget *view = MapViews_PaneView( grid, 0 ); REQUIRE( view );
+    window->activateWindow(); view->setFocus(); QCoreApplication::processEvents(); REQUIRE( QApplication::focusWidget() == view );
+    const usize steps = EditorHistory_StepCount( &ws->history );
+    ( void )MasonWorkflowKey( view, Qt::Key_C, Qt::ControlModifier );
+    REQUIRE( QApplication::clipboard()->mimeData() );
+    const auto copied = QApplication::clipboard()->mimeData()->data( QString::fromLatin1( MAP_CLIPBOARD_MIME ) ); REQUIRE_FALSE( copied.isEmpty() );
+    CHECK( EditorHistory_StepCount( &ws->history ) == steps ); checkHierarchy();
+    ( void )MasonWorkflowKey( view, Qt::Key_X, Qt::ControlModifier );
+    CHECK( ws->wire.objects.nCount == 0 ); CHECK( ws->wire.entities.nCount == 0 ); CHECK( ws->pDocument->geometryRecords.nCount == 0 );
+    CHECK( EditorHistory_StepCount( &ws->history ) == steps + 1 );
+    ( void )MasonWorkflowKey( view, Qt::Key_V, Qt::ControlModifier | Qt::ShiftModifier );
+    checkHierarchy(); const auto pasted = ws->selection.ids.pData[0]; CHECK( pasted != original[0] );
+    for ( usize i = 0; i < original.size(); ++i ) {
+        CHECK( MapWireframe_FindEntity( ws->wire, original[i] ) == nullptr ); CHECK( MapWireframe_FindObject( ws->wire, geometry[i] ) == nullptr );
+    }
+    CHECK( EditorHistory_StepCount( &ws->history ) == steps + 2 );
+    REQUIRE( session.Run( QStringLiteral( "edit.undo" ) ) == command_result_t::OK ); CHECK( ws->wire.objects.nCount == 0 );
+    REQUIRE( session.Run( QStringLiteral( "edit.undo" ) ) == command_result_t::OK ); checkHierarchy(); CHECK( ws->selection.ids.pData[0] == original[0] );
+    REQUIRE( session.Run( QStringLiteral( "edit.redo" ) ) == command_result_t::OK ); CHECK( ws->wire.objects.nCount == 0 );
+    REQUIRE( session.Run( QStringLiteral( "edit.redo" ) ) == command_result_t::OK ); checkHierarchy(); CHECK( ws->selection.ids.pData[0] == pasted );
+    CHECK( QApplication::clipboard()->mimeData()->data( QString::fromLatin1( MAP_CLIPBOARD_MIME ) ) == copied );
+}
+
 TEST_CASE( "Mason Quad Slice is a real contextual toolbar menu and viewport shortcut", "[mason][smoke][quad-slice][input][workflow]" )
 {
     mason_session_t session; auto *ws = Mason_MapWorkspace( session.pMason ); auto *window = Mason_Window( session.pMason );
@@ -3478,7 +3597,9 @@ TEST_CASE( "Mason reports mesh vertex selection without exposing parent dimensio
     REQUIRE( MapWorkspace_SelectMeshVertex( ws, id, second.vertex, MAP_SELECT_ADD ) );
     CHECK( Mason_StatusText( session.pMason ).contains( QStringLiteral( "2 vertices selected" ) ) ); CHECK( size->text().isEmpty() );
     const auto *document = ws->pDocument; const usize steps = EditorHistory_StepCount( &ws->history );
-    for ( const char *command : { "edit.delete", "edit.duplicate", "map.mesh.merge", "map.mesh.collapse", "map.mesh.bevel" } ) {
+    // Whole-object edits stay out of Vertices mode. Merge, Collapse and the
+    // vertex Bevel do act on these vertices (CypherMapGui_GeometryCommands).
+    for ( const char *command : { "edit.delete", "edit.duplicate" } ) {
         CAPTURE( command ); CHECK( session.Run( QString::fromLatin1( command ) ) == command_result_t::DISABLED );
     }
     CHECK( ws->pDocument == document ); CHECK( EditorHistory_StepCount( &ws->history ) == steps );
@@ -4051,4 +4172,1759 @@ TEST_CASE( "Mason thin-wall resize uses a real 2D boundary without a control cag
     QTemporaryDir saved; REQUIRE( saved.isValid() ); const QString path = saved.path() + QStringLiteral( "/simple-wall.cymap" );
     REQUIRE( MapWorkspace_SaveAs( ws, path ).status == map_files_status_t::OK ); REQUIRE( MapWorkspace_Open( ws, path ).status == map_files_status_t::OK );
     MapWorkspace_Select( ws, wallId, MAP_SELECT_REPLACE ); checkCommitted();
+}
+
+// Writes pictures of the mesh component operations in Tool Properties:
+// cypher_mason_smoke_tests "[.screenshot]"
+TEST_CASE( "Screenshot of Mason edge and vertex operations", "[.screenshot]" )
+{
+    mason_session_t session;
+    auto *window = Mason_Window( session.pMason ); auto *ws = Mason_MapWorkspace( session.pMason );
+    window->resize( 1600, 1000 );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, 0 } ); MapBounds_AddPoint( box, { 128, 128, 192 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, box ) );
+    const u64 id = EditorSelection_At( &ws->selection, 0 );
+    REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+    const auto *mesh = geometry::GeometryDocument_FindMesh( &ws->pDocument->geometry, { id } ); REQUIRE( mesh );
+    geometry::mesh_source_description_t description{};
+    REQUIRE( geometry::MeshSourceDescription_Init( &description, ws->pDocument->pAllocator, { id } ) == geometry::geometry_status_t::OK );
+    REQUIRE( geometry::MeshSource_TryDescribe( mesh, &description ) == geometry::geometry_status_t::OK );
+    const auto &face = description.faces.pData[0];
+    const auto a = description.vertices.pData[description.corners.pData[face.iFirstCorner].iVertex].sourceId;
+    const auto b = description.vertices.pData[description.corners.pData[face.iFirstCorner + 1].iVertex].sourceId;
+    const auto c = description.vertices.pData[description.corners.pData[face.iFirstCorner + 2].iVertex].sourceId; // Off the bevelled edge.
+    geometry::MeshSourceDescription_Shutdown( &description );
+    REQUIRE( session.Run( QStringLiteral( "map.select_mode.edges" ) ) == command_result_t::OK );
+    REQUIRE( MapWorkspace_SelectMeshEdge( ws, id, geometry::MeshEdgeRef_Make( a, b ) ) );
+    QCoreApplication::processEvents();
+    CHECK( window->grab().save( QString::fromStdString( ( std::filesystem::temp_directory_path() / "mason_edge_operations.png" ).string() ) ) );
+    REQUIRE( session.Run( QStringLiteral( "map.mesh.bevel" ) ) == command_result_t::OK );
+    REQUIRE( session.Run( QStringLiteral( "map.select_mode.vertices" ) ) == command_result_t::OK );
+    REQUIRE( MapWorkspace_SelectMeshVertex( ws, id, c ) );
+    QCoreApplication::processEvents();
+    CHECK( window->grab().save( QString::fromStdString( ( std::filesystem::temp_directory_path() / "mason_vertex_operations.png" ).string() ) ) );
+    // Shaded, framed close: the candidate vertices in the 3D view's depth order.
+    REQUIRE( session.Run( QStringLiteral( "map.render.shaded" ) ) == command_result_t::OK );
+    MapWorkspace_Frame( ws, CY_TRUE );
+    QCoreApplication::processEvents();
+    CHECK( window->grab().save( QString::fromStdString( ( std::filesystem::temp_directory_path() / "mason_vertex_shaded.png" ).string() ) ) );
+    // The component gizmo on the selected vertex.
+    REQUIRE( session.Run( QStringLiteral( "map.tool.translate" ) ) == command_result_t::OK );
+    QCoreApplication::processEvents();
+    CHECK( window->grab().save( QString::fromStdString( ( std::filesystem::temp_directory_path() / "mason_vertex_gizmo.png" ).string() ) ) );
+}
+
+// The Entity I/O window on the example map's first wave:
+// cypher_mason_smoke_tests "[.screenshot]"
+TEST_CASE( "Screenshot of the Entity I/O window", "[.screenshot]" )
+{
+    mason_session_t session;
+    REQUIRE( Mason_OpenMap( session.pMason, ExampleRoot() ) );
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    MapWorkspace_Select( ws, 120, MAP_SELECT_REPLACE );
+    QDialog *dialog = MapEntityIo_Show( ws, Mason_Window( session.pMason ) );
+    REQUIRE( dialog != nullptr );
+    QCoreApplication::processEvents();
+    CHECK( dialog->grab().save( QString::fromStdString( ( std::filesystem::temp_directory_path() / "mason_entity_io.png" ).string() ) ) );
+    if ( auto *tabs = dialog->findChild<QTabWidget *>() ) { tabs->setCurrentIndex( 1 ); QCoreApplication::processEvents(); }
+    CHECK( dialog->grab().save( QString::fromStdString( ( std::filesystem::temp_directory_path() / "mason_entity_io_inputs.png" ).string() ) ) );
+}
+
+// The right-click editing menu in the Top view, on a selected brush and in
+// Vertices mode: cypher_mason_smoke_tests "[.screenshot]"
+TEST_CASE( "Screenshot of the view editing menu", "[.screenshot]" )
+{
+    mason_session_t session;
+    auto *window = Mason_Window( session.pMason ); auto *ws = Mason_MapWorkspace( session.pMason );
+    window->resize( 1600, 1000 );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, 0 } ); MapBounds_AddPoint( box, { 128, 128, 192 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, box ) );
+    QCoreApplication::processEvents();
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views != nullptr );
+    QWidget *top = MapViews_PaneView( views, 1 ); REQUIRE( top != nullptr );
+    const auto shoot = [&]( const char *file, QPointF world ) {
+        const QPoint at = MapOrthoView_WorldToView( top, world ).toPoint();
+        QContextMenuEvent context( QContextMenuEvent::Mouse, at, top->mapToGlobal( at ) );
+        QCoreApplication::sendEvent( top, &context );
+        QCoreApplication::processEvents();
+        for ( QMenu *menu : top->findChildren<QMenu *>( QStringLiteral( "MapViewMenu" ) ) ) {
+            if ( !menu->isVisible() ) { continue; }
+            CHECK( menu->grab().save( QString::fromStdString( ( std::filesystem::temp_directory_path() / file ).string() ) ) );
+            menu->close();
+        }
+        QCoreApplication::processEvents();
+    };
+    shoot( "mason_view_menu_objects.png", { -128, 0 } );
+    REQUIRE( session.Run( QStringLiteral( "map.brush.to_mesh" ) ) == command_result_t::OK );
+    REQUIRE( session.Run( QStringLiteral( "map.select_mode.vertices" ) ) == command_result_t::OK );
+    shoot( "mason_view_menu_vertices.png", { 300, 300 } );
+}
+
+// Lists every toolbar button with its command state, for auditing what is
+// wired: cypher_mason_smoke_tests "[.inventory]"
+TEST_CASE( "Inventory of Mason toolbar commands", "[.inventory]" )
+{
+    mason_session_t session;
+    auto *window = Mason_Window( session.pMason ); auto *ws = Mason_MapWorkspace( session.pMason );
+    const QByteArray mapPath = qgetenv( "MASON_INVENTORY_MAP" );
+    if ( !mapPath.isEmpty() ) { REQUIRE( Mason_OpenMap( session.pMason, QString::fromUtf8( mapPath ) ) ); }
+    QCoreApplication::processEvents();
+    const auto *pGui = Mason_Gui( session.pMason );
+    // Every action the window owns (menus, toolbars, dropdowns, tool strip),
+    // once per command.
+    QSet<QByteArray> seen;
+    for ( QAction *action : window->findChildren<QAction *>() ) {
+        if ( action->objectName().isEmpty() || seen.contains( action->objectName().toUtf8() ) ) { continue; }
+        seen.insert( action->objectName().toUtf8() );
+        const QByteArray id = action->objectName().toUtf8();
+        const string_view_t sv{ id.constData(), static_cast<usize>( id.size() ) };
+        const auto *command = EditorCommands_Find( &pGui->commands, sv );
+        if ( command == nullptr ) { continue; }
+        const bool planned = MapWorkspace_IsPlannedCommand( &pGui->commands, sv );
+        const bool enabled = ( EditorCommands_State( &pGui->commands, sv ) & COMMAND_STATE_ENABLED ) != 0;
+        std::printf( "ALL\t%s\t%s\t%s\t%s\n", id.constData(), planned ? "PLANNED" : "WIRED", enabled ? "enabled" : "disabled", command->pLabel );
+    }
+    for ( QToolBar *bar : window->findChildren<QToolBar *>() ) {
+        for ( QAction *action : bar->actions() ) {
+            const QByteArray id = action->objectName().toUtf8();
+            if ( id.isEmpty() || action->isSeparator() ) { continue; }
+            const bool planned = MapWorkspace_IsPlannedCommand( &pGui->commands, string_view_t{ id.constData(), static_cast<usize>( id.size() ) } );
+            const bool known = EditorCommands_Find( &pGui->commands, string_view_t{ id.constData(), static_cast<usize>( id.size() ) } ) != nullptr;
+            std::printf( "INVENTORY\t%s\t%s\t%s\t%s\n", bar->objectName().toUtf8().constData(), id.constData(),
+                         planned ? "PLANNED" : known ? "WIRED" : "OTHER", action->isEnabled() ? "enabled" : "disabled" );
+        }
+    }
+    // Every registered command, including those only the Tool Properties
+    // panel or the console reach.
+    for ( usize i = 0; i < EditorCommands_Count( &pGui->commands ); ++i ) {
+        const auto *command = EditorCommands_At( &pGui->commands, i );
+        const string_view_t sv = StringView_FromCString( command->pId );
+        std::printf( "REGISTRY\t%s\t%s\t%s\n", command->pId, MapWorkspace_IsPlannedCommand( &pGui->commands, sv ) ? "PLANNED" : "WIRED", command->pLabel );
+    }
+    ( void )ws;
+}
+
+// Opens a map (MASON_INVENTORY_MAP), clicks the first brush's corner in the Top
+// view in Edges mode and writes the window: cypher_mason_smoke_tests "[.edgeclick]"
+TEST_CASE( "Screenshot of a brush edge clicked in Edges mode", "[.edgeclick]" )
+{
+    mason_session_t session;
+    auto *window = Mason_Window( session.pMason ); auto *ws = Mason_MapWorkspace( session.pMason );
+    const QByteArray mapPath = qgetenv( "MASON_INVENTORY_MAP" );
+    REQUIRE_FALSE( mapPath.isEmpty() );
+    REQUIRE( Mason_OpenMap( session.pMason, QString::fromUtf8( mapPath ) ) );
+    window->resize( 2000, 1250 ); window->show(); QCoreApplication::processEvents();
+    const map_wire_object_t *brush = nullptr;
+    for ( usize i = 0; i < ws->wire.objects.nCount && brush == nullptr; ++i ) {
+        if ( ws->wire.objects.pData[i].kind == map_wire_kind_t::BRUSH ) { brush = &ws->wire.objects.pData[i]; }
+    }
+    REQUIRE( brush != nullptr );
+    const u64 id = brush->id; const auto corner = brush->bounds.box.maximum;
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views );
+    QWidget *top = nullptr;
+    for ( int i = 0; i < 4 && top == nullptr; ++i ) {
+        QWidget *pane = MapViews_PaneView( views, i );
+        if ( pane != nullptr && pane->objectName() == QStringLiteral( "mapTopView" ) ) { top = pane; }
+    }
+    REQUIRE( top != nullptr );
+    MapWorkspace_Frame( ws, CY_FALSE ); QCoreApplication::processEvents();
+    REQUIRE( session.Run( QStringLiteral( "map.select_mode.edges" ) ) == command_result_t::OK );
+    const QPointF at = MapOrthoView_WorldToView( top, { corner.x, ( brush->bounds.box.minimum.y + corner.y ) / 2 } );
+    QMouseEvent press( QEvent::MouseButtonPress, at, top->mapToGlobal( at ), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+    QCoreApplication::sendEvent( top, &press );
+    QMouseEvent release( QEvent::MouseButtonRelease, at, top->mapToGlobal( at ), Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+    QCoreApplication::sendEvent( top, &release );
+    QCoreApplication::processEvents();
+    CHECK( geometry::GeometryDocument_FindMesh( &ws->pDocument->geometry, { id } ) != nullptr );
+    CHECK( ws->meshSelection.edges.nCount == 1u );
+    CHECK( window->grab().save( QString::fromStdString( ( std::filesystem::temp_directory_path() / "mason_edge_click.png" ).string() ) ) );
+}
+
+TEST_CASE( "Screenshots of the Clip tool cutting a brush and a mesh across a face in 3D", "[.clip-screenshot]" )
+{
+    mason_session_t session;
+    auto *window = Mason_Window( session.pMason ); auto *ws = Mason_MapWorkspace( session.pMason );
+    window->resize( 2000, 1250 ); window->show(); QCoreApplication::processEvents();
+    const auto box = [&]( math::vec3d_t minimum, math::vec3d_t maximum ) {
+        map_bounds_t bounds{}; MapBounds_AddPoint( bounds, minimum ); MapBounds_AddPoint( bounds, maximum );
+        REQUIRE( MapWorkspace_CreateBox( ws, bounds ) ); return EditorSelection_At( &ws->selection, 0 );
+    };
+    box( { -384, -384, -16 }, { 384, 384, 0 } );
+    const u64 brush = box( { -256, -96, 0 }, { -64, 96, 160 } );
+    const u64 mesh = box( { 64, -96, 0 }, { 256, 96, 160 } );
+    REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+    MapWorkspace_Select( ws, brush, MAP_SELECT_REPLACE ); MapWorkspace_Select( ws, mesh, MAP_SELECT_ADD );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views );
+    MapViews_SetArrangement( views, map_view_arrangement_t::HAMMER );
+    MapViews_SetPaneView( views, 0, map_view_type_t::CAMERA, map_render_mode_t::SHADED );
+    MapWorkspace_Frame( ws, CY_FALSE ); QCoreApplication::processEvents();
+    REQUIRE( session.Run( QStringLiteral( "map.tool.clip" ) ) == command_result_t::OK );
+    const auto *mode = EditorSettings_Find( &ws->pGui->settings, StringView_FromCString( "editor.map.clip_mode" ) ); REQUIRE( mode != nullptr );
+    setting_value_t value{}; value.type = setting_type_t::ENUM; value.text = StringView_FromCString( "back" );
+    REQUIRE( EditorSettings_Write( &ws->pGui->settings, settings_scope_t::USER, *mode, value ) == settings_registry_status_t::OK );
+    QWidget *camera = MapViews_PaneView( views, 0 ); REQUIRE( camera != nullptr );
+    const auto send = [&]( QEvent::Type type, math::vec3d_t p ) {
+        QPointF at; REQUIRE( MapCameraView_WorldToView( camera, p, &at ) );
+        QMouseEvent event( type, at, camera->mapToGlobal( at ), type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton,
+                           type == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton, Qt::NoModifier );
+        QCoreApplication::sendEvent( camera, &event );
+    };
+    // Across the top of the brush, diagonally.
+    send( QEvent::MouseButtonPress, { -224, -64, 160 } ); send( QEvent::MouseMove, { -160, 0, 160 } ); send( QEvent::MouseMove, { -96, 64, 160 } );
+    send( QEvent::MouseButtonRelease, { -96, 64, 160 } );
+    QCoreApplication::processEvents();
+    REQUIRE( ws->editPreview.bClip ); REQUIRE( ws->editPreview.status == map_status_t::OK );
+    const auto folder = std::filesystem::temp_directory_path();
+    CHECK( window->grab().save( QString::fromStdString( ( folder / "mason_clip_surface_staged.png" ).string() ) ) );
+    QKeyEvent confirm( QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier ); QCoreApplication::sendEvent( camera, &confirm );
+    QCoreApplication::processEvents();
+    CHECK_FALSE( ws->editPreview.bActive );
+    CHECK( window->grab().save( QString::fromStdString( ( folder / "mason_clip_surface_done.png" ).string() ) ) );
+}
+
+TEST_CASE( "Screenshots of Vertices and Edges mode on the object being edited", "[.component-screenshot]" )
+{
+    mason_session_t session;
+    auto *window = Mason_Window( session.pMason ); auto *ws = Mason_MapWorkspace( session.pMason );
+    window->resize( 2000, 1250 ); window->show(); QCoreApplication::processEvents();
+    const auto box = [&]( math::vec3d_t minimum, math::vec3d_t maximum ) {
+        map_bounds_t bounds{}; MapBounds_AddPoint( bounds, minimum ); MapBounds_AddPoint( bounds, maximum );
+        REQUIRE( MapWorkspace_CreateBox( ws, bounds ) ); return EditorSelection_At( &ws->selection, 0 );
+    };
+    box( { -384, -384, -16 }, { 384, 384, 0 } );
+    box( { 160, -96, 0 }, { 288, 96, 96 } );
+    const u64 mesh = box( { -160, -96, 0 }, { 64, 96, 128 } );
+    REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views );
+    MapViews_SetArrangement( views, map_view_arrangement_t::HAMMER );
+    MapViews_SetPaneView( views, 0, map_view_type_t::CAMERA, map_render_mode_t::SHADED );
+    MapWorkspace_Frame( ws, CY_FALSE ); QCoreApplication::processEvents();
+    REQUIRE( session.Run( QStringLiteral( "map.select_mode.vertices" ) ) == command_result_t::OK );
+    REQUIRE( session.Run( QStringLiteral( "map.tool.select" ) ) == command_result_t::OK );
+    MapWorkspace_Select( ws, mesh, MAP_SELECT_REPLACE );
+    const auto *source = geometry::GeometryDocument_FindMesh( &ws->pDocument->geometry, { mesh } ); REQUIRE( source != nullptr );
+    const auto *object = MapWireframe_FindObject( ws->wire, mesh ); REQUIRE( object != nullptr );
+    REQUIRE( MapWorkspace_SelectMeshVertex( ws, mesh, { ws->wire.pointSourceIds.pData[object->iFirstPoint] } ) );
+    QCoreApplication::processEvents();
+    const auto folder = std::filesystem::temp_directory_path();
+    CHECK( window->grab().save( QString::fromStdString( ( folder / "mason_vertices_mode.png" ).string() ) ) );
+    REQUIRE( session.Run( QStringLiteral( "map.select_mode.edges" ) ) == command_result_t::OK );
+    MapWorkspace_Select( ws, mesh, MAP_SELECT_REPLACE );
+    const auto &line = ws->wire.lines.pData[object->iFirstLine];
+    REQUIRE( MapWorkspace_SelectMeshEdge( ws, mesh, geometry::MeshEdgeRef_Make( { ws->wire.pointSourceIds.pData[line.iA] }, { ws->wire.pointSourceIds.pData[line.iB] } ) ) );
+    QCoreApplication::processEvents();
+    CHECK( window->grab().save( QString::fromStdString( ( folder / "mason_edges_mode.png" ).string() ) ) );
+}
+
+TEST_CASE( "Object Properties shows an entity's Outputs and Inputs beside its properties", "[mason][smoke][entity-io]" )
+{
+    mason_session_t session;
+    REQUIRE( Mason_OpenMap( session.pMason, ExampleRoot() ) );
+    auto *window = Mason_Window( session.pMason ); auto *ws = Mason_MapWorkspace( session.pMason );
+    window->resize( 2000, 1250 ); window->show(); QCoreApplication::processEvents();
+    auto *tabs = window->findChild<QTabWidget *>( QStringLiteral( "MasonPropertiesTabs" ) ); REQUIRE( tabs != nullptr );
+    REQUIRE( tabs->count() == 3 );
+    CHECK( tabs->tabText( 0 ) == QStringLiteral( "Properties" ) );
+    MapWorkspace_Select( ws, 120, MAP_SELECT_REPLACE ); QCoreApplication::processEvents();
+    CHECK( tabs->tabText( 1 ).startsWith( QStringLiteral( "Outputs (" ) ) ); CHECK( tabs->tabText( 2 ).startsWith( QStringLiteral( "Inputs (" ) ) );
+    auto *outputs = tabs->findChild<QTableWidget *>( QStringLiteral( "MapEntityOutputs" ) ); REQUIRE( outputs != nullptr );
+    CHECK( tabs->tabText( 1 ) == QStringLiteral( "Outputs (%1)" ).arg( outputs->rowCount() ) );
+    tabs->setCurrentIndex( 1 ); QCoreApplication::processEvents();
+    CHECK( window->grab().save( QString::fromStdString( ( std::filesystem::temp_directory_path() / "mason_properties_outputs.png" ).string() ) ) );
+}
+
+TEST_CASE( "Screenshot of Faces mode with a mesh face picked", "[.faces-screenshot]" )
+{
+    mason_session_t session;
+    auto *window = Mason_Window( session.pMason ); auto *ws = Mason_MapWorkspace( session.pMason );
+    window->resize( 2000, 1400 ); window->show(); QCoreApplication::processEvents();
+    map_bounds_t bounds{}; MapBounds_AddPoint( bounds, { -128, -128, 0 } ); MapBounds_AddPoint( bounds, { 128, 128, 64 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, bounds ) ); const u64 mesh = EditorSelection_At( &ws->selection, 0 );
+    REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+    MapWorkspace_Frame( ws, CY_FALSE );
+    REQUIRE( session.Run( QStringLiteral( "map.select_mode.faces" ) ) == command_result_t::OK );
+    u64 top = 0;
+    for ( usize f = 0; f < ws->wire.faces.nCount; ++f ) { if ( ws->wire.faces.pData[f].id == mesh && ws->wire.faces.pData[f].normal.z > 0.99 ) { top = ws->wire.faces.pData[f].faceId; } }
+    MapWorkspace_SelectMeshFace( ws, mesh, top );
+    QCoreApplication::processEvents();
+    CHECK( window->grab().save( QString::fromStdString( ( std::filesystem::temp_directory_path() / "mason_faces_mode.png" ).string() ) ) );
+}
+
+TEST_CASE( "Screenshot of a subdivided, mirrored mesh with its cage", "[.modifiers-screenshot]" )
+{
+    mason_session_t session;
+    auto *window = Mason_Window( session.pMason ); auto *ws = Mason_MapWorkspace( session.pMason );
+    window->resize( 2000, 1250 ); window->show(); QCoreApplication::processEvents();
+    map_bounds_t floor{}; MapBounds_AddPoint( floor, { -384, -384, -16 } ); MapBounds_AddPoint( floor, { 384, 384, 0 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, floor ) );
+    map_bounds_t bounds{}; MapBounds_AddPoint( bounds, { 16, -96, 0 } ); MapBounds_AddPoint( bounds, { 176, 96, 160 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, bounds ) );
+    REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views );
+    MapViews_SetArrangement( views, map_view_arrangement_t::HAMMER );
+    MapViews_SetPaneView( views, 0, map_view_type_t::CAMERA, map_render_mode_t::SHADED );
+    REQUIRE( session.Run( QStringLiteral( "map.mesh.modifier_mirror_x" ) ) == command_result_t::OK );
+    REQUIRE( session.Run( QStringLiteral( "map.mesh.subdivision_level_2" ) ) == command_result_t::OK );
+    MapWorkspace_Frame( ws, CY_FALSE ); QCoreApplication::processEvents();
+    REQUIRE( session.Run( QStringLiteral( "map.select_mode.vertices" ) ) == command_result_t::OK );
+    QCoreApplication::processEvents();
+    CHECK( window->grab().save( QString::fromStdString( ( std::filesystem::temp_directory_path() / "mason_modifiers.png" ).string() ) ) );
+}
+
+TEST_CASE( "Capture Mason selection handles and the 3D vertex clip", "[.clip-handles-capture]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    Mason_Window( session.pMason )->resize( 2200, 1360 );
+    const auto box = [&]( math::vec3d_t minimum, math::vec3d_t maximum ) {
+        map_bounds_t bounds{}; MapBounds_AddPoint( bounds, minimum ); MapBounds_AddPoint( bounds, maximum );
+        REQUIRE( MapWorkspace_CreateBox( ws, bounds ) );
+        return EditorSelection_At( &ws->selection, 0 );
+    };
+    box( { -384, -384, -16 }, { 384, 384, 0 } );
+    const u64 block = box( { -128, -96, 0 }, { 128, 96, 128 } );
+    auto *views = Mason_Window( session.pMason )->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) );
+    REQUIRE( views != nullptr );
+    MapViews_SetArrangement( views, map_view_arrangement_t::HAMMER );
+    MapViews_SetPaneView( views, 0, map_view_type_t::CAMERA, map_render_mode_t::SHADED );
+    MapWorkspace_Select( ws, block, MAP_SELECT_REPLACE );
+    MapWorkspace_Frame( ws, CY_TRUE ); MapWorkspace_SetTool( ws, map_tool_t::SELECT );
+    QCoreApplication::processEvents();
+    const QString folder = QDir::tempPath();
+    REQUIRE( Mason_Window( session.pMason )->grab().save( folder + QStringLiteral( "/mason_handles.png" ) ) );
+    // The Clip tool in 3D: corner to corner across the top, then a third point on a side.
+    MapWorkspace_SetTool( ws, map_tool_t::CLIP );
+    QWidget *camera = MapViews_PaneView( views, 0 ); REQUIRE( camera != nullptr );
+    const auto click = [&]( math::vec3d_t p, QPointF nudge ) {
+        QPointF at; REQUIRE( MapCameraView_WorldToView( camera, p, &at ) ); at += nudge;
+        QMouseEvent press( QEvent::MouseButtonPress, at, camera->mapToGlobal( at ), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+        QCoreApplication::sendEvent( camera, &press );
+        QMouseEvent release( QEvent::MouseButtonRelease, at, camera->mapToGlobal( at ), Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+        QCoreApplication::sendEvent( camera, &release );
+    };
+    click( { -128, -96, 128 }, { 4, 3 } );
+    click( { 128, 96, 128 }, { -3, 4 } );
+    QCoreApplication::processEvents();
+    REQUIRE( ws->editPreview.bActive );
+    REQUIRE( Mason_Window( session.pMason )->grab().save( folder + QStringLiteral( "/mason_clip_vertices.png" ) ) );
+    const auto eye = MapCameraView_Position( camera );
+    click( eye.x < -128 ? math::vec3d_t{ -128, 0, 32 } : eye.y < -96 ? math::vec3d_t{ 0, -96, 32 } : math::vec3d_t{ 128, 0, 32 }, {} );
+    QCoreApplication::processEvents();
+    REQUIRE( Mason_Window( session.pMason )->grab().save( folder + QStringLiteral( "/mason_clip_three.png" ) ) );
+}
+
+TEST_CASE( "Capture the Fast Texture window", "[.fast-texture-capture]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    map_bounds_t bounds{}; MapBounds_AddPoint( bounds, { -128, -128, 0 } ); MapBounds_AddPoint( bounds, { 128, 128, 128 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, bounds ) );
+    REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+    const u64 mesh = EditorSelection_At( &ws->selection, 0 );
+    u64 top = 0;
+    for ( usize f = 0; f < ws->wire.faces.nCount; ++f ) { if ( ws->wire.faces.pData[f].id == mesh && ws->wire.faces.pData[f].normal.z > 0.99 ) { top = ws->wire.faces.pData[f].faceId; } }
+    MapWorkspace_SetElementMode( ws, map_element_mode_t::FACES );
+    MapWorkspace_SelectMeshFace( ws, mesh, top );
+    QDialog *window = MapFastTexture_Show( ws, Mason_Window( session.pMason ) );
+    REQUIRE( window != nullptr );
+    window->resize( 560, 640 ); QCoreApplication::processEvents();
+    REQUIRE( MapFastTexture_Choose( window, QRectF( 0.25, 0.5, 0.5, 0.25 ) ) );
+    QCoreApplication::processEvents();
+    REQUIRE( window->grab().save( QDir::tempPath() + QStringLiteral( "/mason_fast_texture.png" ) ) );
+}
+
+TEST_CASE( "Capture the new block shapes, gizmo and group outlines", "[.shapes-capture]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    Mason_Window( session.pMason )->resize( 2200, 1360 );
+    map_bounds_t floor{}; MapBounds_AddPoint( floor, { -640, -640, -16 } ); MapBounds_AddPoint( floor, { 640, 640, 0 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, floor ) );
+    const map_primitive_kind_t kinds[]{ map_primitive_kind_t::ARCH, map_primitive_kind_t::STAIRS, map_primitive_kind_t::SPIRAL_STAIRS, map_primitive_kind_t::PIPE, map_primitive_kind_t::TORUS };
+    std::vector<u64> made;
+    for ( int i = 0; i < 5; ++i ) {
+        map_primitive_desc_t desc = MapWorkspace_PrimitiveDefaults( ws, {} );
+        desc.kind = kinds[i]; desc.nSides = 16;
+        const f64 x = -560 + i * 230;
+        desc.bounds = { { x, -96, 0 }, { x + 192, 96, i == 1 ? 128.0 : 160.0 } };
+        if ( kinds[i] == map_primitive_kind_t::ARCH ) { desc.axis = 1; desc.bounds = { { x, -24, 0 }, { x + 192, 24, 192 } }; }
+        REQUIRE( MapWorkspace_CreatePrimitive( ws, desc ) );
+        made.push_back( EditorSelection_At( &ws->selection, 0 ) );
+    }
+    auto *views = Mason_Window( session.pMason )->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) );
+    REQUIRE( views != nullptr );
+    MapViews_SetArrangement( views, map_view_arrangement_t::HAMMER );
+    MapViews_SetPaneView( views, 0, map_view_type_t::CAMERA, map_render_mode_t::SHADED );
+    // Group the arch and the stairs, show Groups mode outlines.
+    MapWorkspace_SetSelection( ws, made.data(), 2 );
+    REQUIRE( EditorCommands_Execute( &ws->pGui->commands, StringView_FromCString( "map.group.create" ), {} ) == command_result_t::OK );
+    MapWorkspace_SetElementMode( ws, map_element_mode_t::GROUPS );
+    MapWorkspace_Select( ws, made[0], MAP_SELECT_REPLACE );
+    MapWorkspace_Frame( ws, CY_FALSE ); MapWorkspace_SetTool( ws, map_tool_t::BLOCK );
+    QCoreApplication::processEvents();
+    REQUIRE( Mason_Window( session.pMason )->grab().save( QDir::tempPath() + QStringLiteral( "/mason_shapes.png" ) ) );
+    MapWorkspace_SetTool( ws, map_tool_t::SELECT ); MapWorkspace_SetElementMode( ws, map_element_mode_t::OBJECTS );
+    MapWorkspace_Select( ws, made[2], MAP_SELECT_REPLACE ); QCoreApplication::processEvents();
+    REQUIRE( Mason_Window( session.pMason )->grab().save( QDir::tempPath() + QStringLiteral( "/mason_move_gizmo.png" ) ) );
+    MapWorkspace_SetTool( ws, map_tool_t::DISPLACE ); QCoreApplication::processEvents();
+    REQUIRE( Mason_Window( session.pMason )->grab().save( QDir::tempPath() + QStringLiteral( "/mason_displace_panel.png" ) ) );
+}
+
+TEST_CASE( "Capture the entity classes from the game profile and the selection sets", "[.game-capture]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    Mason_Window( session.pMason )->resize( 2200, 1360 );
+    map_bounds_t floor{}; MapBounds_AddPoint( floor, { -640, -640, -16 } ); MapBounds_AddPoint( floor, { 640, 640, 0 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, floor ) );
+    std::vector<u64> boxes;
+    for ( int i = 0; i < 3; ++i ) {
+        map_bounds_t box{}; MapBounds_AddPoint( box, { -400.0 + i * 300, -64, 0 } ); MapBounds_AddPoint( box, { -272.0 + i * 300, 64, 128 } );
+        REQUIRE( MapWorkspace_CreateBox( ws, box ) );
+        boxes.push_back( EditorSelection_At( &ws->selection, 0 ) );
+    }
+    MapWorkspace_SetSelection( ws, boxes.data(), 2 );
+    REQUIRE( EditorCommands_Execute( &ws->pGui->commands, StringView_FromCString( "map.selection_set.create" ), {} ) == command_result_t::OK );
+    MapWorkspace_SetSelection( ws, &boxes[2], 1 );
+    REQUIRE( EditorCommands_Execute( &ws->pGui->commands, StringView_FromCString( "map.selection_set.create" ), {} ) == command_result_t::OK );
+    INFO( MapGame_Status( ws ).toStdString() );
+    REQUIRE( MapGame_Profile( ws ) != nullptr );
+    MapWorkspace_SetTool( ws, map_tool_t::ENTITY ); QCoreApplication::processEvents();
+    REQUIRE( Mason_Window( session.pMason )->grab().save( QDir::tempPath() + QStringLiteral( "/mason_entity_classes.png" ) ) );
+}
+
+// Drives every tool through the real panes (mouse and keys sent to the view
+// widgets, as a user would) on a fresh scene, and prints what each changed.
+// Run on demand: cypher_mason_smoke_tests "[.tool-audit]".
+TEST_CASE( "Audit every tool through the real views", "[.tool-audit]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    auto *window = Mason_Window( session.pMason );
+    window->resize( 2200, 1360 );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) );
+    REQUIRE( views != nullptr );
+    MapViews_SetArrangement( views, map_view_arrangement_t::TWO );
+    MapViews_SetPaneView( views, 0, map_view_type_t::CAMERA, map_render_mode_t::SHADED );
+    MapViews_SetPaneView( views, 1, map_view_type_t::TOP, map_render_mode_t::WIREFRAME );
+    QCoreApplication::processEvents();
+    QWidget *camera = MapViews_PaneView( views, 0 ), *top = MapViews_PaneView( views, 1 );
+    REQUIRE( camera != nullptr ); REQUIRE( top != nullptr );
+
+    struct scene_t { u64 floor{}, brush{}, mesh{}, grid{}; } scene;
+    const auto box = [&]( math::vec3d_t lo, math::vec3d_t hi ) {
+        map_bounds_t b{}; MapBounds_AddPoint( b, lo ); MapBounds_AddPoint( b, hi );
+        REQUIRE( MapWorkspace_CreateBox( ws, b ) );
+        return EditorSelection_At( &ws->selection, 0 );
+    };
+    const auto build = [&]() {
+        MapWorkspace_SetTool( ws, map_tool_t::SELECT );
+        MapWorkspace_SetElementMode( ws, map_element_mode_t::OBJECTS );
+        REQUIRE( MapWorkspace_New( ws ) == map_status_t::OK );
+        scene.floor = box( { -640, -640, -16 }, { 640, 640, 0 } );
+        scene.brush = box( { -256, -64, 0 }, { -128, 64, 128 } );
+        scene.mesh = box( { 0, -64, 0 }, { 128, 64, 128 } );
+        REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+        const u64 base = box( { 256, -128, 0 }, { 512, 128, 32 } );
+        u64 side = 0;
+        for ( usize f = 0; f < ws->wire.faces.nCount; ++f ) { if ( ws->wire.faces.pData[f].id == base && ws->wire.faces.pData[f].normal.z > 0.99 ) { side = ws->wire.faces.pData[f].sideId; } }
+        MapWorkspace_SetElementMode( ws, map_element_mode_t::FACES );
+        MapWorkspace_SelectBrushFace( ws, base, side );
+        REQUIRE( EditorCommands_Execute( &ws->pGui->commands, StringView_FromCString( "map.mesh.create_displacement" ), {} ) == command_result_t::OK );
+        scene.grid = EditorSelection_At( &ws->selection, 0 );
+        MapWorkspace_SetElementMode( ws, map_element_mode_t::OBJECTS );
+        MapWorkspace_SetSelection( ws, nullptr, 0 );
+        MapWorkspace_SetTool( ws, map_tool_t::SELECT );
+        MapWorkspace_Frame( ws, CY_FALSE );
+        MapNotice_Post( ws, map_notice_t::INFO, QStringLiteral( "-" ) ); // So the report shows only what the tool says.
+        QCoreApplication::processEvents();
+    };
+    const auto mouse = [&]( QWidget *view, QEvent::Type type, QPointF at, Qt::MouseButton button, Qt::MouseButtons held, Qt::KeyboardModifiers modifiers ) {
+        QMouseEvent event( type, at, view->mapToGlobal( at ), button, held, modifiers );
+        QCoreApplication::sendEvent( view, &event );
+    };
+    const auto click = [&]( QWidget *view, QPointF at, Qt::KeyboardModifiers modifiers = Qt::NoModifier ) {
+        mouse( view, QEvent::MouseMove, at, Qt::NoButton, Qt::NoButton, modifiers );
+        mouse( view, QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton, modifiers );
+        mouse( view, QEvent::MouseButtonRelease, at, Qt::LeftButton, Qt::NoButton, modifiers );
+        QCoreApplication::processEvents();
+    };
+    const auto drag = [&]( QWidget *view, QPointF from, QPointF to, Qt::KeyboardModifiers modifiers = Qt::NoModifier ) {
+        mouse( view, QEvent::MouseMove, from, Qt::NoButton, Qt::NoButton, modifiers );
+        mouse( view, QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton, modifiers );
+        for ( int i = 1; i <= 12; ++i ) { mouse( view, QEvent::MouseMove, from + ( to - from ) * ( i / 12.0 ), Qt::NoButton, Qt::LeftButton, modifiers ); }
+        mouse( view, QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton, modifiers );
+        QCoreApplication::processEvents();
+    };
+    const auto key = [&]( QWidget *view, Qt::Key k ) {
+        view->setFocus();
+        QKeyEvent press( QEvent::KeyPress, k, Qt::NoModifier ); QCoreApplication::sendEvent( view, &press );
+        QKeyEvent release( QEvent::KeyRelease, k, Qt::NoModifier ); QCoreApplication::sendEvent( view, &release );
+        QCoreApplication::processEvents();
+    };
+    const auto at3 = [&]( math::vec3d_t p ) { QPointF out; const bool ok = MapCameraView_WorldToView( camera, p, &out ) != CY_FALSE; CHECK( ok ); return out; };
+    const auto at2 = [&]( f64 x, f64 y ) { return MapOrthoView_WorldToView( top, { x, y } ); };
+    const auto boundsOf = [&]( u64 id ) { const auto *o = MapWireframe_FindObject( ws->wire, id ); return o != nullptr ? o->bounds.box : math::aabbd_t{}; };
+    const auto select = [&]( u64 id ) { MapWorkspace_SetSelection( ws, &id, 1 ); QCoreApplication::processEvents(); };
+
+    struct snap_t { u64 revision{}; usize objects{}, entities{}, steps{}; std::vector<u64> selection; };
+    const auto snap = [&]() {
+        snap_t s{ ws->pDocument->geometry.revision, ws->wire.objects.nCount, ws->wire.entities.nCount, EditorHistory_StepCount( &ws->history ), {} };
+        s.selection.assign( ws->selection.ids.pData, ws->selection.ids.pData + ws->selection.ids.nCount );
+        return s;
+    };
+    int tool = 0;
+    const auto report = [&]( const char *name, const snap_t &before, const char *expect ) {
+        const snap_t after = snap();
+        map_notice_t kind{};
+        const QString notice = MapNotice_Last( ws, &kind );
+        std::printf( "AUDIT %-12s steps %+d objects %+d entities %+d rev %s sel %zu | expect: %-28s | notice: %s\n", name,
+            static_cast<int>( after.steps ) - static_cast<int>( before.steps ), static_cast<int>( after.objects ) - static_cast<int>( before.objects ),
+            static_cast<int>( after.entities ) - static_cast<int>( before.entities ), after.revision != before.revision ? "changed" : "same ",
+            after.selection.size(), expect, notice.toUtf8().constData() );
+        ( void )window->grab().save( QDir::tempPath() + QStringLiteral( "/audit_%1_%2.png" ).arg( tool++, 2, 10, QLatin1Char( '0' ) ).arg( QString::fromLatin1( name ) ) );
+    };
+
+    // Selection tool: a click selects.
+    build(); { const auto b = snap(); click( camera, at3( { -192, 0, 128 } ) ); report( "select", b, "selection = brush" ); CHECK( ws->selection.ids.nCount == 1 ); }
+    // Move: drag the gizmo's centre in Top.
+    build(); { select( scene.brush ); MapWorkspace_SetTool( ws, map_tool_t::TRANSLATE ); QCoreApplication::processEvents();
+        const auto before = boundsOf( scene.brush ); const auto b = snap(); drag( top, at2( -192, 0 ), at2( -192, 128 ) );
+        report( "translate", b, "brush moves +y" ); std::printf( "      brush y %.1f -> %.1f\n", before.minimum.y, boundsOf( scene.brush ).minimum.y ); }
+    build(); { select( scene.brush ); MapWorkspace_SetTool( ws, map_tool_t::ROTATE ); QCoreApplication::processEvents();
+        const auto b = snap(); drag( top, at2( -192 + 70, 0 ), at2( -192, 70 ) ); report( "rotate", b, "brush rotates" ); }
+    build(); { select( scene.brush ); MapWorkspace_SetTool( ws, map_tool_t::SCALE ); QCoreApplication::processEvents();
+        const auto b = snap(); drag( top, at2( -128, 0 ), at2( -64, 0 ) ); report( "scale", b, "brush grows in x" ); }
+    // Block: drag a rectangle in Top, Enter.
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::BLOCK ); QCoreApplication::processEvents();
+        const auto b = snap(); drag( top, at2( -500, 300 ), at2( -400, 400 ) ); key( top, Qt::Key_Return ); report( "block", b, "objects +1" ); }
+    // Clip: a line across the brush in Top, Enter.
+    build(); { select( scene.brush ); MapWorkspace_SetTool( ws, map_tool_t::CLIP ); QCoreApplication::processEvents();
+        const auto b = snap(); drag( top, at2( -320, 0 ), at2( -64, 0 ) ); key( top, Qt::Key_Return ); report( "clip-2d", b, "brush split (objects +1)" ); }
+    build(); { select( scene.mesh ); MapWorkspace_SetTool( ws, map_tool_t::CLIP ); QCoreApplication::processEvents();
+        const auto b = snap(); click( camera, at3( { 0, 0, 128 } ) ); click( camera, at3( { 128, 0, 128 } ) ); key( camera, Qt::Key_Return ); report( "clip-3d", b, "mesh split" ); }
+    // Vertex: drag a corner of the mesh in Top.
+    build(); { select( scene.mesh ); MapWorkspace_SetTool( ws, map_tool_t::VERTEX ); QCoreApplication::processEvents();
+        const auto b = snap(); drag( top, at2( 128, 64 ), at2( 192, 128 ) ); report( "vertex", b, "mesh changes" ); }
+    build(); { select( scene.brush ); MapWorkspace_SetTool( ws, map_tool_t::VERTEX ); QCoreApplication::processEvents();
+        const auto b = snap(); drag( top, at2( -128, 64 ), at2( -96, 96 ) ); report( "vertex-brush", b, "brush changes" ); }
+    // Extrude: drag the mesh's top face up in 3D.
+    build(); { select( scene.mesh ); MapWorkspace_SetTool( ws, map_tool_t::EXTRUDE ); QCoreApplication::processEvents();
+        const auto b = snap(); drag( camera, at3( { 64, 0, 128 } ), at3( { 64, 0, 220 } ) ); report( "extrude", b, "mesh changes" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::EXTRUDE ); QCoreApplication::processEvents();
+        const auto b = snap(); drag( camera, at3( { -192, 0, 128 } ), at3( { -192, 0, 220 } ) ); report( "extrude-brush", b, "brush changes" ); }
+    // Texture: a click picks a face.
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::TEXTURE ); QCoreApplication::processEvents();
+        const auto b = snap(); click( camera, at3( { -192, 0, 128 } ) ); report( "texture", b, "face picked" );
+        std::printf( "      picked brush face: object %llu side %llu\n", static_cast<unsigned long long>( ws->selectedBrushFaceObject ), static_cast<unsigned long long>( ws->selectedBrushFaceSide ) ); }
+    // Entity, decal, overlay: a click places one.
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::ENTITY ); QCoreApplication::processEvents(); const auto b = snap(); click( top, at2( 300, -400 ) ); report( "entity", b, "entities +1" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::DECAL ); QCoreApplication::processEvents(); const auto b = snap(); click( camera, at3( { -400, 0, 0 } ) ); report( "decal", b, "entities +1" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::OVERLAY ); QCoreApplication::processEvents(); const auto b = snap(); click( camera, at3( { -400, 0, 0 } ) ); report( "overlay", b, "entities +1" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::PATH ); QCoreApplication::processEvents(); const auto b = snap();
+        click( top, at2( 300, -400 ) ); click( top, at2( 450, -400 ) ); key( top, Qt::Key_Return ); report( "path", b, "entities +2" ); }
+    // Drawing tools in Top.
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::POLYGON ); QCoreApplication::processEvents(); const auto b = snap();
+        click( top, at2( -500, -500 ) ); click( top, at2( -400, -500 ) ); click( top, at2( -400, -400 ) ); click( top, at2( -500, -400 ) ); key( top, Qt::Key_Return ); report( "polygon", b, "objects +1" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::CURVE ); QCoreApplication::processEvents(); const auto b = snap();
+        click( top, at2( -500, -500 ) ); click( top, at2( -300, -450 ) ); click( top, at2( -100, -500 ) ); key( top, Qt::Key_Return ); report( "curve", b, "objects +1" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::PATCH ); QCoreApplication::processEvents(); const auto b = snap();
+        drag( top, at2( -500, -500 ), at2( -350, -350 ) ); report( "patch", b, "objects +1" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::TERRAIN ); QCoreApplication::processEvents(); const auto b = snap();
+        drag( top, at2( -500, -500 ), at2( -350, -350 ) ); report( "terrain", b, "objects +1 or sculpt" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::MEASURE ); QCoreApplication::processEvents(); const auto b = snap();
+        drag( top, at2( -500, -500 ), at2( -350, -350 ) ); report( "measure", b, "no change, a measurement" ); }
+    build(); { select( scene.brush ); MapWorkspace_SetTool( ws, map_tool_t::MIRROR ); QCoreApplication::processEvents(); const auto b = snap();
+        drag( top, at2( -64, -200 ), at2( -64, 200 ) ); report( "mirror", b, "brush mirrored" ); }
+    // Surface tools in 3D.
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::PAINT ); QCoreApplication::processEvents(); const auto b = snap();
+        drag( camera, at3( { 20, -40, 128 } ), at3( { 110, 40, 128 } ) ); report( "paint-mesh", b, "steps +1" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::PAINT ); QCoreApplication::processEvents(); const auto b = snap();
+        drag( camera, at3( { -240, -40, 128 } ), at3( { -140, 40, 128 } ) ); report( "paint-brush", b, "steps +1 (convert?)" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::EYEDROPPER ); QCoreApplication::processEvents(); const auto b = snap();
+        click( camera, at3( { -192, 0, 128 } ) ); report( "eyedropper", b, "default material set" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::KNIFE ); QCoreApplication::processEvents(); const auto b = snap();
+        click( camera, at3( { 0, 0, 128 } ) ); click( camera, at3( { 128, 0, 128 } ) ); key( camera, Qt::Key_Return ); report( "knife-mesh", b, "mesh cut" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::KNIFE ); QCoreApplication::processEvents(); const auto b = snap();
+        click( camera, at3( { -256, 0, 128 } ) ); click( camera, at3( { -128, 0, 128 } ) ); key( camera, Qt::Key_Return ); report( "knife-brush", b, "brush cut (convert?)" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::LOOP_CUT ); QCoreApplication::processEvents(); const auto b = snap();
+        click( camera, at3( { 128, -64, 64 } ) ); report( "loop-cut", b, "mesh cut" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::LOOP_CUT ); QCoreApplication::processEvents(); const auto b = snap();
+        click( camera, at3( { -128, -64, 64 } ) ); report( "loop-brush", b, "brush cut (convert?)" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::EDGE_CUT ); QCoreApplication::processEvents(); const auto b = snap();
+        click( camera, at3( { 0, 0, 128 } ) ); click( camera, at3( { 128, 0, 128 } ) ); key( camera, Qt::Key_Return ); report( "edge-cut", b, "mesh cut" ); }
+    // Displacement: on the grid (selected), on the grid unselected, on a brush.
+    build(); { select( scene.grid ); MapWorkspace_SetTool( ws, map_tool_t::DISPLACE ); QCoreApplication::processEvents(); const auto b = snap();
+        drag( camera, at3( { 330, -60, 32 } ), at3( { 430, 60, 32 } ) ); report( "displace-sel", b, "grid sculpted" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::DISPLACE ); QCoreApplication::processEvents(); const auto b = snap();
+        drag( camera, at3( { 330, -60, 32 } ), at3( { 430, 60, 32 } ) ); report( "displace-none", b, "grid sculpted" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::DISPLACE ); QCoreApplication::processEvents(); const auto b = snap();
+        drag( camera, at3( { -230, -40, 128 } ), at3( { -150, 40, 128 } ) ); report( "displace-brush", b, "brush sculpted (convert?)" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::PIVOT ); QCoreApplication::processEvents(); const auto b = snap();
+        click( top, at2( 0, 300 ) ); report( "pivot", b, "pivot placed, no change" ); }
+    build(); { MapWorkspace_SetTool( ws, map_tool_t::WORKPLANE ); QCoreApplication::processEvents(); const auto b = snap();
+        click( camera, at3( { -192, 0, 128 } ) ); report( "workplane", b, "workplane set, no change" ); }
+
+    // Misses: every tool, nothing selected, used where it cannot work. Each
+    // either does something or says why not; "SILENT" marks the rest.
+    const std::pair<map_tool_t, const char *> tools[]{
+        { map_tool_t::SELECT, "select" }, { map_tool_t::ENTITY, "entity" }, { map_tool_t::BLOCK, "block" }, { map_tool_t::TEXTURE, "texture" },
+        { map_tool_t::DECAL, "decal" }, { map_tool_t::OVERLAY, "overlay" }, { map_tool_t::CLIP, "clip" }, { map_tool_t::VERTEX, "vertex" },
+        { map_tool_t::PATH, "path" }, { map_tool_t::MEASURE, "measure" }, { map_tool_t::TERRAIN, "terrain" }, { map_tool_t::PATCH, "patch" },
+        { map_tool_t::TRANSLATE, "translate" }, { map_tool_t::ROTATE, "rotate" }, { map_tool_t::SCALE, "scale" }, { map_tool_t::PIVOT, "pivot" },
+        { map_tool_t::POLYGON, "polygon" }, { map_tool_t::MIRROR, "mirror" }, { map_tool_t::PAINT, "paint" }, { map_tool_t::EXTRUDE, "extrude" },
+        { map_tool_t::KNIFE, "knife" }, { map_tool_t::LOOP_CUT, "loop_cut" }, { map_tool_t::EYEDROPPER, "eyedropper" }, { map_tool_t::WORKPLANE, "workplane" },
+        { map_tool_t::CURVE, "curve" }, { map_tool_t::EDGE_CUT, "edge_cut" }, { map_tool_t::EDGE_ARC, "edge_arc" }, { map_tool_t::DISPLACE, "displace" } };
+    for ( const auto &[kind, name] : tools ) {
+        build();
+        MapWorkspace_SetTool( ws, kind ); QCoreApplication::processEvents();
+        const auto gesture = [&]( const char *what, auto &&act ) {
+            MapNotice_Post( ws, map_notice_t::INFO, QStringLiteral( "-" ) );
+            const auto before = snap();
+            act();
+            const auto after = snap();
+            map_notice_t kind2{};
+            const QString notice = MapNotice_Last( ws, &kind2 );
+            const bool changed = after.steps != before.steps || after.selection != before.selection;
+            const bool said = notice != QStringLiteral( "-" );
+            std::printf( "MISS %-10s %-12s %s %s\n", name, what, changed ? "changed" : said ? "said   " : "SILENT ", said ? notice.toUtf8().constData() : "" );
+        };
+        gesture( "sky-click", [&]() { click( camera, QPointF( 40, 40 ) ); } );
+        gesture( "2d-click", [&]() { click( top, at2( -560, 560 ) ); } );
+        gesture( "2d-drag", [&]() { drag( top, at2( -600, 600 ), at2( -520, 520 ) ); } );
+        gesture( "enter", [&]() { key( top, Qt::Key_Return ); } );
+        key( top, Qt::Key_Escape );
+    }
+
+    // The operations each selection mode offers, with a brush and with a mesh
+    // picked by clicking in 3D, and which of them are enabled.
+    struct pick_t { map_element_mode_t mode; const char *name; math::vec3d_t brushAt, meshAt; };
+    const pick_t picks[]{
+        { map_element_mode_t::VERTICES, "vertices", { -128, 64, 128 }, { 128, 64, 128 } },
+        { map_element_mode_t::EDGES, "edges", { -192, 64, 128 }, { 64, 64, 128 } },
+        { map_element_mode_t::FACES, "faces", { -192, 0, 128 }, { 64, 0, 128 } },
+        { map_element_mode_t::MESHES, "meshes", { -192, 0, 128 }, { 64, 0, 128 } },
+        { map_element_mode_t::OBJECTS, "objects", { -192, 0, 128 }, { 64, 0, 128 } } };
+    for ( const auto &pick : picks ) {
+        for ( const bool mesh : { false, true } ) {
+            build();
+            MapWorkspace_SetElementMode( ws, pick.mode ); QCoreApplication::processEvents();
+            click( camera, at3( mesh ? pick.meshAt : pick.brushAt ) );
+            if ( !mesh ) {
+                const auto *object = MapWireframe_FindObject( ws->wire, scene.brush );
+                std::printf( "      brush is now a %s\n", object == nullptr ? "(gone)" : object->kind == map_wire_kind_t::MESH ? "mesh" : "brush" );
+                if ( pick.mode == map_element_mode_t::EDGES && !MapWorkspace_HasMeshEdges( ws ) ) {
+                    click( camera, at3( pick.brushAt ) ); // A second click, now that it is a mesh.
+                    std::printf( "      second click: edges %d\n", MapWorkspace_HasMeshEdges( ws ) ? 1 : 0 );
+                }
+            }
+            QStringList on, off;
+            for ( auto *button : window->findChildren<QToolButton *>() ) {
+                if ( !button->property( "toolOperation" ).toBool() || !button->isVisibleTo( window ) ) { continue; }
+                ( button->isEnabled() ? on : off ).append( button->objectName() );
+            }
+            std::printf( "OPS %-8s %-5s sel %zu verts %d edges %d faces %zu | on %lld: %s\n      off %lld: %s\n", pick.name, mesh ? "mesh" : "brush",
+                static_cast<size_t>( ws->selection.ids.nCount ), MapWorkspace_HasMeshVertices( ws ) ? 1 : 0, MapWorkspace_HasMeshEdges( ws ) ? 1 : 0,
+                static_cast<size_t>( MapWorkspace_MeshFaces( ws ).nCount + ( MapWorkspace_HasBrushFace( ws ) ? 1 : 0 ) ),
+                static_cast<long long>( on.size() ), on.join( QLatin1Char( ' ' ) ).toUtf8().constData(), static_cast<long long>( off.size() ), off.join( QLatin1Char( ' ' ) ).toUtf8().constData() );
+        }
+    }
+}
+
+TEST_CASE( "Capture terrain sculpting and a displaced block face in Mason", "[.sculpt-capture]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    auto *window = Mason_Window( session.pMason );
+    window->resize( 2200, 1360 );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) );
+    REQUIRE( views != nullptr );
+    MapViews_SetArrangement( views, map_view_arrangement_t::HAMMER );
+    MapViews_SetPaneView( views, 0, map_view_type_t::CAMERA, map_render_mode_t::SHADED );
+    map_terrain_create_desc_t terrain{}; terrain.origin = { -2048, -2048, 0 }; terrain.cellSize = 64.0; terrain.cellsX = 64; terrain.cellsY = 64;
+    REQUIRE( MapWorkspace_CreateTerrain( ws, terrain ) );
+    map_bounds_t block{}; MapBounds_AddPoint( block, { -256, -256, 0 } ); MapBounds_AddPoint( block, { 256, 256, 192 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, block ) );
+    MapWorkspace_SetSelection( ws, nullptr, 0 );
+    MapWorkspace_Frame( ws, CY_FALSE ); QCoreApplication::processEvents();
+    QWidget *camera = MapViews_PaneView( views, 0 ); REQUIRE( camera != nullptr );
+    const auto at = [&]( math::vec3d_t p ) { QPointF out; REQUIRE( MapCameraView_WorldToView( camera, p, &out ) ); return out; };
+    const auto stroke = [&]( math::vec3d_t a, math::vec3d_t b ) {
+        const QPointF from = at( a ), to = at( b );
+        QMouseEvent move( QEvent::MouseMove, from, camera->mapToGlobal( from ), Qt::NoButton, Qt::NoButton, Qt::NoModifier ); QCoreApplication::sendEvent( camera, &move );
+        QMouseEvent press( QEvent::MouseButtonPress, from, camera->mapToGlobal( from ), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier ); QCoreApplication::sendEvent( camera, &press );
+        for ( int i = 1; i <= 16; ++i ) {
+            const QPointF p = from + ( to - from ) * ( i / 16.0 );
+            QMouseEvent drag( QEvent::MouseMove, p, camera->mapToGlobal( p ), Qt::NoButton, Qt::LeftButton, Qt::NoModifier ); QCoreApplication::sendEvent( camera, &drag );
+        }
+        QMouseEvent release( QEvent::MouseButtonRelease, to, camera->mapToGlobal( to ), Qt::LeftButton, Qt::NoButton, Qt::NoModifier ); QCoreApplication::sendEvent( camera, &release );
+        QCoreApplication::processEvents();
+    };
+    MapWorkspace_SetTool( ws, map_tool_t::TERRAIN ); QCoreApplication::processEvents();
+    for ( int i = 0; i < 6; ++i ) { stroke( { -1600, -1200.0 + i * 120, 0 }, { -700, -1300.0 + i * 120, 0 } ); }
+    stroke( { 900, -1400, 0 }, { 1400, 1200, 0 } );
+    MapWorkspace_SetTool( ws, map_tool_t::DISPLACE ); QCoreApplication::processEvents();
+    for ( int i = 0; i < 4; ++i ) { stroke( { -150, -150.0 + i * 90, 192 }, { 150, -120.0 + i * 90, 192 } ); }
+    MapWorkspace_SetTool( ws, map_tool_t::TERRAIN ); QCoreApplication::processEvents();
+    const QPointF hover = at( { -400, 800, 0 } );
+    QMouseEvent move( QEvent::MouseMove, hover, camera->mapToGlobal( hover ), Qt::NoButton, Qt::NoButton, Qt::NoModifier ); QCoreApplication::sendEvent( camera, &move );
+    QCoreApplication::processEvents();
+    REQUIRE( window->grab().save( QDir::tempPath() + QStringLiteral( "/mason_sculpt.png" ) ) );
+}
+
+// Opens assets/avia_split.cymap (made by "[.build-avia-split]") and takes
+// screenshots: the whole lot from above, and the office close up.
+TEST_CASE( "Capture the AVIA rent-a-car Split map", "[.avia-capture]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    auto *window = Mason_Window( session.pMason );
+    window->resize( 2200, 1360 );
+    const QString path = QDir::cleanPath( QDir( QStringLiteral( CYPHER_MAP_EXAMPLE_DIR ) ).absoluteFilePath( QStringLiteral( "../../../../assets/avia_split.cymap" ) ) );
+    REQUIRE( MapWorkspace_Open( ws, path ).status == map_files_status_t::OK );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) );
+    REQUIRE( views != nullptr );
+    MapViews_SetArrangement( views, map_view_arrangement_t::HAMMER );
+    MapViews_SetPaneView( views, 0, map_view_type_t::CAMERA, map_render_mode_t::SHADED );
+    QCoreApplication::processEvents();
+    QWidget *camera = MapViews_PaneView( views, 0 ); REQUIRE( camera != nullptr );
+    const auto groupNamed = [&]( const char *name ) {
+        for ( u64 group : MapGroups_All( ws->pDocument ) ) { if ( MapGroups_Name( ws->pDocument, group ) == name ) { return group; } }
+        return u64{ 0 };
+    };
+    const auto frameGroups = [&]( std::initializer_list<const char *> names ) {
+        std::vector<u64> ids;
+        for ( const char *name : names ) {
+            vector_t<u64> members{}; REQUIRE( Vector_Init( &members, Allocator_GetSystem() ) );
+            const u64 group = groupNamed( name ); REQUIRE( group != 0 );
+            REQUIRE( MapDocument_GroupMembers( ws->pDocument, group, &members ) == map_status_t::OK );
+            ids.insert( ids.end(), members.pData, members.pData + members.nCount );
+            Vector_Shutdown( &members );
+        }
+        MapWorkspace_SetElementMode( ws, map_element_mode_t::OBJECTS );
+        MapWorkspace_SetSelection( ws, ids.data(), ids.size() );
+        MapWorkspace_Frame( ws, CY_TRUE ); QCoreApplication::processEvents();
+        MapWorkspace_SetSelection( ws, nullptr, 0 ); QCoreApplication::processEvents();
+    };
+    // Orbit with the camera's own gesture (Alt + left drag).
+    const auto orbit = [&]( f64 dx, f64 dy ) {
+        const QPointF from( camera->width() * 0.5, camera->height() * 0.5 ), to = from + QPointF( dx, dy );
+        QMouseEvent press( QEvent::MouseButtonPress, from, camera->mapToGlobal( from ), Qt::LeftButton, Qt::LeftButton, Qt::AltModifier ); QCoreApplication::sendEvent( camera, &press );
+        for ( int i = 1; i <= 10; ++i ) {
+            const QPointF p = from + ( to - from ) * ( i / 10.0 );
+            QMouseEvent move( QEvent::MouseMove, p, camera->mapToGlobal( p ), Qt::NoButton, Qt::LeftButton, Qt::AltModifier ); QCoreApplication::sendEvent( camera, &move );
+        }
+        QMouseEvent release( QEvent::MouseButtonRelease, to, camera->mapToGlobal( to ), Qt::LeftButton, Qt::NoButton, Qt::AltModifier ); QCoreApplication::sendEvent( camera, &release );
+        QCoreApplication::processEvents();
+    };
+
+    ( void )frameGroups; ( void )orbit;
+    constexpr f64 M = 39.37;
+    const auto shot = [&]( math::vec3d_t eye, math::vec3d_t target, const char *file, bool wholeWindow ) {
+        MapCameraView_LookAt( camera, { eye.x * M, eye.y * M, eye.z * M }, { target.x * M, target.y * M, target.z * M } );
+        QCoreApplication::processEvents();
+        QWidget *source = wholeWindow ? static_cast<QWidget *>( window ) : camera;
+        REQUIRE( source->grab().save( QDir::tempPath() + QStringLiteral( "/" ) + QString::fromLatin1( file ) ) );
+    };
+    shot( { -28, -42, 20 }, { 1, 2, 0 }, "avia_overview.png", true );
+    shot( { -3, -12, 3.2 }, { 3, 5, 1.6 }, "avia_office.png", false );
+    shot( { -14, -30, 5 }, { 2, -12, 0.5 }, "avia_road.png", false );
+    shot( { -4, -5, 2.2 }, { 0, 2.5, 0.8 }, "avia_cars.png", false );
+}
+
+// Lists every command a menu or toolbar can show that still runs the
+// "not yet available" placeholder. Run on demand:
+// cypher_mason_smoke_tests "[.planned-audit]".
+TEST_CASE( "List commands that are still placeholders", "[.planned-audit]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    const command_registry_t *pRegistry = &ws->pGui->commands;
+    usize nPlanned = 0;
+    for ( usize i = 0; i < EditorCommands_Count( pRegistry ); ++i ) {
+        const command_desc_t *pCommand = EditorCommands_At( pRegistry, i );
+        if ( pCommand == nullptr || !MapWorkspace_IsPlannedCommand( pRegistry, StringView_FromCString( pCommand->pId ) ) ) { continue; }
+        std::printf( "PLANNED %-36s %s\n", pCommand->pId, pCommand->pLabel );
+        ++nPlanned;
+    }
+    std::printf( "PLANNED total %zu of %zu commands\n", nPlanned, EditorCommands_Count( pRegistry ) );
+}
+
+// Drives the core tools as a user would and prints exact results (corner
+// positions, bounds) so wrong-but-plausible behaviour shows. Run on demand:
+// cypher_mason_smoke_tests "[.tool-deep]".
+TEST_CASE( "Probe the core tools' exact results through the real views", "[.tool-deep]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    auto *window = Mason_Window( session.pMason );
+    window->resize( 2200, 1360 );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) );
+    REQUIRE( views != nullptr );
+    MapViews_SetArrangement( views, map_view_arrangement_t::TWO );
+    MapViews_SetPaneView( views, 0, map_view_type_t::CAMERA, map_render_mode_t::SHADED );
+    MapViews_SetPaneView( views, 1, map_view_type_t::TOP, map_render_mode_t::WIREFRAME );
+    QCoreApplication::processEvents();
+    QWidget *camera = MapViews_PaneView( views, 0 ), *top = MapViews_PaneView( views, 1 );
+    REQUIRE( camera != nullptr ); REQUIRE( top != nullptr );
+
+    const auto box = [&]( math::vec3d_t lo, math::vec3d_t hi ) {
+        map_bounds_t b{}; MapBounds_AddPoint( b, lo ); MapBounds_AddPoint( b, hi );
+        REQUIRE( MapWorkspace_CreateBox( ws, b ) );
+        return EditorSelection_At( &ws->selection, 0 );
+    };
+    u64 brush = 0, mesh = 0;
+    const auto build = [&]() {
+        MapWorkspace_SetTool( ws, map_tool_t::SELECT );
+        MapWorkspace_SetElementMode( ws, map_element_mode_t::OBJECTS );
+        REQUIRE( MapWorkspace_New( ws ) == map_status_t::OK );
+        box( { -640, -640, -16 }, { 640, 640, 0 } );
+        brush = box( { -256, -64, 0 }, { -128, 64, 128 } );
+        mesh = box( { 0, -64, 0 }, { 128, 64, 128 } );
+        REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+        MapWorkspace_SetSelection( ws, nullptr, 0 );
+        MapWorkspace_Frame( ws, CY_FALSE );
+        QCoreApplication::processEvents();
+    };
+    const auto mouse = [&]( QWidget *view, QEvent::Type type, QPointF at, Qt::MouseButton button, Qt::MouseButtons held, Qt::KeyboardModifiers modifiers ) {
+        QMouseEvent event( type, at, view->mapToGlobal( at ), button, held, modifiers );
+        QCoreApplication::sendEvent( view, &event );
+    };
+    const auto click = [&]( QWidget *view, QPointF at, Qt::KeyboardModifiers modifiers = Qt::NoModifier ) {
+        mouse( view, QEvent::MouseMove, at, Qt::NoButton, Qt::NoButton, modifiers );
+        mouse( view, QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton, modifiers );
+        mouse( view, QEvent::MouseButtonRelease, at, Qt::LeftButton, Qt::NoButton, modifiers );
+        QCoreApplication::processEvents();
+    };
+    const auto drag = [&]( QWidget *view, QPointF from, QPointF to, Qt::KeyboardModifiers modifiers = Qt::NoModifier ) {
+        mouse( view, QEvent::MouseMove, from, Qt::NoButton, Qt::NoButton, modifiers );
+        mouse( view, QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton, modifiers );
+        for ( int i = 1; i <= 12; ++i ) { mouse( view, QEvent::MouseMove, from + ( to - from ) * ( i / 12.0 ), Qt::NoButton, Qt::LeftButton, modifiers ); }
+        mouse( view, QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton, modifiers );
+        QCoreApplication::processEvents();
+    };
+    const auto key = [&]( QWidget *view, Qt::Key k, Qt::KeyboardModifiers modifiers = Qt::NoModifier ) {
+        view->setFocus();
+        QKeyEvent press( QEvent::KeyPress, k, modifiers ); QCoreApplication::sendEvent( view, &press );
+        QKeyEvent release( QEvent::KeyRelease, k, modifiers ); QCoreApplication::sendEvent( view, &release );
+        QCoreApplication::processEvents();
+    };
+    const auto at3 = [&]( math::vec3d_t p ) { QPointF out; ( void )MapCameraView_WorldToView( camera, p, &out ); return out; };
+    const auto at2 = [&]( f64 x, f64 y ) { return MapOrthoView_WorldToView( top, { x, y } ); };
+    const auto select = [&]( u64 id ) { MapWorkspace_SetSelection( ws, &id, 1 ); QCoreApplication::processEvents(); };
+    // The distinct corners of an object, sorted, as text.
+    const auto corners = [&]( u64 id ) {
+        std::vector<std::array<f64, 3>> points;
+        const auto *o = MapWireframe_FindObject( ws->wire, id );
+        for ( u32 l = 0; o != nullptr && l < o->nLines; ++l ) {
+            for ( const u32 index : { ws->wire.lines.pData[o->iFirstLine + l].iA, ws->wire.lines.pData[o->iFirstLine + l].iB } ) {
+                const auto p = ws->wire.points.pData[index];
+                std::array<f64, 3> q{ std::round( p.x * 100 ) / 100, std::round( p.y * 100 ) / 100, std::round( p.z * 100 ) / 100 };
+                if ( std::find( points.begin(), points.end(), q ) == points.end() ) { points.push_back( q ); }
+            }
+        }
+        std::sort( points.begin(), points.end() );
+        std::string text;
+        for ( const auto &p : points ) { char buffer[64]; std::snprintf( buffer, sizeof( buffer ), "(%g %g %g) ", p[0], p[1], p[2] ); text += buffer; }
+        return text;
+    };
+    const auto bounds = [&]( u64 id ) {
+        const auto *o = MapWireframe_FindObject( ws->wire, id );
+        char buffer[128]{};
+        if ( o != nullptr ) { std::snprintf( buffer, sizeof( buffer ), "[%g %g %g .. %g %g %g]", o->bounds.box.minimum.x, o->bounds.box.minimum.y, o->bounds.box.minimum.z, o->bounds.box.maximum.x, o->bounds.box.maximum.y, o->bounds.box.maximum.z ); }
+        return std::string( buffer );
+    };
+    const auto say = [&]( const char *name, const std::string &result, const char *expect ) {
+        map_notice_t kind{};
+        std::printf( "DEEP %-26s %s\n     expect: %s\n     notice: %s\n", name, result.c_str(), expect, MapNotice_Last( ws, &kind ).toUtf8().constData() );
+        MapNotice_Post( ws, map_notice_t::INFO, QStringLiteral( "-" ) );
+    };
+    std::printf( "DEEP grid %g\n", ws->gridSize );
+
+    // Translate gizmo: the X handle in Top, then the centre in 3D.
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::TRANSLATE ); QCoreApplication::processEvents();
+    drag( top, at2( -192 + 40, 0 ), at2( -192 + 40 + 50, 30 ) );
+    say( "translate x-handle top", bounds( brush ), "x moves +48 (grid), y unchanged" );
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::TRANSLATE ); QCoreApplication::processEvents();
+    drag( camera, at3( { -192, 0, 64 } ), at3( { -192 + 64, 0, 64 } ) );
+    say( "translate centre 3d", bounds( brush ), "moves about +64 in x on the ground plane, z unchanged" );
+    // Rotate 90 in Top about the centre; check corners, not bounds.
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::ROTATE ); QCoreApplication::processEvents();
+    drag( top, at2( -192 + 60, 0 ), at2( -192, 60 ) );
+    say( "rotate 90 top", corners( brush ), "same square (rotated 90 about centre)" );
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::ROTATE ); QCoreApplication::processEvents();
+    drag( top, at2( -192 + 60, 0 ), at2( -192 + 42.4, 42.4 ) );
+    say( "rotate 45 top", corners( brush ), "diamond, corners at distance 90.5 from (-192,0)" );
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::SCALE ); QCoreApplication::processEvents();
+    drag( top, at2( -192 + 60, 0 ), at2( -192 + 90, 0 ) );
+    say( "scale centre drag top", bounds( brush ), "uniform scale x1.5 about centre in x/y" );
+    // Block tool: drag a rectangle in Top, Enter.
+    build(); MapWorkspace_SetTool( ws, map_tool_t::BLOCK ); QCoreApplication::processEvents();
+    drag( top, at2( -500, 300 ), at2( -404, 404 ) ); key( top, Qt::Key_Return );
+    say( "block top", bounds( EditorSelection_At( &ws->selection, 0 ) ), "x -500..-404 snapped (-496/-400?), y 304..400, z 0..? (height)" );
+    // Block in 3D on the floor, in front of the objects (a floor point behind
+    // the mesh is a press on the mesh's top).
+    build(); MapWorkspace_SetTool( ws, map_tool_t::BLOCK ); QCoreApplication::processEvents();
+    drag( camera, at3( { -32, -320, 0 } ), at3( { 96, -192, 0 } ) ); key( camera, Qt::Key_Return );
+    say( "block 3d floor", ws->selection.ids.nCount ? bounds( EditorSelection_At( &ws->selection, 0 ) ) : std::string( "none" ), "x -32..96, y -320..-192 on the floor, z 0..64" );
+    // Clip 2D across the brush: halves.
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::CLIP ); QCoreApplication::processEvents();
+    drag( top, at2( -320, 0 ), at2( -64, 0 ) ); key( top, Qt::Key_Return );
+    {
+        std::string r;
+        for ( usize i = 0; i < ws->selection.ids.nCount; ++i ) { r += bounds( ws->selection.ids.pData[i] ) + " "; }
+        say( "clip top y=0", r, "two halves: y -64..0 and 0..64" );
+    }
+    // Vertex tool on a brush corner in Top.
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::VERTEX ); QCoreApplication::processEvents();
+    drag( top, at2( -128, 64 ), at2( -96, 96 ) );
+    say( "vertex brush corner top", corners( brush ), "corner (-128 64 *) moves to (-96 96 *): both top and bottom corners (2D drags the column)" );
+    // Extrude the mesh's top face in 3D.
+    build(); select( mesh ); MapWorkspace_SetTool( ws, map_tool_t::EXTRUDE ); QCoreApplication::processEvents();
+    drag( camera, at3( { 64, 0, 128 } ), at3( { 64, 0, 192 } ) );
+    say( "extrude mesh top 3d", bounds( mesh ), "z max 128 -> ~192 (snapped), x/y unchanged" );
+    // Faces mode: click the mesh's top face, Translate gizmo up in 3D.
+    build(); select( mesh ); MapWorkspace_SetElementMode( ws, map_element_mode_t::FACES ); MapWorkspace_SetTool( ws, map_tool_t::SELECT ); QCoreApplication::processEvents();
+    click( camera, at3( { 64, 0, 128 } ) );
+    say( "face pick 3d", std::to_string( MapWorkspace_MeshFaces( ws ).nCount ) + " faces", "1 face of the mesh" );
+    MapWorkspace_SetTool( ws, map_tool_t::TRANSLATE ); QCoreApplication::processEvents();
+    say( "face gizmo available?", MapToolGestures_CanTransformComponents( ws, map_component_transform_t::TRANSLATE ) ? std::string( "yes" ) : std::string( "no" ), "yes" );
+    drag( camera, at3( { 64, 0, 128 } ), at3( { 64, 0, 192 } ) );
+    say( "face gizmo centre drag 3d", corners( mesh ), "top face moves up (or along view plane)" );
+    // Edges mode: click an edge of the mesh in 3D, drag it with Select.
+    build(); select( mesh ); MapWorkspace_SetElementMode( ws, map_element_mode_t::EDGES ); MapWorkspace_SetTool( ws, map_tool_t::SELECT ); QCoreApplication::processEvents();
+    click( camera, at3( { 64, -64, 128 } ) );
+    say( "edge pick 3d", std::to_string( ws->meshSelection.edges.nCount ) + " edges", "1 edge (top front)" );
+    drag( camera, at3( { 64, -64, 128 } ), at3( { 64, -64, 192 } ) );
+    say( "edge drag 3d", corners( mesh ), "the two top front corners move up (or along view plane) by a grid step multiple" );
+    // Vertices mode: click a corner in Top and drag it.
+    build(); select( mesh ); MapWorkspace_SetElementMode( ws, map_element_mode_t::VERTICES ); MapWorkspace_SetTool( ws, map_tool_t::SELECT ); QCoreApplication::processEvents();
+    drag( top, at2( 128, 64 ), at2( 160, 96 ) );
+    say( "vertex drag top (mesh)", corners( mesh ), "corner column (128 64) -> (160 96)" );
+    // Polygon tool: four clicks in Top, Enter.
+    build(); MapWorkspace_SetTool( ws, map_tool_t::POLYGON ); QCoreApplication::processEvents();
+    click( top, at2( -500, -500 ) ); click( top, at2( -400, -500 ) ); click( top, at2( -400, -400 ) ); key( top, Qt::Key_Return );
+    say( "polygon triangle top", ws->selection.ids.nCount ? corners( EditorSelection_At( &ws->selection, 0 ) ) : std::string( "none" ), "triangular prism over those 3 points" );
+    // Mirror across x = -64 in Top.
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::MIRROR ); QCoreApplication::processEvents();
+    drag( top, at2( -64, -200 ), at2( -64, 200 ) );
+    say( "mirror x=-64 top", bounds( brush ), "x 0..128 (mirrored across x=-64)" );
+    // ---- Batch 2 ----
+    const auto count = [&]() { return std::to_string( ws->wire.objects.nCount ) + " objects, sel " + std::to_string( ws->selection.ids.nCount ); };
+    const auto run = [&]( const char *command ) {
+        return std::string( EditorCommands_ResultName( EditorCommands_Execute( &ws->pGui->commands, StringView_FromCString( command ), {} ) ) );
+    };
+    // Rotate in 3D: drag around the gizmo ring on the floor.
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::ROTATE ); QCoreApplication::processEvents();
+    drag( camera, at3( { -192 + 60, 0, 64 } ), at3( { -192, 60, 64 } ) );
+    say( "rotate 3d ring", corners( brush ), "rotated about Z by a snapped angle (corners at r=90.5 or the square)" );
+    // Clip mode cycling: Front keeps one half.
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::CLIP ); QCoreApplication::processEvents();
+    drag( top, at2( -320, 0 ), at2( -64, 0 ) ); key( top, Qt::Key_Tab ); key( top, Qt::Key_Return );
+    say( "clip with Tab then Enter", count() + " " + ( ws->selection.ids.nCount ? bounds( ws->selection.ids.pData[0] ) : std::string() ), "Tab cycles which side is kept; one half kept" );
+    // Brush face push/pull in 3D with the Select tool in faces mode.
+    build(); select( brush ); MapWorkspace_SetElementMode( ws, map_element_mode_t::FACES ); MapWorkspace_SetTool( ws, map_tool_t::SELECT ); QCoreApplication::processEvents();
+    click( camera, at3( { -192, 0, 128 } ) );
+    say( "brush face pick 3d", std::to_string( ws->selectedBrushFaceObject ) + "/" + std::to_string( ws->selectedBrushFaceSide ), "the brush's top side" );
+    MapWorkspace_SetTool( ws, map_tool_t::TRANSLATE ); QCoreApplication::processEvents();
+    drag( camera, at3( { -192, 0, 128 } ), at3( { -192, 0, 192 } ), Qt::NoModifier );
+    say( "brush face translate 3d", bounds( brush ), "top face moves (floor plane: in x/y) - or with the Z handle up" );
+    // Extrude tool on a brush face in 2D (Front view would be needed; use Top side face).
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::EXTRUDE ); QCoreApplication::processEvents();
+    drag( top, at2( -128, 0 ), at2( -64, 0 ) );
+    say( "extrude brush side 2d", bounds( brush ), "east side pushed from x=-128 to x=-64" );
+    // Shift-drag clone with the gizmo in Top.
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::TRANSLATE ); QCoreApplication::processEvents();
+    drag( top, at2( -192, 0 ), at2( -192, 200 ), Qt::ShiftModifier );
+    say( "shift-drag clone top", count() + " original " + bounds( brush ), "objects +1, original stays, clone at +y" );
+    // Hollow.
+    build(); select( brush ); say( "hollow", run( "map.brush.hollow" ) + " " + count(), "6 wall brushes replace the brush" );
+    // Texture fit on the brush's top face.
+    build(); select( brush ); MapWorkspace_SetElementMode( ws, map_element_mode_t::FACES ); MapWorkspace_SetTool( ws, map_tool_t::SELECT ); QCoreApplication::processEvents();
+    click( camera, at3( { -192, 0, 128 } ) );
+    say( "texture fit", run( "map.texture.fit" ) + " steps " + std::to_string( EditorHistory_StepCount( &ws->history ) ), "OK, one step" );
+    say( "texture align world", run( "map.texture.align_world" ), "OK" );
+    say( "texture rotate", run( "map.texture.rotate" ), "OK" );
+    // Edge commands on the mesh: bevel / connect / dissolve.
+    build(); select( mesh ); MapWorkspace_SetElementMode( ws, map_element_mode_t::EDGES ); MapWorkspace_SetTool( ws, map_tool_t::SELECT ); QCoreApplication::processEvents();
+    click( camera, at3( { 64, -64, 128 } ) );
+    say( "edge bevel", run( "map.mesh.bevel" ) + " corners " + corners( mesh ), "OK; the top front edge becomes a chamfer face" );
+    build(); select( mesh ); MapWorkspace_SetElementMode( ws, map_element_mode_t::EDGES ); MapWorkspace_SetTool( ws, map_tool_t::SELECT ); QCoreApplication::processEvents();
+    click( camera, at3( { 64, -64, 128 } ) ); click( camera, at3( { 64, 64, 128 } ), Qt::ShiftModifier );
+    say( "edge connect (2 edges)", std::to_string( ws->meshSelection.edges.nCount ) + " sel; " + run( "map.mesh.connect_edges" ), "2 selected; OK, a new edge across the top" );
+    build(); select( mesh ); MapWorkspace_SetElementMode( ws, map_element_mode_t::EDGES ); MapWorkspace_SetTool( ws, map_tool_t::SELECT ); QCoreApplication::processEvents();
+    click( camera, at3( { 64, -64, 128 } ) );
+    say( "edge dissolve", run( "map.mesh.dissolve" ), "OK or a clear refusal (dissolving a box edge merges two faces into a non-planar one)" );
+    // Box-select objects in Top with the Select tool.
+    build(); MapWorkspace_SetTool( ws, map_tool_t::SELECT ); QCoreApplication::processEvents();
+    drag( top, at2( -300, -100 ), at2( 200, 100 ) );
+    say( "marquee top", count(), "brush and mesh selected (2)" );
+    // Ctrl-click deselect in 3D.
+    click( camera, at3( { -192, 0, 128 } ), Qt::ControlModifier );
+    say( "ctrl-click 3d deselects", count(), "sel 1" );
+
+    // ---- Batch 3: placement on surfaces, keyboard edits ----
+    const auto entityOrigin = [&]() {
+        if ( ws->wire.entities.nCount == 0 ) { return std::string( "no entity" ); }
+        const auto &entity = ws->wire.entities.pData[ws->wire.entities.nCount - 1];
+        char buffer[96]{}; std::snprintf( buffer, sizeof( buffer ), "(%g %g %g)", entity.origin.x, entity.origin.y, entity.origin.z );
+        return std::string( buffer );
+    };
+    build(); MapWorkspace_SetTool( ws, map_tool_t::ENTITY ); QCoreApplication::processEvents();
+    click( camera, at3( { -192, 0, 128 } ) );
+    say( "entity on brush top 3d", entityOrigin(), "origin on the brush top: z = 128 (+ the class's floor offset)" );
+    build(); MapWorkspace_SetTool( ws, map_tool_t::BLOCK ); QCoreApplication::processEvents();
+    drag( camera, at3( { -240, -48, 128 } ), at3( { -144, 48, 128 } ) ); key( camera, Qt::Key_Return );
+    say( "block on brush top 3d", ws->selection.ids.nCount ? bounds( EditorSelection_At( &ws->selection, 0 ) ) : std::string( "none" ), "a block standing on the brush top (z 128..192), as Hammer 5 draws on surfaces" );
+    build(); MapWorkspace_SetTool( ws, map_tool_t::POLYGON ); QCoreApplication::processEvents();
+    click( camera, at3( { -240, -48, 128 } ) ); click( camera, at3( { -144, -48, 128 } ) ); click( camera, at3( { -192, 48, 128 } ) ); key( camera, Qt::Key_Return );
+    say( "polygon on brush top 3d", ws->selection.ids.nCount ? bounds( EditorSelection_At( &ws->selection, 0 ) ) : std::string( "none" ), "a prism standing on the brush top" );
+    // Keyboard: nudge in Top, duplicate, delete, undo/redo.
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::SELECT ); QCoreApplication::processEvents();
+    key( top, Qt::Key_Right );
+    say( "nudge right top", bounds( brush ), "x +16 (one grid step)" );
+    build(); select( brush ); QCoreApplication::processEvents();
+    key( top, Qt::Key_D, Qt::ControlModifier );
+    say( "ctrl+d duplicate", count(), "objects +1 (4), the copy selected" );
+    build(); select( brush ); QCoreApplication::processEvents();
+    key( top, Qt::Key_Delete );
+    say( "delete key", count(), "objects -1 (2)" );
+    ( void )MapWorkspace_Undo( ws ); QCoreApplication::processEvents();
+    say( "undo delete", count(), "objects back to 3" );
+    ( void )MapWorkspace_Redo( ws ); QCoreApplication::processEvents();
+    say( "redo delete", count(), "objects 2" );
+
+    // Undo after a translate restores exactly.
+    build(); select( brush ); const std::string before = bounds( brush ); MapWorkspace_SetTool( ws, map_tool_t::TRANSLATE ); QCoreApplication::processEvents();
+    drag( top, at2( -192, 0 ), at2( -192, 128 ) );
+    ( void )MapWorkspace_Undo( ws ); QCoreApplication::processEvents();
+    say( "translate then undo", bounds( brush ) + " vs " + before, "equal" );
+
+    // ---- Batch 4: the remaining tools ----
+    const auto faces = [&]( u64 id ) {
+        usize n = 0;
+        for ( usize f = 0; f < ws->wire.faces.nCount; ++f ) { n += ws->wire.faces.pData[f].id == id ? 1u : 0u; }
+        return std::to_string( n ) + " faces";
+    };
+    const auto selection = [&]() {
+        std::string text = count();
+        for ( usize i = 0; i < ws->selection.ids.nCount; ++i ) { text += " " + bounds( ws->selection.ids.pData[i] ); }
+        return text;
+    };
+    const auto steps = [&]() { return EditorHistory_StepCount( &ws->history ); };
+    const auto entities = [&]() {
+        std::string text = std::to_string( ws->wire.entities.nCount ) + " entities";
+        for ( usize i = 0; i < ws->wire.entities.nCount; ++i ) {
+            const auto &entity = ws->wire.entities.pData[i];
+            char buffer[160]{}; std::snprintf( buffer, sizeof( buffer ), " %s(%g %g %g)", entity.className, entity.origin.x, entity.origin.y, entity.origin.z );
+            text += buffer;
+        }
+        return text;
+    };
+    // Clip in 3D: a line drawn across the brush top at x = -192.
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::CLIP ); QCoreApplication::processEvents();
+    drag( camera, at3( { -192, -64, 128 } ), at3( { -192, 64, 128 } ) ); key( camera, Qt::Key_Return );
+    say( "clip 3d line on top", selection(), "the brush cut at x = -192 (one or both halves kept)" );
+    // Loop Cut: click the middle of the mesh's front vertical edge.
+    build(); select( mesh ); MapWorkspace_SetTool( ws, map_tool_t::LOOP_CUT ); QCoreApplication::processEvents();
+    click( camera, at3( { 0, -64, 64 } ) );
+    say( "loop cut 3d", faces( mesh ), "6 -> 10 faces (a ring round the box at z 64)" );
+    // Edge Cut: a point on the front vertical edge, one on the top front edge.
+    build(); select( mesh ); MapWorkspace_SetTool( ws, map_tool_t::EDGE_CUT ); QCoreApplication::processEvents();
+    click( camera, at3( { 0, -64, 64 } ) ); click( camera, at3( { 64, -64, 128 } ) ); key( camera, Qt::Key_Return );
+    say( "edge cut 3d", faces( mesh ), "6 -> 7 faces (the front face cut corner to corner)" );
+    // Edge Arc on one edge: there is no inner corner to move.
+    build(); select( mesh ); MapWorkspace_SetTool( ws, map_tool_t::EDGE_ARC ); QCoreApplication::processEvents();
+    click( camera, at3( { 64, -64, 128 } ) );
+    { const auto before = steps(); drag( camera, at3( { 64, -96, 160 } ), at3( { 64, -128, 200 } ) );
+      say( "edge arc single edge", std::to_string( steps() - before ) + " steps " + corners( mesh ), "a visible bend, or a clear notice of what is needed" ); }
+    // Path: two corners on the floor, Enter.
+    build(); MapWorkspace_SetTool( ws, map_tool_t::PATH ); QCoreApplication::processEvents();
+    click( camera, at3( { -64, -320, 0 } ) ); click( camera, at3( { 64, -320, 0 } ) ); key( camera, Qt::Key_Return );
+    say( "path 3d", entities(), "2 path_corner on the floor at z 0" );
+    // Measure: a drag changes nothing.
+    build(); MapWorkspace_SetTool( ws, map_tool_t::MEASURE ); QCoreApplication::processEvents();
+    { const auto before = steps(); drag( camera, at3( { -192, 0, 128 } ), at3( { 64, 0, 128 } ) );
+      say( "measure 3d", std::to_string( steps() - before ) + " steps", "0 steps (a readout only)" ); }
+    // Eyedropper on the brush top.
+    build(); MapWorkspace_SetTool( ws, map_tool_t::EYEDROPPER ); QCoreApplication::processEvents();
+    click( camera, at3( { -192, 0, 128 } ) );
+    say( "eyedropper 3d", std::string( "(see notice)" ), "the active material is the brush's" );
+    // Decal and overlay on the mesh top.
+    build(); MapWorkspace_SetTool( ws, map_tool_t::DECAL ); QCoreApplication::processEvents();
+    click( camera, at3( { 64, 0, 128 } ) );
+    say( "decal 3d", entities(), "infodecal at (64 0 128)" );
+    build(); MapWorkspace_SetTool( ws, map_tool_t::OVERLAY ); QCoreApplication::processEvents();
+    click( camera, at3( { 64, 0, 128 } ) );
+    say( "overlay 3d", entities(), "info_overlay at (64 0 128)" );
+    // Paint and Displace strokes on the mesh top.
+    build(); select( mesh ); MapWorkspace_SetTool( ws, map_tool_t::PAINT ); QCoreApplication::processEvents();
+    { const auto before = steps(); drag( camera, at3( { 16, -48, 128 } ), at3( { 112, 48, 128 } ) );
+      say( "paint stroke 3d", std::to_string( steps() - before ) + " steps", "1 step" ); }
+    build(); select( mesh ); MapWorkspace_SetTool( ws, map_tool_t::DISPLACE ); QCoreApplication::processEvents();
+    { const auto before = steps(); drag( camera, at3( { 32, -32, 128 } ), at3( { 96, 32, 128 } ) );
+      say( "displace stroke 3d", std::to_string( steps() - before ) + " steps " + bounds( mesh ), "1 step, the top raised (z max > 128)" ); }
+    // Pivot on the brush top; Workplane on the brush's front side, then an entity on it.
+    build(); MapWorkspace_SetTool( ws, map_tool_t::PIVOT ); QCoreApplication::processEvents();
+    click( camera, at3( { -160, 32, 128 } ) );
+    { math::vec3d_t pivot{}; const bool has = MapToolGestures_Pivot( ws, &pivot );
+      char buffer[96]{}; std::snprintf( buffer, sizeof( buffer ), "%s (%g %g %g)", has ? "set" : "unset", pivot.x, pivot.y, pivot.z );
+      say( "pivot 3d", buffer, "set (-160 32 128)" ); }
+    build(); MapWorkspace_SetTool( ws, map_tool_t::WORKPLANE ); QCoreApplication::processEvents();
+    click( camera, at3( { -192, -64, 64 } ) );
+    MapWorkspace_SetTool( ws, map_tool_t::ENTITY ); QCoreApplication::processEvents();
+    click( camera, at3( { -320, -64, 96 } ) );
+    say( "workplane then entity", entities(), "the entity on the plane y = -64" );
+    // Curve: three clicks on the floor, Enter.
+    build(); MapWorkspace_SetTool( ws, map_tool_t::CURVE ); QCoreApplication::processEvents();
+    click( camera, at3( { -64, -320, 0 } ) ); click( camera, at3( { 64, -320, 0 } ) ); click( camera, at3( { 64, -192, 0 } ) ); key( camera, Qt::Key_Return );
+    { std::string settings;
+      for ( const char *path : { "editor.map.curve_shape", "editor.map.curve_profile", "editor.map.curve_output", "editor.map.curve_width", "editor.map.curve_height" } ) {
+          const auto text = EditorSettings_Text( &ws->pGui->settings, path, StringView_FromCString( "?" ) );
+          settings += std::string( path + 11 ) + "=" + std::string( text.pData, text.cchLength ) + " ";
+      }
+      say( "curve 3d", selection() + " | " + settings, "a swept mesh or curve object created" ); }
+    // Vertex tool in 3D: drag the brush's top front-right corner sideways.
+    build(); select( brush ); MapWorkspace_SetTool( ws, map_tool_t::VERTEX ); QCoreApplication::processEvents();
+    drag( camera, at3( { -128, -64, 128 } ), at3( { -96, -64, 128 } ) );
+    say( "vertex tool 3d", corners( brush ), "the corner (-128 -64 128) slides to about (-96 -64 128)" );
+    // Texture tool: click the brush top in 3D.
+    build(); MapWorkspace_SetTool( ws, map_tool_t::TEXTURE ); QCoreApplication::processEvents();
+    click( camera, at3( { -192, 0, 128 } ) );
+    say( "texture tool pick 3d", std::to_string( ws->selectedBrushFaceObject ) + "/" + std::to_string( ws->selectedBrushFaceSide ), "the brush's top side" );
+    // Terrain: the panel's Create Terrain button makes one, then a drag raises it.
+    build(); say( "terrain create (opens panel)", run( "map.terrain.create" ), "OK" );
+    QCoreApplication::processEvents();
+    { auto *create = window->findChild<QPushButton *>( QStringLiteral( "MapTerrainCreate" ) );
+      if ( create != nullptr && create->isEnabled() ) { create->click(); }
+      QCoreApplication::processEvents();
+      say( "terrain create button", std::string( create == nullptr ? "no button" : create->isEnabled() ? "clicked" : "disabled" ) + " " + std::to_string( ws->pDocument->geometry.heightFields.nCount ) + " fields",
+           "1 field" ); }
+    MapWorkspace_SetTool( ws, map_tool_t::TERRAIN ); QCoreApplication::processEvents();
+    { u64 field = 0;
+      for ( usize o = 0; o < ws->wire.objects.nCount; ++o ) { if ( ws->wire.objects.pData[o].kind == map_wire_kind_t::TERRAIN ) { field = ws->wire.objects.pData[o].id; } }
+      const auto *object = MapWireframe_FindObject( ws->wire, field );
+      const auto centre = object != nullptr ? MapBounds_Center( object->bounds ) : math::vec3d_t{};
+      const auto before = steps(); drag( camera, at3( { centre.x - 64, centre.y, centre.z } ), at3( { centre.x + 64, centre.y, centre.z } ) );
+      say( "terrain stroke", std::to_string( steps() - before ) + " steps " + bounds( field ), "1 step (raised)" ); }
+}
+
+// Renders the showcase map (assets/black_mesa_entrance.cymap) from fixed
+// viewpoints into PNGs, to look at what the editor shows. Not a contract.
+// CYPHER_SHOTS_DIR picks the folder (default: the system temp folder).
+TEST_CASE( "Render the showcase map from fixed viewpoints", "[.showcase-shots]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    auto *window = Mason_Window( session.pMason );
+    const QString map = QDir( QStringLiteral( CYPHER_REPOSITORY_ROOT ) ).filePath( QStringLiteral( "assets/black_mesa_entrance.cymap" ) );
+    REQUIRE( Mason_OpenMap( session.pMason, map ) );
+    QCoreApplication::processEvents();
+    const QByteArray env = qgetenv( "CYPHER_SHOTS_DIR" );
+    const QDir out( env.isEmpty() ? QDir::temp().filePath( QStringLiteral( "cypher_showcase" ) ) : QString::fromUtf8( env ) );
+    REQUIRE( QDir().mkpath( out.absolutePath() ) );
+
+    // The editor itself, with the map open.
+    window->resize( 1920, 1080 );
+    QCoreApplication::processEvents();
+    REQUIRE( window->grab().save( out.filePath( QStringLiteral( "00_mason.png" ) ) ) );
+
+    // Trigger volumes would stand in front of the views (Hammer's "hide
+    // triggers" for screenshots).
+    MapWorkspace_SetVisgroupHidden( ws, map_visgroup_t::TRIGGERS, CY_TRUE );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, ws ) );
+    camera->resize( 1600, 900 );
+    camera->show();
+    MapCameraView_SetRenderMode( camera.get(), map_render_mode_t::SHADED );
+    QCoreApplication::processEvents();
+    struct shot_t { const char *name; math::vec3d_t eye, target; };
+    const shot_t shots[]{
+        { "01_overview", { -2600, -3200, 3000 }, { 0, 200, 200 } },
+        { "02_tram_platform", { -1100, -700, 140 }, { 400, -900, 20 } },
+        { "03_lobby_from_door", { 0, 150, 220 }, { 0, 720, 330 } },
+        { "04_lobby_from_balcony", { 380, 980, 470 }, { -160, 240, 200 } },
+        { "05_lobby_corner", { 720, 60, 600 }, { -320, 820, 240 } },
+        { "06_checkpoint", { -360, -40, 270 }, { 300, -200, 170 } },
+        { "07_stair_tower", { -880, 440, 250 }, { -1420, 450, 330 } },
+        { "08_elevator_shaft", { 110, 1470, 720 }, { -40, 1330, 250 } },
+        { "09_desert", { 1100, -1100, 520 }, { 3400, 1500, 640 } },
+        { "10_stairs_up", { 0, -610, 70 }, { 0, -250, 230 } },
+    };
+    for ( const shot_t &shot : shots ) {
+        MapCameraView_LookAt( camera.get(), shot.eye, shot.target );
+        QCoreApplication::processEvents();
+        QElapsedTimer timer;
+        timer.start();
+        const QPixmap pixels = camera->grab();
+        std::printf( "%-24s %lld ms\n", shot.name, static_cast<long long>( timer.elapsed() ) );
+        REQUIRE( pixels.save( out.filePath( QString::fromLatin1( shot.name ) + QStringLiteral( ".png" ) ) ) );
+    }
+    // The plan: Top view, wireframe, the whole map.
+    std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, ws, map_ortho_axes_t::TOP ) );
+    top->resize( 1600, 1200 );
+    top->show();
+    ws->frameBounds.box = { { -1700, -1200, -100 }, { 1700, 1600, 1100 } };
+    ws->frameBounds.bHas = CY_TRUE;
+    MapWorkspace_Notify( ws, MAP_CHANGE_FRAME );
+    QCoreApplication::processEvents();
+    REQUIRE( top->grab().save( out.filePath( QStringLiteral( "11_top_plan.png" ) ) ) );
+    std::printf( "showcase shots: %s\n", out.absolutePath().toUtf8().constData() );
+}
+
+// Every menu command against every kind of selection: is it offered, and
+// does running it change the map? Not a contract - a table to read:
+// cypher_mason_smoke_tests "[.menu-audit]". "-" disabled, "+n" ran and added
+// n undo steps, "0" ran and changed nothing, "F" ran and failed.
+TEST_CASE( "Audit menu commands across selections", "[.menu-audit]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    auto *gui = Mason_Gui( session.pMason );
+    // Close any modal dialog a command might open.
+    QTimer closer;
+    QObject::connect( &closer, &QTimer::timeout, []() { if ( QWidget *modal = QApplication::activeModalWidget() ) { modal->close(); } } );
+    closer.start( 50 );
+    const auto box = [&]( math::vec3d_t lo, math::vec3d_t hi ) {
+        map_bounds_t b{}; MapBounds_AddPoint( b, lo ); MapBounds_AddPoint( b, hi );
+        REQUIRE( MapWorkspace_CreateBox( ws, b ) );
+        return EditorSelection_At( &ws->selection, 0 );
+    };
+    const auto topFace = [&]( u64 id, u64 *pSide, u64 *pFace, std::vector<u64> *pPoints ) {
+        for ( usize f = 0; f < ws->wire.faces.nCount; ++f ) {
+            const auto &face = ws->wire.faces.pData[f];
+            if ( face.id != id || face.normal.z < 0.9 ) { continue; }
+            if ( pSide ) { *pSide = face.sideId; }
+            if ( pFace ) { *pFace = face.faceId; }
+            for ( u32 k = 0; pPoints && k < face.nIndices; ++k ) { pPoints->push_back( ws->wire.pointSourceIds.pData[ws->wire.faceIndices.pData[face.iFirstIndex + k]] ); }
+            return;
+        }
+    };
+    const auto sideFace = [&]( u64 id ) {
+        for ( usize f = 0; f < ws->wire.faces.nCount; ++f ) {
+            const auto &face = ws->wire.faces.pData[f];
+            if ( face.id == id && face.normal.x > 0.9 ) { return face.faceId; }
+        }
+        return u64{ 0 };
+    };
+    const auto fresh = [&]() {
+        REQUIRE( MapWorkspace_New( ws ) == map_status_t::OK );
+        MapWorkspace_SetTool( ws, map_tool_t::SELECT );
+        MapWorkspace_SetElementMode( ws, map_element_mode_t::OBJECTS );
+    };
+    struct context_t { const char *name; std::function<void()> make; };
+    u64 a = 0, b = 0;
+    const std::vector<context_t> contexts{
+        { "none", [&]() { fresh(); box( { -64, -64, 0 }, { 64, 64, 128 } ); MapWorkspace_SetSelection( ws, nullptr, 0 ); } },
+        { "brush", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); } },
+        { "2brush", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); b = box( { 0, 0, 0 }, { 128, 128, 64 } );
+                            const u64 ids[]{ a, b }; MapWorkspace_SetSelection( ws, ids, 2 ); } },
+        { "bface", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); MapWorkspace_SetElementMode( ws, map_element_mode_t::FACES );
+                           u64 side = 0; topFace( a, &side, nullptr, nullptr ); MapWorkspace_SelectBrushFace( ws, a, side ); } },
+        { "mesh", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) ); } },
+        { "2mesh", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); b = box( { 0, 0, 0 }, { 128, 128, 64 } );
+                           const u64 ids[]{ a, b }; MapWorkspace_SetSelection( ws, ids, 2 ); REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) ); } },
+        { "mface", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+                           MapWorkspace_SetElementMode( ws, map_element_mode_t::FACES ); u64 face = 0; topFace( a, nullptr, &face, nullptr ); MapWorkspace_SelectMeshFace( ws, a, face ); } },
+        { "2mface", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+                            MapWorkspace_SetElementMode( ws, map_element_mode_t::FACES ); u64 face = 0; topFace( a, nullptr, &face, nullptr ); MapWorkspace_SelectMeshFace( ws, a, face );
+                            ( void )MapWorkspace_AddMeshFace( ws, a, sideFace( a ) ); } },
+        { "medge", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+                           MapWorkspace_SetElementMode( ws, map_element_mode_t::EDGES ); std::vector<u64> p; topFace( a, nullptr, nullptr, &p );
+                           REQUIRE( p.size() >= 2 ); REQUIRE( MapWorkspace_SelectMeshEdge( ws, a, geometry::MeshEdgeRef_Make( { p[0] }, { p[1] } ) ) ); } },
+        { "2medge", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+                            MapWorkspace_SetElementMode( ws, map_element_mode_t::EDGES ); std::vector<u64> p; topFace( a, nullptr, nullptr, &p ); REQUIRE( p.size() >= 4 );
+                            REQUIRE( MapWorkspace_SelectMeshEdge( ws, a, geometry::MeshEdgeRef_Make( { p[0] }, { p[1] } ) ) );
+                            REQUIRE( MapWorkspace_SelectMeshEdge( ws, a, geometry::MeshEdgeRef_Make( { p[2] }, { p[3] } ), MAP_SELECT_ADD ) ); } },
+        { "mvert", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+                           MapWorkspace_SetElementMode( ws, map_element_mode_t::VERTICES ); std::vector<u64> p; topFace( a, nullptr, nullptr, &p );
+                           REQUIRE( MapWorkspace_SelectMeshVertex( ws, a, { p[0] } ) ); } },
+        { "2mvert", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+                            MapWorkspace_SetElementMode( ws, map_element_mode_t::VERTICES ); std::vector<u64> p; topFace( a, nullptr, nullptr, &p );
+                            REQUIRE( MapWorkspace_SelectMeshVertex( ws, a, { p[0] } ) ); REQUIRE( MapWorkspace_SelectMeshVertex( ws, a, { p[1] }, MAP_SELECT_ADD ) ); } },
+        { "carve", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); b = box( { 0, 0, 0 }, { 128, 128, 64 } ); MapWorkspace_SetSelection( ws, &b, 1 ); } },
+        { "group", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); b = box( { 256, 0, 0 }, { 320, 64, 64 } ); const u64 ids[]{ a, b };
+                           MapWorkspace_SetSelection( ws, ids, 2 ); REQUIRE( EditorCommands_Execute( &gui->commands, StringView_FromCString( "map.group.create" ), {} ) == command_result_t::OK ); } },
+        { "tied", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); REQUIRE( EditorCommands_Execute( &gui->commands, StringView_FromCString( "map.entity.tie" ), {} ) == command_result_t::OK );
+                          MapWorkspace_SetSelection( ws, &a, 1 ); } },
+        { "sheet", [&]() { fresh(); map_primitive_desc_t desc = MapWorkspace_PrimitiveDefaults( ws, {} ); desc.kind = map_primitive_kind_t::QUAD; desc.axis = 2;
+                           desc.bounds = { { -64, -64, 0 }, { 64, 64, 0 } }; REQUIRE( MapWorkspace_CreatePrimitive( ws, desc ) ); } },
+        { "holed", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+                           MapWorkspace_SetElementMode( ws, map_element_mode_t::FACES ); u64 face = 0; std::vector<u64> p; topFace( a, nullptr, &face, &p );
+                           MapWorkspace_SelectMeshFace( ws, a, face ); REQUIRE( EditorCommands_Execute( &gui->commands, StringView_FromCString( "map.mesh.delete_face" ), {} ) == command_result_t::OK );
+                           MapWorkspace_SetElementMode( ws, map_element_mode_t::EDGES ); ( void )MapWorkspace_SelectMeshEdge( ws, a, geometry::MeshEdgeRef_Make( { p[0] }, { p[1] } ) ); } },
+        { "patch", [&]() { fresh(); u64 id = 0;
+                           REQUIRE( MapCreate_Patch( ws->pDocument, map_patch_shape_t::PLANE, { { -64, -64, 0 }, { 64, 64, 0 } }, 2u, 8u, StringView_FromCString( "materials/dev/grid.cymat" ), &id ) == map_status_t::OK );
+                           MapWorkspace_DocumentChanged( ws ); MapWorkspace_SetSelection( ws, &id, 1 ); } },
+        // The setups commands need beyond a plain selection.
+        { "modmesh", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+                             REQUIRE( EditorCommands_Execute( &gui->commands, StringView_FromCString( "map.mesh.modifier_mirror_x" ), {} ) == command_result_t::OK ); } },
+        { "bigpatch", [&]() { fresh(); u64 id = 0;
+                              REQUIRE( MapCreate_Patch( ws->pDocument, map_patch_shape_t::PLANE, { { -64, -64, 0 }, { 64, 64, 0 } }, 2u, 8u, StringView_FromCString( "materials/dev/grid.cymat" ), &id ) == map_status_t::OK );
+                              MapWorkspace_DocumentChanged( ws ); MapWorkspace_SetSelection( ws, &id, 1 );
+                              REQUIRE( EditorCommands_Execute( &gui->commands, StringView_FromCString( "map.patch.insert_row" ), {} ) == command_result_t::OK );
+                              REQUIRE( EditorCommands_Execute( &gui->commands, StringView_FromCString( "map.patch.insert_column" ), {} ) == command_result_t::OK ); } },
+        { "grp+1", [&]() { fresh(); a = box( { -64, -64, 0 }, { 64, 64, 128 } ); b = box( { 256, 0, 0 }, { 320, 64, 64 } ); const u64 ids[]{ a, b };
+                           MapWorkspace_SetSelection( ws, ids, 2 ); REQUIRE( EditorCommands_Execute( &gui->commands, StringView_FromCString( "map.group.create" ), {} ) == command_result_t::OK );
+                           const u64 c = box( { 512, 0, 0 }, { 576, 64, 64 } ); const u64 all[]{ a, b, c }; MapWorkspace_SetSelection( ws, all, 3 ); } },
+        { "2ent", [&]() { fresh(); u64 e1 = 0, e2 = 0; const char *layer = ws->pDocument->layers.pData[0].id;
+                          REQUIRE( MapDocument_AddEntity( ws->pDocument, StringView_FromCString( layer ), StringView_FromCString( "light" ), { 0, 0, 64 }, &e1 ) == map_status_t::OK );
+                          REQUIRE( MapDocument_AddEntity( ws->pDocument, StringView_FromCString( layer ), StringView_FromCString( "light" ), { 256, 0, 64 }, &e2 ) == map_status_t::OK );
+                          MapWorkspace_DocumentChanged( ws ); MapWorkspace_SetSelection( ws, &e1, 1 ); } },
+        { "layer2", [&]() { fresh(); REQUIRE( EditorCommands_Execute( &gui->commands, StringView_FromCString( "map.layer.create" ), {} ) == command_result_t::OK );
+                            a = box( { -64, -64, 0 }, { 64, 64, 128 } ); } },
+    };
+    // Every registered geometry, texture, patch, brush and component-selection
+    // command (CYPHER_AUDIT_PREFIX narrows it, e.g. "map.mesh.").
+    std::vector<std::string> ids;
+    const QByteArray only = qgetenv( "CYPHER_AUDIT_PREFIX" );
+    for ( usize i = 0; i < EditorCommands_Count( &gui->commands ); ++i ) {
+        const std::string id = EditorCommands_At( &gui->commands, i )->pId;
+        const bool family = id.rfind( "map.mesh.", 0 ) == 0 || id.rfind( "map.texture.", 0 ) == 0 || id.rfind( "map.patch.", 0 ) == 0 ||
+                            id.rfind( "map.brush.", 0 ) == 0 || id.rfind( "map.select.", 0 ) == 0 || id.rfind( "map.group.", 0 ) == 0 ||
+                            id.rfind( "map.transform.", 0 ) == 0 || id.rfind( "map.align.", 0 ) == 0 || id.rfind( "map.entity.", 0 ) == 0 ||
+                            id.rfind( "map.layer.", 0 ) == 0 || id == "map.select_mode.navigation" || id == "map.tool.apply_material";
+        if ( family && ( only.isEmpty() || id.rfind( only.constData(), 0 ) == 0 ) ) { ids.push_back( id ); }
+    }
+    const std::set<std::string> skip{ "map.texture.browser", "map.transform.dialog", "map.entity.class_browser", "assets.browse_materials", "assets.browser", "assets.database", "map.texture.fast", "map.texture.replace", "map.entity.io",
+                                      "map.game.reload", "map.prefab.insert", "map.go_to", "map.info", "map.compile", "map.run", "map.stop", "map.leak.show", "map.check",
+                                      "map.cordon.edit", "map.prefab.create" };
+    std::vector<std::string> notes;
+    std::printf( "%-30s", "command" );
+    for ( const auto &context : contexts ) { std::printf( "%-8s", context.name ); }
+    std::printf( "\n" );
+    for ( const std::string &id : ids ) {
+        std::printf( "%-30s", id.c_str() );
+        for ( const auto &context : contexts ) {
+            context.make();
+            QCoreApplication::processEvents();
+            const u32 state = EditorCommands_State( &gui->commands, StringView_FromCString( id.c_str() ) );
+            std::string cell = "-";
+            if ( ( state & COMMAND_STATE_ENABLED ) != 0u ) {
+                if ( skip.count( id ) ) { cell = "on"; }
+                else {
+                    const usize before = EditorHistory_StepCount( &ws->history );
+                    const auto result = EditorCommands_Execute( &gui->commands, StringView_FromCString( id.c_str() ), {} );
+                    QCoreApplication::processEvents();
+                    const usize after = EditorHistory_StepCount( &ws->history );
+                    cell = result == command_result_t::OK ? ( after > before ? "+" + std::to_string( after - before ) : "0" ) : ( result == command_result_t::INVALID_ARGUMENTS ? "A" : "F" );
+                    if ( cell == "F" || cell == "0" ) {
+                        const auto *label = Mason_Window( session.pMason )->findChild<QLabel *>( QStringLiteral( "masonNotice" ) );
+                        notes.push_back( id + " [" + context.name + "] " + cell + ": " + ( label != nullptr ? label->toolTip().toStdString() : std::string() ) );
+                    }
+                }
+            }
+            std::printf( "%-8s", cell.c_str() );
+        }
+        std::printf( "\n" );
+    }
+    for ( const std::string &note : notes ) { std::printf( "NOTE %s\n", note.c_str() ); }
+}
+
+// Object Properties for a light and a wave start of the showcase map, with
+// the REAP game profile's typed editors: cypher_mason_smoke_tests
+// "[.properties-shot]" (PNGs in CYPHER_SHOTS_DIR).
+TEST_CASE( "Capture typed entity properties", "[.properties-shot]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    REQUIRE( Mason_OpenMap( session.pMason, QDir( QStringLiteral( CYPHER_REPOSITORY_ROOT ) ).filePath( QStringLiteral( "assets/black_mesa_entrance.cymap" ) ) ) );
+    QCoreApplication::processEvents();
+    std::printf( "profile: %s\n", MapGame_Status( ws ).toUtf8().constData() );
+    const QByteArray env = qgetenv( "CYPHER_SHOTS_DIR" );
+    const QDir out( env.isEmpty() ? QDir::temp().filePath( QStringLiteral( "cypher_showcase" ) ) : QString::fromUtf8( env ) );
+    REQUIRE( QDir().mkpath( out.absolutePath() ) );
+    auto *window = Mason_Window( session.pMason );
+    window->resize( 2100, 1400 );
+    auto *panel = window->findChild<QWidget *>( QStringLiteral( "MapObjectProperties" ) );
+    REQUIRE( panel != nullptr );
+    for ( const char *className : { "light", "info_wave_start", "info_enemy_spawn" } ) {
+        u64 id = 0;
+        for ( usize i = 0; i < ws->wire.entities.nCount && id == 0; ++i ) {
+            if ( std::strcmp( ws->wire.entities.pData[i].className, className ) == 0 ) { id = ws->wire.entities.pData[i].id; }
+        }
+        if ( id == 0 ) { continue; }
+        MapWorkspace_Select( ws, id, MAP_SELECT_REPLACE );
+        QCoreApplication::processEvents();
+        auto *tree = panel->findChild<QTreeWidget *>( QStringLiteral( "MapPropertiesTree" ) );
+        for ( int i = 0; tree != nullptr && i < tree->topLevelItemCount(); ++i ) {
+            tree->topLevelItem( i )->setExpanded( tree->topLevelItem( i )->text( 0 ) == QStringLiteral( "Entity keys" ) );
+        }
+        QCoreApplication::processEvents();
+        REQUIRE( panel->grab().save( out.filePath( QStringLiteral( "properties_%1.png" ).arg( QString::fromLatin1( className ) ) ) ) );
+    }
+    // The views: class colours and sizes, helpers of the selected entities.
+    std::vector<u64> picked;
+    for ( const char *className : { "light", "info_player_start", "info_enemy_spawn" } ) {
+        for ( usize i = 0; i < ws->wire.entities.nCount; ++i ) {
+            if ( std::strcmp( ws->wire.entities.pData[i].className, className ) == 0 ) { picked.push_back( ws->wire.entities.pData[i].id ); break; }
+        }
+    }
+    for ( usize i = 0; i < ws->wire.objects.nCount; ++i ) {
+        if ( ws->wire.objects.pData[i].owner != 0 ) {
+            const auto *owner = MapWireframe_FindEntity( ws->wire, ws->wire.objects.pData[i].owner );
+            if ( owner != nullptr && std::strcmp( owner->className, "func_door" ) == 0 ) { picked.push_back( ws->wire.objects.pData[i].id ); break; }
+        }
+    }
+    MapWorkspace_SetSelection( ws, picked.data(), picked.size() );
+    std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, ws, map_ortho_axes_t::TOP ) );
+    top->resize( 1400, 1000 );
+    top->show();
+    MapWorkspace_Frame( ws, CY_TRUE );
+    QCoreApplication::processEvents();
+    REQUIRE( top->grab().save( out.filePath( QStringLiteral( "views_top_selected.png" ) ) ) );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, ws ) );
+    camera->resize( 1400, 900 );
+    camera->show();
+    if ( !picked.empty() ) {
+        const auto *first = MapWireframe_FindEntity( ws->wire, picked.front() );
+        if ( first != nullptr ) { MapCameraView_LookAt( camera.get(), { first->origin.x - 500, first->origin.y - 500, first->origin.z + 260 }, first->origin ); }
+    }
+    QCoreApplication::processEvents();
+    REQUIRE( camera->grab().save( out.filePath( QStringLiteral( "views_camera_selected.png" ) ) ) );
+    std::printf( "property shots: %s\n", out.absolutePath().toUtf8().constData() );
+}
+
+// Prefab instances in the small arena: a stack of its crates made a prefab
+// (in a scratch content folder) and placed three more times, turned:
+// cypher_mason_smoke_tests "[.instances-shot]".
+TEST_CASE( "Capture prefab instances", "[.instances-shot]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    REQUIRE( Mason_OpenMap( session.pMason, QDir( QStringLiteral( CYPHER_REPOSITORY_ROOT ) ).filePath( QStringLiteral( "assets/pump_station.cymap" ) ) ) );
+    QTemporaryDir content;
+    REQUIRE( content.isValid() );
+    MapHotspots_SetResolver( ws, [&content]( const QString &path ) {
+        const QString scratch = QDir( content.path() ).filePath( path );
+        if ( QFileInfo::exists( scratch ) ) { return scratch; }
+        const QString repository = QDir( QStringLiteral( CYPHER_REPOSITORY_ROOT "/assets" ) ).filePath( path );
+        return QFileInfo::exists( repository ) ? repository : QString();
+    } );
+    MapAssets_SetRoots( ws, { content.path() } );
+    // The crates: small boxes standing on the floor near the middle.
+    std::vector<u64> crates;
+    for ( usize i = 0; i < ws->wire.objects.nCount; ++i ) {
+        const auto &object = ws->wire.objects.pData[i];
+        const auto &box = object.bounds.box;
+        const f64 cx = 0.5 * ( box.minimum.x + box.maximum.x ), cy = 0.5 * ( box.minimum.y + box.maximum.y );
+        if ( object.kind == map_wire_kind_t::BRUSH && object.owner == 0 && std::abs( cx + 480 ) < 100 && std::abs( cy + 576 ) < 100 && box.maximum.z <= 130 ) { crates.push_back( object.id ); }
+    }
+    std::printf( "crates: %zu\n", crates.size() );
+    REQUIRE( !crates.empty() );
+    MapWorkspace_SetSelection( ws, crates.data(), crates.size() );
+    REQUIRE( session.Run( QStringLiteral( "map.prefab.create_instance prefabs/crate_stack" ) ) == command_result_t::OK );
+    for ( int copy = 0; copy < 3; ++copy ) {
+        REQUIRE( map::MapWorkspace_TranslateSelection( ws, { 160, 96, 0 }, true ) );
+        const u64 placed = EditorSelection_At( &ws->selection, 0 );
+        map::map_instance_info_t info{};
+        REQUIRE( map::MapInstances_Info( ws, placed, &info ) );
+        REQUIRE( map::MapWorkspace_RotateSelection( ws, { 0, 0, 35.0 * ( copy + 1 ) }, info.origin ) );
+    }
+    const QByteArray env = qgetenv( "CYPHER_SHOTS_DIR" );
+    const QDir out( env.isEmpty() ? QDir::temp().filePath( QStringLiteral( "cypher_showcase" ) ) : QString::fromUtf8( env ) );
+    REQUIRE( QDir().mkpath( out.absolutePath() ) );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, ws ) );
+    camera->resize( 1400, 900 );
+    camera->show();
+    MapCameraView_SetRenderMode( camera.get(), map_render_mode_t::SHADED );
+    map::map_instance_info_t info{};
+    REQUIRE( map::MapInstances_Info( ws, EditorSelection_At( &ws->selection, 0 ), &info ) );
+    MapCameraView_LookAt( camera.get(), { info.origin.x - 520, info.origin.y - 480, info.origin.z + 300 }, { info.origin.x - 160, info.origin.y - 60, info.origin.z } );
+    QCoreApplication::processEvents();
+    REQUIRE( camera->grab().save( out.filePath( QStringLiteral( "instances_camera.png" ) ) ) );
+    std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, ws, map_ortho_axes_t::TOP ) );
+    top->resize( 1200, 900 );
+    top->show();
+    MapWorkspace_Frame( ws, CY_TRUE );
+    QCoreApplication::processEvents();
+    REQUIRE( top->grab().save( out.filePath( QStringLiteral( "instances_top.png" ) ) ) );
+    auto *outliner = Mason_Window( session.pMason )->findChild<QWidget *>( QStringLiteral( "MapOutliner" ) );
+    if ( outliner != nullptr ) { REQUIRE( outliner->grab().save( out.filePath( QStringLiteral( "instances_outliner.png" ) ) ) ); }
+    std::printf( "instance shots: %s\n", out.absolutePath().toUtf8().constData() );
+    MapAssets_SetRoots( ws, {} );
+}
+
+// The UV Editor on a floor face of the small arena, before and after a
+// turn, a scale across the turned texture and a shear (the camera view has
+// no textured mode; that comes with the GPU renderer):
+// cypher_mason_smoke_tests "[.uv-shot]".
+TEST_CASE( "Capture the UV Editor", "[.uv-shot]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    REQUIRE( Mason_OpenMap( session.pMason, QDir( QStringLiteral( CYPHER_REPOSITORY_ROOT ) ).filePath( QStringLiteral( "assets/pump_station.cymap" ) ) ) );
+    // The widest textured floor face.
+    u64 object = 0, side = 0;
+    f64 widest = 0.0;
+    for ( usize i = 0; i < ws->wire.faces.nCount; ++i ) {
+        const auto &face = ws->wire.faces.pData[i];
+        const auto *owner = MapWireframe_FindObject( ws->wire, face.id );
+        if ( owner == nullptr || owner->kind != map_wire_kind_t::BRUSH || face.normal.z < 0.9 || face.material == 0 || face.sideId == 0 ) { continue; }
+        const auto &box = owner->bounds.box;
+        const f64 span = std::min( box.maximum.x - box.minimum.x, box.maximum.y - box.minimum.y );
+        if ( span > widest ) { widest = span; object = face.id; side = face.sideId; }
+    }
+    REQUIRE( object != 0 );
+    MapWorkspace_SetElementMode( ws, map_element_mode_t::FACES );
+    MapWorkspace_SelectBrushFace( ws, object, side );
+    const QByteArray env = qgetenv( "CYPHER_SHOTS_DIR" );
+    const QDir out( env.isEmpty() ? QDir::temp().filePath( QStringLiteral( "cypher_showcase" ) ) : QString::fromUtf8( env ) );
+    REQUIRE( QDir().mkpath( out.absolutePath() ) );
+    std::unique_ptr<QWidget> panel( MapUvEditor_Create( nullptr, ws ) );
+    panel->resize( 720, 760 );
+    panel->show();
+    QCoreApplication::processEvents();
+    REQUIRE( panel->grab().save( out.filePath( QStringLiteral( "uv_editor_face.png" ) ) ) );
+    struct job_t { map_surface_ref_t surface; map_uv_edit_t edit; } job{ { object, side }, {} };
+    const auto apply = []( void *pContext, map_document_t *pCopy, vector_t<u64> * ) {
+        auto *pJob = static_cast<job_t *>( pContext );
+        return MapTextureEdit_EditUv( pCopy, { &pJob->surface, 1 }, pJob->edit );
+    };
+    job.edit.kind = map_uv_edit_kind_t::ROTATE;
+    job.edit.pivot = MapUvEditor_Pivot( panel.get() );
+    job.edit.radians = 0.5;
+    REQUIRE( MapWorkspace_ApplyEdit( ws, "Rotate Texture", apply, &job ) );
+    job.edit.kind = map_uv_edit_kind_t::SCALE;
+    job.edit.factor = { 1.5, 1.0 };
+    REQUIRE( MapWorkspace_ApplyEdit( ws, "Scale Texture", apply, &job ) );
+    job.edit.kind = map_uv_edit_kind_t::SHEAR;
+    job.edit.shear = { 0.25, 0.0 };
+    REQUIRE( MapWorkspace_ApplyEdit( ws, "Shear Texture", apply, &job ) );
+    MapWorkspace_SelectBrushFace( ws, object, side );
+    QCoreApplication::processEvents();
+    REQUIRE( panel->grab().save( out.filePath( QStringLiteral( "uv_editor_edited.png" ) ) ) );
+    std::printf( "uv shots: %s\n", out.absolutePath().toUtf8().constData() );
+}
+
+// The Shear tool on the small arena's crate stack: the side hovered, then
+// mid-drag in the Top view (the sheared ghost over the original bounds),
+// then the result in 3D: cypher_mason_smoke_tests "[.shear-shot]".
+TEST_CASE( "Capture the Shear tool", "[.shear-shot]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    REQUIRE( Mason_OpenMap( session.pMason, QDir( QStringLiteral( CYPHER_REPOSITORY_ROOT ) ).filePath( QStringLiteral( "assets/pump_station.cymap" ) ) ) );
+    std::vector<u64> crates;
+    for ( usize i = 0; i < ws->wire.objects.nCount; ++i ) {
+        const auto &object = ws->wire.objects.pData[i];
+        const auto &box = object.bounds.box;
+        const f64 cx = 0.5 * ( box.minimum.x + box.maximum.x ), cy = 0.5 * ( box.minimum.y + box.maximum.y );
+        if ( object.kind == map_wire_kind_t::BRUSH && object.owner == 0 && std::abs( cx + 480 ) < 100 && std::abs( cy + 576 ) < 100 && box.maximum.z <= 130 ) { crates.push_back( object.id ); }
+    }
+    REQUIRE( !crates.empty() );
+    MapWorkspace_SetSelection( ws, crates.data(), crates.size() );
+    MapWorkspace_SetTool( ws, map_tool_t::SHEAR );
+    map_bounds_t bounds{};
+    for ( u64 id : crates ) { MapBounds_AddBounds( bounds, MapWireframe_FindObject( ws->wire, id )->bounds ); }
+    const QByteArray env = qgetenv( "CYPHER_SHOTS_DIR" );
+    const QDir out( env.isEmpty() ? QDir::temp().filePath( QStringLiteral( "cypher_showcase" ) ) : QString::fromUtf8( env ) );
+    REQUIRE( QDir().mkpath( out.absolutePath() ) );
+    std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, ws, map_ortho_axes_t::FRONT ) );
+    top->resize( 900, 700 );
+    top->show();
+    ws->frameBounds = bounds;
+    ws->frameBounds.box.minimum.y -= 160; ws->frameBounds.box.maximum.y += 160;
+    ws->frameBounds.box.minimum.z -= 64; ws->frameBounds.box.maximum.z += 96;
+    MapWorkspace_Notify( ws, MAP_CHANGE_FRAME );
+    QCoreApplication::processEvents();
+    // Front view: y across, z up. Grab the top side and slide it along y.
+    const f64 midY = 0.5 * ( bounds.box.minimum.y + bounds.box.maximum.y ), topZ = bounds.box.maximum.z;
+    const QPointF grab = MapOrthoView_WorldToView( top.get(), { midY, topZ } ), to = MapOrthoView_WorldToView( top.get(), { midY + 64, topZ } );
+    const auto mouse = [&]( QEvent::Type type, QPointF at, Qt::MouseButtons buttons ) {
+        QMouseEvent event( type, at, top->mapToGlobal( at ), type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton, buttons, Qt::NoModifier );
+        QCoreApplication::sendEvent( top.get(), &event );
+        QCoreApplication::processEvents();
+    };
+    mouse( QEvent::MouseMove, grab, Qt::NoButton );
+    REQUIRE( top->grab().save( out.filePath( QStringLiteral( "shear_hover.png" ) ) ) );
+    mouse( QEvent::MouseButtonPress, grab, Qt::LeftButton );
+    mouse( QEvent::MouseMove, ( grab + to ) / 2, Qt::LeftButton );
+    mouse( QEvent::MouseMove, to, Qt::LeftButton );
+    REQUIRE( top->grab().save( out.filePath( QStringLiteral( "shear_drag.png" ) ) ) );
+    mouse( QEvent::MouseButtonRelease, to, Qt::NoButton );
+    map_bounds_t after{};
+    for ( u64 id : crates ) { MapBounds_AddBounds( after, MapWireframe_FindObject( ws->wire, id )->bounds ); }
+    std::printf( "shear: y %.1f..%.1f -> %.1f..%.1f, z %.1f..%.1f -> %.1f..%.1f\n", bounds.box.minimum.y, bounds.box.maximum.y, after.box.minimum.y,
+                 after.box.maximum.y, bounds.box.minimum.z, bounds.box.maximum.z, after.box.minimum.z, after.box.maximum.z );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, ws ) );
+    camera->resize( 1100, 750 );
+    camera->show();
+    MapCameraView_SetRenderMode( camera.get(), map_render_mode_t::SHADED );
+    const math::vec3d_t centre = MapBounds_Center( bounds );
+    MapCameraView_LookAt( camera.get(), { centre.x - 380, centre.y - 120, centre.z + 140 }, centre );
+    QCoreApplication::processEvents();
+    REQUIRE( camera->grab().save( out.filePath( QStringLiteral( "shear_camera.png" ) ) ) );
+    std::printf( "shear shots: %s\n", out.absolutePath().toUtf8().constData() );
+}
+
+// Entity attachment in the small arena: three entities attached to a
+// fourth, the parent selected, in the Top view and in 3D:
+// cypher_mason_smoke_tests "[.hierarchy-shot]".
+TEST_CASE( "Capture entity attachment", "[.hierarchy-shot]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    REQUIRE( Mason_OpenMap( session.pMason, QDir( QStringLiteral( CYPHER_REPOSITORY_ROOT ) ).filePath( QStringLiteral( "assets/pump_station.cymap" ) ) ) );
+    std::vector<u64> placed;
+    for ( usize i = 0; i < ws->wire.entities.nCount && placed.size() < 4u; ++i ) {
+        if ( ws->wire.entities.pData[i].bHasOrigin ) { placed.push_back( ws->wire.entities.pData[i].id ); }
+    }
+    REQUIRE( placed.size() == 4u );
+    // Picked one by one: the last is the parent.
+    std::vector<u64> picked;
+    for ( u64 id : placed ) { picked.push_back( id ); MapWorkspace_SetSelection( ws, picked.data(), picked.size() ); }
+    REQUIRE( session.Run( QStringLiteral( "map.entity.reparent" ) ) == command_result_t::OK );
+    MapWorkspace_SetSelection( ws, &placed.back(), 1 );
+    const QByteArray env = qgetenv( "CYPHER_SHOTS_DIR" );
+    const QDir out( env.isEmpty() ? QDir::temp().filePath( QStringLiteral( "cypher_showcase" ) ) : QString::fromUtf8( env ) );
+    REQUIRE( QDir().mkpath( out.absolutePath() ) );
+    map_bounds_t bounds{};
+    for ( u64 id : placed ) { MapBounds_AddPoint( bounds, MapWireframe_FindEntity( ws->wire, id )->origin ); }
+    std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, ws, map_ortho_axes_t::TOP ) );
+    top->resize( 1000, 800 );
+    top->show();
+    ws->frameBounds = bounds;
+    for ( u32 a = 0; a < 3; ++a ) { ( a == 0 ? ws->frameBounds.box.minimum.x : a == 1 ? ws->frameBounds.box.minimum.y : ws->frameBounds.box.minimum.z ) -= 128; }
+    ws->frameBounds.box.maximum.x += 128; ws->frameBounds.box.maximum.y += 128; ws->frameBounds.box.maximum.z += 128;
+    MapWorkspace_Notify( ws, MAP_CHANGE_FRAME );
+    QCoreApplication::processEvents();
+    REQUIRE( top->grab().save( out.filePath( QStringLiteral( "hierarchy_top.png" ) ) ) );
+    std::printf( "hierarchy shots: %s\n", out.absolutePath().toUtf8().constData() );
+}
+
+// The small arena (assets/pump_station.cymap) from a few viewpoints.
+TEST_CASE( "Render the small arena map", "[.showcase-shots]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    REQUIRE( Mason_OpenMap( session.pMason, QDir( QStringLiteral( CYPHER_REPOSITORY_ROOT ) ).filePath( QStringLiteral( "assets/pump_station.cymap" ) ) ) );
+    QCoreApplication::processEvents();
+    const QByteArray env = qgetenv( "CYPHER_SHOTS_DIR" );
+    const QDir out( env.isEmpty() ? QDir::temp().filePath( QStringLiteral( "cypher_showcase" ) ) : QString::fromUtf8( env ) );
+    REQUIRE( QDir().mkpath( out.absolutePath() ) );
+    MapWorkspace_SetVisgroupHidden( ws, map_visgroup_t::TRIGGERS, CY_TRUE );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, ws ) );
+    camera->resize( 1600, 900 );
+    camera->show();
+    MapCameraView_SetRenderMode( camera.get(), map_render_mode_t::SHADED );
+    struct shot_t { const char *name; math::vec3d_t eye, target; };
+    const shot_t shots[]{
+        { "arena_01_overview", { -740, -740, 500 }, { 260, 300, -40 } },
+        { "arena_02_bridge", { -600, -600, 320 }, { 200, 200, 0 } },
+        { "arena_03_catwalk", { 700, -720, 330 }, { -300, 200, 80 } },
+        { "arena_04_spawn_view", { -900, 0, 72 }, { 400, 0, 120 } },
+    };
+    for ( const shot_t &shot : shots ) {
+        MapCameraView_LookAt( camera.get(), shot.eye, shot.target );
+        QCoreApplication::processEvents();
+        REQUIRE( camera->grab().save( out.filePath( QString::fromLatin1( shot.name ) + QStringLiteral( ".png" ) ) ) );
+    }
+    // Navigation mode on the same overview: floor green, too steep red.
+    MapWorkspace_SetElementMode( ws, map_element_mode_t::NAVIGATION );
+    MapCameraView_LookAt( camera.get(), shots[0].eye, shots[0].target );
+    QCoreApplication::processEvents();
+    REQUIRE( camera->grab().save( out.filePath( QStringLiteral( "arena_05_navigation.png" ) ) ) );
+}
+
+TEST_CASE( "Physical Shift+G continues a rotated edge strip around its captured custom pivot", "[mason][smoke][modelling-repeat][native-input]" )
+{
+    namespace geo = cypher::editor::geometry;
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    auto *window = Mason_Window( session.pMason );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views );
+    auto *top = MapViews_PaneView( views, 1 ); REQUIRE( top );
+    window->activateWindow(); top->setFocus(); QCoreApplication::processEvents();
+    const auto mouse = [&]( QEvent::Type type, QPointF at, Qt::MouseButtons held ) {
+        QMouseEvent event( type, at, top->mapToGlobal( at ), type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton, held, Qt::NoModifier );
+        QCoreApplication::sendEvent( top, &event ); QCoreApplication::processEvents();
+    };
+    const auto click = [&]( f64 x, f64 y ) {
+        const auto at = MapOrthoView_WorldToView( top, { x, y } );
+        mouse( QEvent::MouseButtonPress, at, Qt::LeftButton ); mouse( QEvent::MouseButtonRelease, at, Qt::NoButton );
+    };
+    const auto repeat = [&]() {
+        top->setFocus(); QCoreApplication::processEvents();
+        QKeyEvent preflight( QEvent::ShortcutOverride, Qt::Key_G, Qt::ShiftModifier, QStringLiteral( "G" ) ); QCoreApplication::sendEvent( top, &preflight );
+        QKeyEvent press( QEvent::KeyPress, Qt::Key_G, Qt::ShiftModifier, QStringLiteral( "G" ) ); QCoreApplication::sendEvent( top, &press );
+        QKeyEvent release( QEvent::KeyRelease, Qt::Key_G, Qt::ShiftModifier, QStringLiteral( "G" ) ); QCoreApplication::sendEvent( top, &release );
+        QCoreApplication::processEvents();
+    };
+    map_primitive_desc_t quad{}; quad.kind = map_primitive_kind_t::QUAD; quad.axis = 2;
+    quad.bounds = { { 128, -64, 0 }, { 256, 64, 0 } };
+    REQUIRE( MapWorkspace_CreatePrimitive( ws, quad ) );
+    REQUIRE( ws->selection.ids.nCount == 1 ); const u64 mesh = ws->selection.ids.pData[0];
+    REQUIRE( session.Run( QStringLiteral( "map.grid 32" ) ) == command_result_t::OK ); MapWorkspace_SetAngleSnap( ws, 15 );
+    const auto *choice = EditorSettings_Find( &Mason_Gui( session.pMason )->settings, StringView_FromCString( "editor.map.edge_drag_action" ) ); REQUIRE( choice );
+    setting_value_t value{}; value.type = setting_type_t::ENUM; value.text = StringView_FromCString( "extend" );
+    REQUIRE( EditorSettings_Write( &Mason_Gui( session.pMason )->settings, settings_scope_t::USER, *choice, value ) == settings_registry_status_t::OK );
+    REQUIRE( session.Run( QStringLiteral( "map.select_mode.edges" ) ) == command_result_t::OK );
+    REQUIRE( session.Run( QStringLiteral( "map.tool.select" ) ) == command_result_t::OK );
+    click( 192, 64 ); REQUIRE( ws->meshSelection.edges.nCount == 1 );
+    const auto initial = ws->meshSelection.edges.pData[0];
+    const auto position = [&]( geo::geometry_source_id_t id ) {
+        const auto *source = geo::GeometryDocument_FindMesh( &ws->pDocument->geometry, { mesh } ); REQUIRE( source );
+        geo::geometry_mesh_vertex_handle_t handle{}; REQUIRE( geo::MeshSource_TryFindVertex( source, id, &handle ) );
+        return GenerationPool_Get( &source->mesh.vertices, handle )->position;
+    };
+    const auto initialA = position( initial.a ), initialB = position( initial.b );
+    struct snapshot_t {
+        geo::mesh_source_description_t value{};
+        snapshot_t( const map_document_t *document, u64 object ) {
+            REQUIRE( geo::MeshSourceDescription_Init( &value, Allocator_GetSystem(), { object } ) == geo::geometry_status_t::OK );
+            REQUIRE( geo::MeshSource_TryDescribe( geo::GeometryDocument_FindMesh( &document->geometry, { object } ), &value ) == geo::geometry_status_t::OK );
+        }
+        ~snapshot_t() { geo::MeshSourceDescription_Shutdown( &value ); }
+    } original( ws->pDocument, mesh );
+    REQUIRE( session.Run( QStringLiteral( "map.tool.pivot" ) ) == command_result_t::OK ); click( 0, 0 );
+    REQUIRE( session.Run( QStringLiteral( "map.tool.rotate" ) ) == command_result_t::OK );
+    const f64 radians = 3.14159265358979323846 / 12.0;
+    const f64 radius = 60.0 / MapOrthoView_Zoom( top );
+    const QPointF start = MapOrthoView_WorldToView( top, { radius, 0 } );
+    const QPointF finish = MapOrthoView_WorldToView( top, { radius * std::cos( radians ), radius * std::sin( radians ) } );
+    const usize steps = EditorHistory_StepCount( &ws->history );
+    mouse( QEvent::MouseButtonPress, start, Qt::LeftButton ); mouse( QEvent::MouseMove, finish, Qt::LeftButton );
+    mouse( QEvent::MouseButtonRelease, finish, Qt::NoButton );
+    REQUIRE( EditorHistory_StepCount( &ws->history ) == steps + 1 );
+    const auto check = [&]( u32 strips ) {
+        snapshot_t after( ws->pDocument, mesh );
+        CHECK( after.value.faces.nCount == 1 + strips ); CHECK( after.value.vertices.nCount == 4 + strips * 2 );
+        CHECK( EditorHistory_StepCount( &ws->history ) == steps + strips );
+        for ( usize i = 0; i < original.value.vertices.nCount; ++i ) {
+            const auto &before = original.value.vertices.pData[i]; const auto now = position( before.sourceId );
+            CHECK( now.x == Catch::Approx( before.position.x ) ); CHECK( now.y == Catch::Approx( before.position.y ) ); CHECK( now.z == Catch::Approx( before.position.z ) );
+        }
+        REQUIRE( ws->meshSelection.edges.nCount == 1 ); const auto edge = ws->meshSelection.edges.pData[0];
+        const auto turned = [&]( math::vec3d_t p ) {
+            const f64 angle = radians * strips;
+            return math::vec3d_t{ p.x * std::cos( angle ) - p.y * std::sin( angle ), p.x * std::sin( angle ) + p.y * std::cos( angle ), p.z };
+        };
+        const auto a = position( edge.a ), b = position( edge.b ); const auto expectedA = turned( initialA ), expectedB = turned( initialB );
+        const auto close = []( math::vec3d_t p, math::vec3d_t q ) { return std::fabs( p.x - q.x ) < 1e-6 && std::fabs( p.y - q.y ) < 1e-6 && std::fabs( p.z - q.z ) < 1e-6; };
+        CHECK( ( ( close( a, expectedA ) && close( b, expectedB ) ) || ( close( a, expectedB ) && close( b, expectedA ) ) ) );
+        math::vec3d_t pivot{}; REQUIRE( MapToolGestures_Pivot( ws, &pivot ) ); CHECK( close( pivot, {} ) );
+    };
+    check( 1 );
+    // A tool switch must not turn repeat into another activation of Rotate.
+    REQUIRE( session.Run( QStringLiteral( "map.tool.translate" ) ) == command_result_t::OK );
+    repeat(); check( 2 ); repeat(); check( 3 );
+    REQUIRE( session.Run( QStringLiteral( "edit.undo" ) ) == command_result_t::OK );
+    REQUIRE( ws->meshSelection.edges.nCount == 1 );
+    REQUIRE( session.Run( QStringLiteral( "edit.redo" ) ) == command_result_t::OK );
+    check( 3 ); repeat(); check( 4 );
+    const auto rim = ws->meshSelection.edges.pData[0];
+    MapWorkspace_SetElementMode( ws, map_element_mode_t::VERTICES ); repeat();
+    CHECK( EditorHistory_StepCount( &ws->history ) == steps + 4 ); // Disabled recipe must not replay a tool command.
+    MapWorkspace_SetElementMode( ws, map_element_mode_t::EDGES );
+    REQUIRE( MapWorkspace_SelectMeshEdge( ws, mesh, rim, MAP_SELECT_REPLACE ) );
+    // An explicitly selected older command has deliberate precedence over
+    // the pointer recipe, even if that panel is no longer focused.
+    REQUIRE( session.Run( QStringLiteral( "view.command_history" ) ) == command_result_t::OK );
+    auto *history = window->findChild<QWidget *>( QStringLiteral( "EditorCommandHistory" ) ); REQUIRE( history );
+    const auto rows = EditorCommandHistory_Rows( history ); const int gridRow = rows.indexOf( QStringLiteral( "map.grid 32" ) ); REQUIRE( gridRow >= 0 );
+    EditorCommandHistory_SelectRows( history, { gridRow } ); MapWorkspace_SetGridSize( ws, 16 ); repeat();
+    CHECK( ws->gridSize == 32 ); CHECK( EditorHistory_StepCount( &ws->history ) == steps + 4 );
+    CHECK_FALSE( MapToolGestures_HasModellingRepeat( ws ) );
+    EditorCommandHistory_SelectRows( history, {} );
+    REQUIRE( session.Run( QStringLiteral( "map.grid.larger" ) ) == command_result_t::OK ); repeat(); CHECK( ws->gridSize == 128 );
 }

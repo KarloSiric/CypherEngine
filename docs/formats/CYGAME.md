@@ -174,6 +174,13 @@ One profile per game (`game/reap.cygame`); the project names it
             outputs = [ { name = "on_open" }, { name = "on_close" }, { name = "on_locked_use" } ]
         },
         {
+            name = "func_detail"
+            kind = "solid"
+            label = "Detail"
+            category = "Props"
+            description = "Brushes that neither seal the world nor split visibility: trims, pillars, props built from brushes."
+        },
+        {
             name = "prop_static"
             kind = "point"
             label = "Static Prop"

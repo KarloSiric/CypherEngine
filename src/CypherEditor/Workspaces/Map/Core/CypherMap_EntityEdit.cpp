@@ -62,11 +62,11 @@ u64 Id( const key_value_t *node ) noexcept
     if ( KeyValue_GetU64( node, &unsignedId ) ) { return unsignedId; }
     return KeyValue_GetI64( node, &signedId ) && signedId > 0 ? static_cast<u64>( signedId ) : 0u;
 }
-const key_value_t *Entity( const map_document_t *map, u64 id, map_chunk_t **chunkOut = nullptr ) noexcept
+const key_value_t *Entity( const map_document_t *map, u64 id, map_layer_store_t **storeOut = nullptr ) noexcept
 {
-    for ( usize chunk = 0; chunk < map->chunks.nCount; ++chunk ) {
-        auto *store = map->chunks.pData[chunk];
-        if ( store == nullptr || store->bDamaged ) { continue; }
+    for ( usize iStore = 0; iStore < map->layerStores.nCount; ++iStore ) {
+        auto *store = map->layerStores.pData[iStore];
+        if ( store == nullptr ) { continue; }
         const auto *entities = Member( SettingsDocument_Root( &store->store ), SV( "entities" ) );
         if ( KeyValue_Type( entities ) != key_value_type_t::ARRAY ) { continue; }
         for ( const auto *entity = KeyValue_FirstChild( entities ); entity != nullptr; entity = KeyValue_NextSibling( entity ) ) {
@@ -78,7 +78,7 @@ const key_value_t *Entity( const map_document_t *map, u64 id, map_chunk_t **chun
                 const auto *owned = Member( entity, SV( section ) );
                 if ( owned != nullptr && KeyValue_Type( owned ) != key_value_type_t::ARRAY ) { return nullptr; }
             }
-            if ( chunkOut != nullptr ) { *chunkOut = store; }
+            if ( storeOut != nullptr ) { *storeOut = store; }
             return entity;
         }
     }
@@ -206,14 +206,14 @@ bool MapEntityEdit_ValuesEqual( const key_value_t *left, const key_value_t *righ
         ValueValid( right, 0, rightBudget ) == map_status_t::OK && Equal( left, right );
 }
 
-const key_value_t *MapEntityEdit_FindEntity( const map_document_t *map, u64 id, map_chunk_t **chunkOut ) noexcept
+const key_value_t *MapEntityEdit_FindEntity( const map_document_t *map, u64 id, map_layer_store_t **storeOut ) noexcept
 {
-    if ( chunkOut != nullptr ) { *chunkOut = nullptr; }
+    if ( storeOut != nullptr ) { *storeOut = nullptr; }
     if ( map == nullptr || map->pAllocator == nullptr || id == 0u ) { return nullptr; }
-    map_chunk_t *chunk{};
-    const auto *entity = Entity( map, id, &chunk );
+    map_layer_store_t *layerStore{};
+    const auto *entity = Entity( map, id, &layerStore );
     if ( entity == nullptr || PropertiesValid( entity ) != map_status_t::OK ) { return nullptr; }
-    if ( chunkOut != nullptr ) { *chunkOut = chunk; }
+    if ( storeOut != nullptr ) { *storeOut = layerStore; }
     return entity;
 }
 
@@ -277,11 +277,11 @@ map_status_t MapEntityEdit_SetProperty( map_document_t *map, span_t<const u64> i
     if ( staged == nullptr || KeyValue_CloneInto( staged.get(), nullptr, value ) == nullptr ) { return map_status_t::OUT_OF_MEMORY; }
     value = KeyValue_Root( staged.get() );
     for ( usize i = 0; i < ids.nCount; ++i ) {
-        map_chunk_t *chunk{};
-        auto *entity = const_cast<key_value_t *>( Entity( map, ids.pData[i], &chunk ) );
+        map_layer_store_t *layerStore{};
+        auto *entity = const_cast<key_value_t *>( Entity( map, ids.pData[i], &layerStore ) );
         auto *properties = Member( entity, SV( "properties" ) );
         if ( Equal( Member( properties, key ), value ) ) { continue; }
-        auto *document = chunk->store.pDocument;
+        auto *document = layerStore->store.pDocument;
         if ( properties == nullptr ) { properties = KeyValue_ObjectInsert( document, entity, SV( "properties" ), key_value_type_t::OBJECT ); }
         auto *dest = properties != nullptr ? Member( properties, key ) : nullptr;
         if ( dest == nullptr && properties != nullptr ) { dest = KeyValue_ObjectInsert( document, properties, key, key_value_type_t::NULL_VALUE ); }
@@ -301,10 +301,10 @@ map_status_t MapEntityEdit_RemoveProperty( map_document_t *map, span_t<const u64
     key = CopyText( keyBuffer, key );
     bool any = false;
     for ( usize i = 0; i < ids.nCount; ++i ) {
-        map_chunk_t *chunk{}; auto *entity = const_cast<key_value_t *>( Entity( map, ids.pData[i], &chunk ) );
+        map_layer_store_t *layerStore{}; auto *entity = const_cast<key_value_t *>( Entity( map, ids.pData[i], &layerStore ) );
         auto *properties = Member( entity, SV( "properties" ) ); auto *value = Member( properties, key );
         if ( value == nullptr ) { continue; }
-        if ( !KeyValue_Remove( chunk->store.pDocument, properties, value ) ) { return map_status_t::INVALID_ARGUMENT; }
+        if ( !KeyValue_Remove( layerStore->store.pDocument, properties, value ) ) { return map_status_t::INVALID_ARGUMENT; }
         any = true;
     }
     *changed = any;
@@ -326,12 +326,12 @@ map_status_t MapEntityEdit_RenameProperty( map_document_t *map, span_t<const u64
     }
     bool any = false;
     for ( usize i = 0; i < ids.nCount; ++i ) {
-        map_chunk_t *chunk{}; auto *entity = const_cast<key_value_t *>( Entity( map, ids.pData[i], &chunk ) );
+        map_layer_store_t *layerStore{}; auto *entity = const_cast<key_value_t *>( Entity( map, ids.pData[i], &layerStore ) );
         auto *properties = Member( entity, SV( "properties" ) ); auto *source = Member( properties, oldKey );
         if ( source == nullptr ) { continue; }
-        auto *dest = KeyValue_ObjectInsert( chunk->store.pDocument, properties, newKey, key_value_type_t::NULL_VALUE );
-        if ( dest == nullptr || !CopyValue( chunk->store.pDocument, dest, source ) ) { return map_status_t::OUT_OF_MEMORY; }
-        if ( !KeyValue_Remove( chunk->store.pDocument, properties, source ) ) { return map_status_t::INVALID_ARGUMENT; }
+        auto *dest = KeyValue_ObjectInsert( layerStore->store.pDocument, properties, newKey, key_value_type_t::NULL_VALUE );
+        if ( dest == nullptr || !CopyValue( layerStore->store.pDocument, dest, source ) ) { return map_status_t::OUT_OF_MEMORY; }
+        if ( !KeyValue_Remove( layerStore->store.pDocument, properties, source ) ) { return map_status_t::INVALID_ARGUMENT; }
         const auto valid = PropertiesValid( entity );
         if ( valid != map_status_t::OK ) { return valid; }
         any = true;
@@ -358,11 +358,11 @@ map_status_t MapEntityEdit_SetIdentityField( map_document_t *map, span_t<const u
     }
     bool any = false;
     for ( usize i = 0; i < ids.nCount; ++i ) {
-        map_chunk_t *chunk{}; auto *entity = const_cast<key_value_t *>( Entity( map, ids.pData[i], &chunk ) );
+        map_layer_store_t *layerStore{}; auto *entity = const_cast<key_value_t *>( Entity( map, ids.pData[i], &layerStore ) );
         auto *member = Member( entity, field ); string_view_t old{};
         if ( KeyValue_GetString( member, &old ) && StringView_Equals( old, value ) ) { continue; }
-        if ( member == nullptr ) { member = KeyValue_ObjectInsert( chunk->store.pDocument, entity, field, key_value_type_t::STRING ); }
-        if ( member == nullptr || !KeyValue_SetString( chunk->store.pDocument, member, value ) ) { return map_status_t::OUT_OF_MEMORY; }
+        if ( member == nullptr ) { member = KeyValue_ObjectInsert( layerStore->store.pDocument, entity, field, key_value_type_t::STRING ); }
+        if ( member == nullptr || !KeyValue_SetString( layerStore->store.pDocument, member, value ) ) { return map_status_t::OUT_OF_MEMORY; }
         any = true;
     }
     *changed = any;

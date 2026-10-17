@@ -5,8 +5,13 @@
 // publication APIs. The host publishes a private document only after success.
 //////////////////////////////////////////////////////////////////////////
 #include "CypherMap_Edit.h"
+#include "CypherMap_Modifiers.h"
+#include "CypherMap_Groups.h"
+#include "CypherMap_Hierarchy.h"
+#include "CypherMap_ObjectCreate.h"
 #include "CypherMap_Wireframe.h"
 #include "CypherGeometry_BrushGenerator.h"
+#include "CypherGeometry_BrushShapes.h"
 #include "CypherGeometry_BrushTransform.h"
 #include "CypherGeometry_BrushValidation.h"
 #include "CypherGeometry_DocumentBrushAttributes.h"
@@ -21,6 +26,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <new>
 
 namespace cypher::editor::map
@@ -57,6 +63,7 @@ bool CloneStore( settings_document_t &out, const settings_document_t &src, const
     if ( !KeyValue_SetDocumentHeader( dst, KeyValue_DocumentHeader( src.pDocument ) ) ) { return false; }
     auto *root = KeyValue_Root( dst );
     const auto *source = SettingsDocument_Root( &src );
+    if ( !KeyValue_SetComments( dst, root, KeyValue_Comments( source ) ) ) { return false; }
     for ( usize i = 0; i < KeyValue_ChildCount( source ); ++i ) {
         if ( KeyValue_CloneInto( dst, root, KeyValue_ChildAt( source, i ) ) == nullptr ) { return false; }
     }
@@ -114,16 +121,19 @@ bool WriteVec( key_value_document_t *doc, key_value_t *record, const char *name,
 }
 // Include each entity-owned object once. Selecting both owner and child must
 // not apply a transform twice, and an entity clone must carry all its geometry.
-map_status_t Expand( map_document_t *m, span_t<const u64> ids, vector_t<u64> &out ) noexcept
+map_status_t Expand( const map_document_t *m, span_t<const u64> ids, vector_t<u64> &out,
+                     const allocator_t *allocator = nullptr ) noexcept
 {
-    if ( !Vector_Init( &out, m->pAllocator, ids.nCount ) ) { return map_status_t::OUT_OF_MEMORY; }
+    if ( !Vector_Init( &out, allocator != nullptr ? allocator : m->pAllocator, ids.nCount ) ) { return map_status_t::OUT_OF_MEMORY; }
     const auto add = [&]( u64 id ) noexcept {
         for ( usize i = 0; i < out.nCount; ++i ) { if ( out.pData[i] == id ) { return true; } }
         return Vector_PushBack( &out, id ) != CY_FALSE;
     };
     for ( usize i = 0; i < ids.nCount; ++i ) {
+        // FindObject's existing interface is mutable, but this lookup only
+        // tests identity and never changes the retained record.
         if ( ids.pData[i] == 0 || ( Kind( m, ids.pData[i] ) == map_geometry_kind_t::COUNT &&
-            !MapDocument_FindObject( m, ids.pData[i], nullptr ) ) ) { return map_status_t::UNKNOWN_OBJECT; }
+            !MapDocument_FindObject( const_cast<map_document_t *>( m ), ids.pData[i], nullptr ) ) ) { return map_status_t::UNKNOWN_OBJECT; }
         if ( !add( ids.pData[i] ) ) { return map_status_t::OUT_OF_MEMORY; }
         for ( usize k = 0; k < m->geometryRecords.nCount; ++k ) {
             if ( m->geometryRecords.pData[k].owner == ids.pData[i] && !add( m->geometryRecords.pData[k].id ) ) {
@@ -131,9 +141,55 @@ map_status_t Expand( map_document_t *m, span_t<const u64> ids, vector_t<u64> &ou
             }
         }
     }
+    // Entities attached to an expanded one (CYMAP `parent`) come along with
+    // what they own, at any depth: Hammer 5's hierarchy (CypherMap_Hierarchy.h).
+    try {
+        const auto links = MapHierarchy_Links( m );
+        for ( usize i = 0; !links.empty() && i < out.nCount; ++i ) { // out grows as children join.
+            for ( const auto &[child, parent] : links ) {
+                if ( parent != out.pData[i] ) { continue; }
+                if ( !add( child ) ) { return map_status_t::OUT_OF_MEMORY; }
+                for ( usize k = 0; k < m->geometryRecords.nCount; ++k ) {
+                    if ( m->geometryRecords.pData[k].owner == child && !add( m->geometryRecords.pData[k].id ) ) { return map_status_t::OUT_OF_MEMORY; }
+                }
+            }
+        }
+    } catch ( ... ) { return map_status_t::OUT_OF_MEMORY; }
     return map_status_t::OK;
 }
-enum class transform_kind_t { TRANSLATE, SCALE, ROTATE };
+enum class transform_kind_t { TRANSLATE, SCALE, ROTATE, AFFINE }; // AFFINE: any linear part in `rotation`, about `pivot`.
+
+// [pitch, yaw, roll] degrees (CYMAP.md 3: yaw about +Z, then pitch, positive
+// looking down, then roll about the facing axis) after `rotation` turns
+// them: R = rotation * Rz(yaw) Ry(pitch) Rx(roll), read back the same way.
+math::vec3d_t TurnAngles( math::vec3d_t angles, const math::affine3d_t &rotation ) noexcept
+{
+    constexpr f64 kRad = 3.14159265358979323846 / 180.0;
+    const f64 cp = std::cos( angles.x * kRad ), sp = std::sin( angles.x * kRad );
+    const f64 cy = std::cos( angles.y * kRad ), sy = std::sin( angles.y * kRad );
+    const f64 cr = std::cos( angles.z * kRad ), sr = std::sin( angles.z * kRad );
+    // Row-major 3x3 of the entity's orientation.
+    const f64 a[3][3]{ { cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr },
+                       { sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr },
+                       { -sp, cp * sr, cp * cr } };
+    // The rotation's linear part (affine columns are column-major).
+    f64 r[3][3];
+    for ( int row = 0; row < 3; ++row ) { for ( int col = 0; col < 3; ++col ) { r[row][col] = rotation.m[col * 3 + row]; } }
+    f64 o[3][3]{};
+    for ( int row = 0; row < 3; ++row ) {
+        for ( int col = 0; col < 3; ++col ) { for ( int k = 0; k < 3; ++k ) { o[row][col] += r[row][k] * a[k][col]; } }
+    }
+    const f64 pitch = std::asin( std::clamp( -o[2][0], -1.0, 1.0 ) );
+    f64 yaw = 0.0, roll = 0.0;
+    if ( std::fabs( std::cos( pitch ) ) > 1e-9 ) {
+        yaw = std::atan2( o[1][0], o[0][0] );
+        roll = std::atan2( o[2][1], o[2][2] );
+    } else {
+        yaw = std::atan2( -o[0][1], o[1][1] ); // Looking straight up or down: roll folds into yaw.
+    }
+    const auto tidy = []( f64 degrees ) { const f64 rounded = std::round( degrees * 1e9 ) / 1e9; return rounded == -180.0 ? 180.0 : rounded + 0.0; };
+    return { tidy( pitch / kRad ), tidy( yaw / kRad ), tidy( roll / kRad ) };
+}
 struct transform_t { transform_kind_t kind; math::vec3d_t amount; math::vec3d_t pivot; math::affine3d_t rotation; bool lock; };
 math::affine3d_t Affine( const transform_t &t ) noexcept
 {
@@ -141,6 +197,120 @@ math::affine3d_t Affine( const transform_t &t ) noexcept
     const auto linear = t.kind == transform_kind_t::SCALE ? math::Affine3d_FromScale( t.amount ) : t.rotation;
     return math::Affine3d_Multiply( math::Affine3d_FromTranslation( t.pivot ),
         math::Affine3d_Multiply( linear, math::Affine3d_FromTranslation( { -t.pivot.x, -t.pivot.y, -t.pivot.z } ) ) );
+}
+bool IsPrefabRecord( const key_value_t *record, const map_layer_store_t *store ) noexcept
+{
+    const auto *prefabs = store ? KeyValue_Find( SettingsDocument_Root( &store->store ), SV( "prefabs" ) ) : nullptr;
+    for ( usize i = 0; i < KeyValue_ChildCount( prefabs ); ++i ) {
+        if ( KeyValue_ChildAt( prefabs, i ) == record ) { return true; }
+    }
+    return false;
+}
+struct prefab_scale_t { math::vec3d_t origin{}, scale{ 1, 1, 1 }; bool scalar{ false }, omitScale{ false }; };
+bool PrefabNumber( const key_value_t *node, f64 &out ) noexcept
+{
+    i64 signedValue{}; u64 unsignedValue{};
+    if ( KeyValue_GetF64( node, &out ) ) { return true; }
+    if ( KeyValue_GetI64( node, &signedValue ) ) { out = static_cast<f64>( signedValue ); return true; }
+    if ( KeyValue_GetU64( node, &unsignedValue ) ) { out = static_cast<f64>( unsignedValue ); return true; }
+    return false;
+}
+bool PrefabVector( const key_value_t *node, math::vec3d_t &out ) noexcept
+{
+    return KeyValue_Type( node ) == key_value_type_t::ARRAY && KeyValue_ChildCount( node ) == 3 &&
+        PrefabNumber( KeyValue_ChildAt( node, 0 ), out.x ) && PrefabNumber( KeyValue_ChildAt( node, 1 ), out.y ) &&
+        PrefabNumber( KeyValue_ChildAt( node, 2 ), out.z );
+}
+void PrefabSinCosDegrees( f64 degrees, f64 &sine, f64 &cosine ) noexcept
+{
+    // Authored quarter turns have exact zero entries. Never snap a nearby
+    // angle: a small nonzero angle can create large shear under anisotropy.
+    const f64 turn = std::remainder( degrees, 360.0 );
+    if ( turn == 0 ) { sine = 0; cosine = 1; }
+    else if ( turn == 90 ) { sine = 1; cosine = 0; }
+    else if ( turn == -90 ) { sine = -1; cosine = 0; }
+    else if ( turn == 180 || turn == -180 ) { sine = 0; cosine = -1; }
+    else {
+        constexpr f64 rad = 3.14159265358979323846 / 180.0;
+        sine = std::sin( degrees * rad ); cosine = std::cos( degrees * rad );
+    }
+}
+map_status_t PreparePrefabScale( const key_value_t *record, const transform_t &t, prefab_scale_t &out ) noexcept
+{
+    math::vec3d_t origin{}, angles{}, scale{ 1, 1, 1 };
+    const auto *originNode = KeyValue_Find( record, SV( "origin" ) ), *anglesNode = KeyValue_Find( record, SV( "angles" ) );
+    const auto *scaleNode = KeyValue_Find( record, SV( "scale" ) );
+    if ( ( originNode && !PrefabVector( originNode, origin ) ) || ( anglesNode && !PrefabVector( anglesNode, angles ) ) ) { return map_status_t::INVALID_ARGUMENT; }
+    const bool array = scaleNode && KeyValue_Type( scaleNode ) == key_value_type_t::ARRAY;
+    if ( array ) {
+        if ( !PrefabVector( scaleNode, scale ) ) { return map_status_t::INVALID_ARGUMENT; }
+    } else if ( scaleNode ) {
+        if ( !PrefabNumber( scaleNode, scale.x ) ) { return map_status_t::INVALID_ARGUMENT; }
+        scale.y = scale.z = scale.x;
+    }
+    if ( !Finite( origin ) || !Finite( angles ) || !Finite( scale ) || scale.x <= 0 || scale.y <= 0 || scale.z <= 0 ) {
+        return map_status_t::INVALID_ARGUMENT;
+    }
+    f64 cp{}, sp{}, cy{}, sy{}, cr{}, sr{};
+    PrefabSinCosDegrees( angles.x, sp, cp ); PrefabSinCosDegrees( angles.y, sy, cy ); PrefabSinCosDegrees( angles.z, sr, cr );
+    // L = Rz(yaw) Ry(pitch) Rx(roll) diag(scale), matching instance display.
+    // A L can retain R only when C = R^T A R is diagonal. Otherwise it
+    // needs shear, which the linked-instance record cannot represent.
+    const f64 r[3][3]{ { cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr },
+                       { sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr }, { -sp, cp * sr, cp * cr } };
+    const f64 factors[]{ t.amount.x, t.amount.y, t.amount.z };
+    constexpr f64 epsilon = std::numeric_limits<f64>::epsilon();
+    f64 local[3]{};
+    // Exact uniform factors commute with every rotation without a dot product.
+    const bool uniform = factors[0] == factors[1] && factors[1] == factors[2];
+    if ( uniform ) { local[0] = local[1] = local[2] = factors[0]; }
+    for ( int i = 0; !uniform && i < 3; ++i ) {
+        for ( int j = 0; j < 3; ++j ) {
+            f64 value = 0, magnitude = 0;
+            for ( int k = 0; k < 3; ++k ) {
+                const f64 term = r[k][i] * factors[k] * r[k][j];
+                value += term; magnitude += std::fabs( term );
+            }
+            if ( !std::isfinite( value ) || !std::isfinite( magnitude ) ) { return map_status_t::INVALID_ARGUMENT; }
+            if ( i == j ) {
+                if ( value <= 0 ) { return map_status_t::INVALID_ARGUMENT; }
+                local[i] = value;
+            } else if ( std::fabs( value ) > 32 * epsilon * magnitude ) {
+                return map_status_t::PREFAB_TRANSFORM_UNSUPPORTED;
+            }
+        }
+    }
+    for ( int row = 0; row < 3; ++row ) {
+        for ( int column = 0; column < 3; ++column ) {
+            const f64 actual = r[row][column] * local[column], expected = factors[row] * r[row][column];
+            // A large unrelated axis must not mask error on a small entry.
+            // Ambiguous near-cancellations are conservatively refused.
+            const f64 tolerance = 64 * epsilon * std::max( std::fabs( actual ), std::fabs( expected ) );
+            if ( !std::isfinite( actual ) || !std::isfinite( expected ) || std::fabs( actual - expected ) > tolerance ) {
+                return map_status_t::PREFAB_TRANSFORM_UNSUPPORTED;
+            }
+        }
+    }
+    out.origin = math::Affine3d_TransformPoint( Affine( t ), origin );
+    out.scale = { scale.x * local[0], scale.y * local[1], scale.z * local[2] };
+    if ( !InRange( out.origin ) || !Finite( out.scale ) || out.scale.x <= 0 || out.scale.y <= 0 || out.scale.z <= 0 ) {
+        return map_status_t::INVALID_ARGUMENT;
+    }
+    out.scalar = !array && out.scale.x == out.scale.y && out.scale.y == out.scale.z;
+    out.omitScale = !scaleNode && out.scale.x == 1 && out.scale.y == 1 && out.scale.z == 1;
+    return map_status_t::OK;
+}
+bool WritePrefabScale( key_value_document_t *document, key_value_t *record, const prefab_scale_t &value ) noexcept
+{
+    if ( value.omitScale ) { return true; }
+    auto *old = KeyValue_Find( record, SV( "scale" ) );
+    const auto comments = KeyValue_Comments( old );
+    if ( value.scalar ) {
+        if ( old && !KeyValue_Remove( document, record, old ) ) { return false; }
+        auto *node = KeyValue_ObjectInsert( document, record, SV( "scale" ), key_value_type_t::F64 );
+        if ( !node || !KeyValue_SetF64( document, node, value.scale.x ) ) { return false; }
+    } else if ( !WriteVec( document, record, "scale", value.scale ) ) { return false; }
+    return KeyValue_SetComments( document, KeyValue_Find( record, SV( "scale" ) ), comments ) != CY_FALSE;
 }
 map_status_t TransformOne( map_document_t *m, u64 id, const transform_t &t ) noexcept
 {
@@ -153,9 +323,11 @@ map_status_t TransformOne( map_document_t *m, u64 id, const transform_t &t ) noe
             if ( s != geo::geometry_status_t::OK ) { return Status( s ); }
             s = t.kind == transform_kind_t::TRANSLATE ? geo::BrushTransform_TryTranslate( &copy.solid, t.amount ) :
                 t.kind == transform_kind_t::SCALE ? geo::BrushTransform_TryScale( &copy.solid, t.pivot, t.amount ) :
+                t.kind == transform_kind_t::AFFINE ? geo::BrushTransform_TryApplyAffine( &copy.solid, affine ) :
                 geo::BrushTransform_TryRotate( &copy.solid, t.pivot, t.rotation );
             if ( s == geo::geometry_status_t::OK && t.lock ) {
                 s = t.kind == transform_kind_t::TRANSLATE ? geo::BrushTransform_TextureLockTranslate( &copy.solid, &copy.attributes, t.amount, m->geometryPolicy ) :
+                    t.kind == transform_kind_t::AFFINE ? geo::BrushTransform_TextureLockAffine( &copy.solid, &copy.attributes, affine, m->geometryPolicy ) :
                     t.kind == transform_kind_t::SCALE ? geo::BrushTransform_TextureLockScale( &copy.solid, &copy.attributes, t.pivot, t.amount, m->geometryPolicy ) :
                     geo::BrushTransform_TextureLockRotate( &copy.solid, &copy.attributes, t.pivot, t.rotation, m->geometryPolicy );
             }
@@ -170,6 +342,8 @@ map_status_t TransformOne( map_document_t *m, u64 id, const transform_t &t ) noe
             return Status( s );
         }
         case map_geometry_kind_t::MESH: {
+            const auto admitted = MapModifiers_CheckTransform( m, id, affine );
+            if ( admitted != map_status_t::OK ) { return admitted; }
             geo::mesh_source_description_t desc{};
             auto s = geo::MeshSourceDescription_Init( &desc, m->pAllocator, sid );
             if ( s == geo::geometry_status_t::OK ) { s = geo::MeshSource_TryDescribe( geo::GeometryDocument_FindMesh( &m->geometry, sid ), &desc ); }
@@ -181,6 +355,8 @@ map_status_t TransformOne( map_document_t *m, u64 id, const transform_t &t ) noe
             if ( s == geo::geometry_status_t::OK ) { s = geo::MeshSource_TryBuild( &desc, m->pAllocator, &copy ); }
             if ( s == geo::geometry_status_t::OK ) { s = geo::GeometryDocument_TryReplaceMesh( &m->geometry, &copy ); }
             geo::MeshSource_Shutdown( &copy ); geo::MeshSourceDescription_Shutdown( &desc );
+            // A modifier stack's planes and origins are world positions: they move with the mesh.
+            if ( s == geo::geometry_status_t::OK ) { return MapModifiers_Transform( m, id, affine ); }
             return Status( s );
         }
         case map_geometry_kind_t::PATCH: {
@@ -193,7 +369,7 @@ map_status_t TransformOne( map_document_t *m, u64 id, const transform_t &t ) noe
         case map_geometry_kind_t::TERRAIN: {
             // A heightfield remains horizontal with square XY cells. Arbitrary
             // rotation/nonuniform XY scale requires conversion to mesh first.
-            if ( t.kind == transform_kind_t::ROTATE || ( t.kind == transform_kind_t::SCALE && t.amount.x != t.amount.y ) ) {
+            if ( t.kind == transform_kind_t::ROTATE || t.kind == transform_kind_t::AFFINE || ( t.kind == transform_kind_t::SCALE && t.amount.x != t.amount.y ) ) {
                 return map_status_t::INVALID_ARGUMENT;
             }
             geo::heightfield_t copy{};
@@ -211,17 +387,39 @@ map_status_t TransformOne( map_document_t *m, u64 id, const transform_t &t ) noe
             geo::HeightField_Shutdown( &copy ); return Status( s );
         }
         case map_geometry_kind_t::COUNT: {
-            // Entity/prefab rotation and scale also affect class-specific
-            // orientation/size properties. Moving only their origin would
-            // promise a transform that did not actually happen.
-            if ( t.kind != transform_kind_t::TRANSLATE ) { return map_status_t::INVALID_ARGUMENT; }
-            map_chunk_t *chunk = nullptr;
-            auto *record = MapDocument_FindObject( m, id, &chunk );
+            map_layer_store_t *layerStore = nullptr;
+            auto *record = MapDocument_FindObject( m, id, &layerStore );
+            if ( !record || !layerStore ) { return map_status_t::INVALID_ARGUMENT; }
+            if ( t.kind == transform_kind_t::SCALE && IsPrefabRecord( record, layerStore ) ) {
+                prefab_scale_t scaled{};
+                const auto status = PreparePrefabScale( record, t, scaled );
+                if ( status != map_status_t::OK ) { return status; }
+                return WriteVec( layerStore->store.pDocument, record, "origin", scaled.origin ) &&
+                    WritePrefabScale( layerStore->store.pDocument, record, scaled ) ? map_status_t::OK : map_status_t::OUT_OF_MEMORY;
+            }
+            // Point entities follow the pivot without changing their class
+            // dimensions. Rotation composes onto entity and instance angles.
+            const key_value_t *originNode = KeyValue_Find( record, SV( "origin" ) );
+            if ( originNode == nullptr ) { return map_status_t::OK; } // A logic entity has no place to move.
             math::vec3d_t origin{};
-            if ( !record || !chunk || !ReadVec( KeyValue_Find( record, SV( "origin" ) ), origin ) ) { return map_status_t::INVALID_ARGUMENT; }
+            if ( !ReadVec( originNode, origin ) ) { return map_status_t::INVALID_ARGUMENT; }
             origin = math::Affine3d_TransformPoint( affine, origin );
             if ( !InRange( origin ) ) { return map_status_t::INVALID_ARGUMENT; }
-            return WriteVec( chunk->store.pDocument, record, "origin", origin ) ? map_status_t::OK : map_status_t::OUT_OF_MEMORY;
+            if ( !WriteVec( layerStore->store.pDocument, record, "origin", origin ) ) { return map_status_t::OUT_OF_MEMORY; }
+            if ( t.kind != transform_kind_t::ROTATE ) { return map_status_t::OK; }
+            math::vec3d_t angles{};
+            if ( const key_value_t *anglesNode = KeyValue_Find( record, SV( "angles" ) ); anglesNode != nullptr && !ReadVec( anglesNode, angles ) ) {
+                return map_status_t::INVALID_ARGUMENT;
+            }
+            angles = TurnAngles( angles, t.rotation );
+            // CYMAP.md 6.2: angles are omitted when zero.
+            if ( std::fabs( angles.x ) < 1e-7 && std::fabs( angles.y ) < 1e-7 && std::fabs( angles.z ) < 1e-7 ) {
+                if ( key_value_t *pOld = KeyValue_Find( record, SV( "angles" ) ) ) {
+                    if ( !KeyValue_Remove( layerStore->store.pDocument, record, pOld ) ) { return map_status_t::OUT_OF_MEMORY; }
+                }
+                return map_status_t::OK;
+            }
+            return WriteVec( layerStore->store.pDocument, record, "angles", angles ) ? map_status_t::OK : map_status_t::OUT_OF_MEMORY;
         }
     }
     return map_status_t::INVALID_ARGUMENT;
@@ -232,6 +430,17 @@ map_status_t Transform( map_document_t *m, span_t<const u64> ids, const transfor
     if ( s != map_status_t::OK || !Finite( t.amount ) || !Finite( t.pivot ) ) { return s == map_status_t::OK ? map_status_t::INVALID_ARGUMENT : s; }
     vector_t<u64> expanded{};
     s = Expand( m, ids, expanded );
+    // A later mesh's unrepresentable live modifier must not leave an earlier
+    // target transformed, even within the private working copy.
+    for ( usize i = 0; s == map_status_t::OK && i < expanded.nCount; ++i ) {
+        if ( Kind( m, expanded.pData[i] ) == map_geometry_kind_t::MESH ) {
+            s = MapModifiers_CheckTransform( m, expanded.pData[i], Affine( t ) );
+        } else if ( t.kind == transform_kind_t::SCALE && Kind( m, expanded.pData[i] ) == map_geometry_kind_t::COUNT ) {
+            map_layer_store_t *store = nullptr;
+            const auto *record = MapDocument_FindObject( m, expanded.pData[i], &store );
+            if ( IsPrefabRecord( record, store ) ) { prefab_scale_t scaled{}; s = PreparePrefabScale( record, t, scaled ); }
+        }
+    }
     for ( usize i = 0; s == map_status_t::OK && i < expanded.nCount; ++i ) { s = TransformOne( m, expanded.pData[i], t ); }
     if ( s == map_status_t::OK ) { ++m->geometry.revision; }
     return s;
@@ -271,6 +480,22 @@ template <typename T> usize Bytes( const vector_t<T> &v ) noexcept { return v.nC
 template <typename T, typename Tag> usize Bytes( const generation_pool_t<T, Tag> &v ) noexcept { return v.cSlots * sizeof( generation_pool_slot_t<T> ); }
 } // namespace
 
+map_status_t MapEdit_CollectAffectedObjects( const map_document_t *m, span_t<const u64> ids, vector_t<u64> *out ) noexcept
+{
+    if ( m == nullptr || !Allocator_IsValid( m->pAllocator ) || !Span_IsValid( ids ) ||
+         !Vector_IsValid( out ) || !Allocator_IsValid( out->pAllocator ) ) { return map_status_t::INVALID_ARGUMENT; }
+    vector_t<u64> candidate{};
+    // The source span may borrow out's storage. Keep it alive until the
+    // complete closure has been prepared, including an empty replacement.
+    const auto status = ids.nCount == 0
+        ? ( Vector_Init( &candidate, out->pAllocator ) ? map_status_t::OK : map_status_t::OUT_OF_MEMORY )
+        : Expand( m, ids, candidate, out->pAllocator );
+    if ( status != map_status_t::OK ) { return status; }
+    Vector_Shutdown( out );
+    Vector_Move( out, &candidate );
+    return map_status_t::OK;
+}
+
 map_status_t MapEdit_Clone( const map_document_t *src, map_document_t **out ) noexcept
 {
     if ( !src || !src->pAllocator || !out || *out ) { return map_status_t::INVALID_ARGUMENT; }
@@ -281,23 +506,21 @@ map_status_t MapEdit_Clone( const map_document_t *src, map_document_t **out ) no
     if ( !CloneStore( copy->root, src->root, src->pAllocator ) || !Copy( copy->layers, src->layers, src->pAllocator ) ||
         !Copy( copy->geometryRecords, src->geometryRecords, src->pAllocator ) || !Copy( copy->problems, src->problems, src->pAllocator ) ||
         !Copy( copy->materials.text, src->materials.text, src->pAllocator ) || !Copy( copy->materials.entries, src->materials.entries, src->pAllocator ) ||
-        !Copy( copy->materials.sorted, src->materials.sorted, src->pAllocator ) || !Vector_Init( &copy->chunks, src->pAllocator, src->chunks.nCount ) ) {
+        !Copy( copy->materials.sorted, src->materials.sorted, src->pAllocator ) || !Vector_Init( &copy->layerStores, src->pAllocator, src->layerStores.nCount ) ) {
         return fail( map_status_t::OUT_OF_MEMORY );
     }
-    for ( usize i = 0; i < src->chunks.nCount; ++i ) {
-        void *memory = Allocator_Allocate( src->pAllocator, sizeof( map_chunk_t ), alignof( map_chunk_t ) );
+    for ( usize i = 0; i < src->layerStores.nCount; ++i ) {
+        void *memory = Allocator_Allocate( src->pAllocator, sizeof( map_layer_store_t ), alignof( map_layer_store_t ) );
         if ( !memory ) { return fail( map_status_t::OUT_OF_MEMORY ); }
-        auto *chunk = new ( memory ) map_chunk_t{};
+        auto *layerStore = new ( memory ) map_layer_store_t{};
         // Publish ownership immediately: failure cleanup can now free it.
-        if ( !Vector_PushBack( &copy->chunks, chunk ) ) {
-            chunk->~map_chunk_t(); Allocator_Free( src->pAllocator, chunk, sizeof( map_chunk_t ), alignof( map_chunk_t ) );
+        if ( !Vector_PushBack( &copy->layerStores, layerStore ) ) {
+            layerStore->~map_layer_store_t(); Allocator_Free( src->pAllocator, layerStore, sizeof( map_layer_store_t ), alignof( map_layer_store_t ) );
             return fail( map_status_t::OUT_OF_MEMORY );
         }
-        const auto &old = *src->chunks.pData[i];
-        std::memcpy( chunk->layer, old.layer, sizeof( chunk->layer ) );
-        std::memcpy( chunk->sourcePath, old.sourcePath, sizeof( chunk->sourcePath ) );
-        chunk->cell = old.cell; chunk->bDamaged = old.bDamaged;
-        if ( !CloneStore( chunk->store, old.store, src->pAllocator ) ) { return fail( map_status_t::OUT_OF_MEMORY ); }
+        const auto &old = *src->layerStores.pData[i];
+        std::memcpy( layerStore->layer, old.layer, sizeof( layerStore->layer ) );
+        if ( !CloneStore( layerStore->store, old.store, src->pAllocator ) ) { return fail( map_status_t::OUT_OF_MEMORY ); }
     }
     geo::geometry_snapshot_t snapshot{};
     auto gs = geo::GeometrySnapshot_TakeFromDocument( &snapshot, &src->geometry );
@@ -309,17 +532,18 @@ map_status_t MapEdit_Clone( const map_document_t *src, map_document_t **out ) no
     Vector_Move( &g.meshes, &snapshot.meshes ); Vector_Move( &g.patches, &snapshot.patches ); Vector_Move( &g.heightFields, &snapshot.heightFields );
     g.pAllocator = src->pAllocator; g.policy = snapshot.policy; g.revision = snapshot.revision;
     geo::GeometrySnapshot_Shutdown( &snapshot );
-    copy->geometryPolicy = src->geometryPolicy; copy->mapId = src->mapId; copy->grid = src->grid;
+    copy->geometryPolicy = src->geometryPolicy; copy->mapId = src->mapId;
     copy->nextId = src->nextId; copy->bReadOnly = src->bReadOnly; copy->bIdsAssigned = src->bIdsAssigned;
+    std::memcpy( copy->creationLayer, src->creationLayer, sizeof( copy->creationLayer ) );
     *out = copy; return map_status_t::OK;
 }
 
 usize MapEdit_EstimateBytes( const map_document_t *m ) noexcept
 {
     if ( !m ) { return 0; }
-    usize n = sizeof( *m ) + Bytes( m->chunks ) + Bytes( m->layers ) + Bytes( m->geometryRecords ) + Bytes( m->problems ) +
+    usize n = sizeof( *m ) + Bytes( m->layerStores ) + Bytes( m->layers ) + Bytes( m->geometryRecords ) + Bytes( m->problems ) +
         Bytes( m->materials.text ) + Bytes( m->materials.entries ) + Bytes( m->materials.sorted ) + KeyValue_OwnedBytes( m->root.pDocument );
-    for ( usize i = 0; i < m->chunks.nCount; ++i ) { n = AddSaturated( n, sizeof( map_chunk_t ) + KeyValue_OwnedBytes( m->chunks.pData[i]->store.pDocument ) ); }
+    for ( usize i = 0; i < m->layerStores.nCount; ++i ) { n = AddSaturated( n, sizeof( map_layer_store_t ) + KeyValue_OwnedBytes( m->layerStores.pData[i]->store.pDocument ) ); }
     const auto &g = m->geometry;
     n = AddSaturated( n, Bytes( g.brushes ) + Bytes( g.brushAttributes ) + Bytes( g.meshes ) + Bytes( g.patches ) + Bytes( g.heightFields ) );
     n = AddSaturated( n, ( g.sourceIds.claimedIds.nCapacity + g.sourceIds.liveIds.nCapacity ) * sizeof( *g.sourceIds.liveIds.pSlots ) );
@@ -334,8 +558,10 @@ usize MapEdit_EstimateBytes( const map_document_t *m ) noexcept
     return n;
 }
 
-map_status_t MapEdit_CreatePrimitive( map_document_t *m, const map_primitive_desc_t &desc,
-    string_view_t material, string_view_t layer, u64 *idOut ) noexcept
+namespace
+{
+map_status_t CreatePrimitive( map_document_t *m, const map_primitive_desc_t &desc,
+    string_view_t material, string_view_t layer, u64 *idOut, bool sphereMesh ) noexcept
 {
     const auto bounds = desc.bounds;
     if ( !m || !m->pAllocator || !idOut || !InRange( bounds.minimum ) || !InRange( bounds.maximum ) ||
@@ -354,8 +580,20 @@ map_status_t MapEdit_CreatePrimitive( map_document_t *m, const map_primitive_des
         if ( static_cast<unsigned char>( material.pData[i] ) < 0x20u || material.pData[i] == '\\' ) { return map_status_t::INVALID_ARGUMENT; }
     }
     if ( m->bReadOnly ) { return map_status_t::READ_ONLY; }
-    if ( quad ) {
-        if ( layer.cchLength == 0 && m->layers.nCount ) { layer = SV( m->layers.pData[0].id ); }
+    if ( sphereMesh && desc.kind != map_primitive_kind_t::SPHERE ) { return map_status_t::INVALID_ARGUMENT; }
+    if ( sphereMesh && desc.sphereSubdivisions > 1u ) { return map_status_t::LIMIT_EXCEEDED; }
+    if ( MapPrimitive_IsMesh( desc.kind ) ) {
+        // Arch, stairs, spiral stairs, pipe, torus: one mesh each.
+        if ( layer.cchLength == 0 && m->layers.nCount ) { layer = MapDocument_CreationLayer( m ); }
+        if ( !MapDocument_HasLayer( m, layer ) ) { return map_status_t::UNKNOWN_LAYER; }
+        u64 id = 0;
+        auto result = MapCreate_BlockShape( m, desc, material, &id );
+        if ( result == map_status_t::OK ) { result = MapDocument_SetGeometryLayer( m, id, layer ); }
+        if ( result == map_status_t::OK ) { *idOut = id; }
+        return result;
+    }
+    if ( quad || sphereMesh ) {
+        if ( layer.cchLength == 0 && m->layers.nCount ) { layer = MapDocument_CreationLayer( m ); }
         if ( !MapDocument_HasLayer( m, layer ) ) { return map_status_t::UNKNOWN_LAYER; }
         if ( m->nextId == 0 || m->geometry.revision == CY_U64_MAX ||
              geo::GeometrySourceIdAllocator_IsExhausted( &m->geometry.sourceIds.allocator ) ) { return map_status_t::LIMIT_EXCEEDED; }
@@ -365,8 +603,12 @@ map_status_t MapEdit_CreatePrimitive( map_document_t *m, const map_primitive_des
         if ( result == map_status_t::OK ) { result = Status( geo::GeometryFragment_Init( &fragment, m->pAllocator ) ); }
         geo::geometry_source_id_allocator_t allocator{ { std::max( m->nextId, m->geometry.sourceIds.allocator.next.value ) } };
         geo::geometry_primitive_t primitive{};
-        primitive.kind = geo::geometry_primitive_kind_t::PLANE;
-        primitive.axis = desc.axis; primitive.box = { bounds.minimum, bounds.maximum };
+        primitive.kind = sphereMesh ? geo::geometry_primitive_kind_t::SPHERE : geo::geometry_primitive_kind_t::PLANE;
+        primitive.axis = sphereMesh ? 2u : desc.axis; primitive.box = { bounds.minimum, bounds.maximum };
+        if ( sphereMesh ) {
+            primitive.cSides = desc.sphereSubdivisions == 0u ? 16u : 24u;
+            primitive.cRings = desc.sphereSubdivisions == 0u ? 8u : 10u;
+        }
         primitive.material.value = ref; primitive.worldUnitsPerUv = { desc.worldUnitsPerUv, desc.worldUnitsPerUv };
         if ( result == map_status_t::OK ) {
             result = Status( geo::Primitive_TryBuild( primitive, geo::geometry_primitive_output_t::MESH,
@@ -396,11 +638,11 @@ map_status_t MapEdit_CreatePrimitive( map_document_t *m, const map_primitive_des
             break;
         case map_primitive_kind_t::SPHERE:
             if ( desc.sphereSubdivisions > 1 ) { return map_status_t::LIMIT_EXCEEDED; }
-            faceCount = desc.sphereSubdivisions == 0 ? 20u : 80u; break;
+            faceCount = desc.sphereSubdivisions == 0 ? 16u * 8u : 24u * 10u; break;
         default: return map_status_t::INVALID_ARGUMENT;
     }
     if ( faceCount > MAP_BRUSH_FACES_MAX || faceCount > m->geometryPolicy.limits.cBrushSidesPerBrushMax ) { return map_status_t::LIMIT_EXCEEDED; }
-    if ( layer.cchLength == 0 && m->layers.nCount ) { layer = SV( m->layers.pData[0].id ); }
+    if ( layer.cchLength == 0 && m->layers.nCount ) { layer = MapDocument_CreationLayer( m ); }
     if ( !MapDocument_HasLayer( m, layer ) ) { return map_status_t::UNKNOWN_LAYER; }
     if ( m->nextId == 0 || geo::GeometrySourceIdAllocator_IsExhausted( &m->geometry.sourceIds.allocator ) ) { return map_status_t::LIMIT_EXCEEDED; }
     geo::geometry_source_id_allocator_t allocator{ { std::max( m->nextId, m->geometry.sourceIds.allocator.next.value ) } };
@@ -418,7 +660,13 @@ map_status_t MapEdit_CreatePrimitive( map_document_t *m, const map_primitive_des
         case map_primitive_kind_t::CONE:
             s = geo::BrushGenerator_TryMakeCone( &solid, m->pAllocator, m->geometryPolicy, &allocator, {}, 1.0, desc.coneTopRadiusRatio, 1.0, desc.nSides, desc.axis ); break;
         case map_primitive_kind_t::SPHERE:
-            s = geo::BrushGenerator_TryMakeSphere( &solid, m->pAllocator, m->geometryPolicy, &allocator, {}, 1.0, desc.sphereSubdivisions ); break;
+            // Latitude bands give the Block tool a round silhouette and
+            // useful quad loops for component editing. Both detail levels
+            // fit the 256-side brush limit; existing authored maps are not
+            // regenerated when this construction default changes.
+            s = geo::BrushShapes_TryMakeUvSphere( &solid, m->pAllocator, m->geometryPolicy, &allocator,
+                { { -1, -1, -1 }, { 1, 1, 1 } }, desc.sphereSubdivisions == 0 ? 16u : 24u,
+                desc.sphereSubdivisions == 0 ? 8u : 10u, geo::brush_circle_mode_t::VERTEX_ALIGNED ); break;
         default: break;
     }
     // The canonical generator defines a regular cross-section. Transform its
@@ -449,6 +697,19 @@ map_status_t MapEdit_CreatePrimitive( map_document_t *m, const map_primitive_des
     if ( result == map_status_t::OK ) { m->nextId = allocator.next.value; result = MapDocument_SetGeometryLayer( m, id, layer ); }
     if ( result == map_status_t::OK ) { *idOut = id; ++m->geometry.revision; }
     geo::BrushSource_Shutdown( &source ); geo::BrushSolid_Shutdown( &solid ); return result;
+}
+}
+
+map_status_t MapEdit_CreatePrimitive( map_document_t *m, const map_primitive_desc_t &desc,
+    string_view_t material, string_view_t layer, u64 *idOut ) noexcept
+{
+    return CreatePrimitive( m, desc, material, layer, idOut, false );
+}
+
+map_status_t MapEdit_CreateSphereMesh( map_document_t *m, const map_primitive_desc_t &desc,
+    string_view_t material, string_view_t layer, u64 *idOut ) noexcept
+{
+    return CreatePrimitive( m, desc, material, layer, idOut, true );
 }
 
 map_status_t MapEdit_CreateBox( map_document_t *m, math::aabbd_t bounds, string_view_t material, string_view_t layer, u64 *idOut ) noexcept
@@ -527,12 +788,30 @@ map_status_t MapEdit_Resize( map_document_t *m, span_t<const u64> ids, const map
     if ( m->geometry.revision == CY_U64_MAX ) { return map_status_t::LIMIT_EXCEEDED; }
     for ( usize i = 0; i < targets.nCount; ++i ) {
         const auto &target = targets.pData[i];
+        if ( Kind( m, target.id ) == map_geometry_kind_t::MESH ) {
+            status = MapModifiers_CheckTransform( m, target.id, Affine( { transform_kind_t::SCALE, target.factors, target.pivot, math::CY_AFFINE3D_IDENTITY, lock } ) );
+            if ( status != map_status_t::OK ) { return status; }
+        }
+    }
+    for ( usize i = 0; i < targets.nCount; ++i ) {
+        const auto &target = targets.pData[i];
         if ( target.factors.x == 1 && target.factors.y == 1 && target.factors.z == 1 ) { continue; }
         status = TransformOne( m, target.id, { transform_kind_t::SCALE, target.factors, target.pivot, math::CY_AFFINE3D_IDENTITY, lock } );
         if ( status != map_status_t::OK ) { return status; }
     }
     ++m->geometry.revision;
     return map_status_t::OK;
+}
+map_status_t MapEdit_Shear( map_document_t *m, span_t<const u64> ids, u32 axis, math::vec3d_t slide, math::vec3d_t pivot, bool lock ) noexcept
+{
+    const f64 along[3]{ slide.x, slide.y, slide.z };
+    if ( axis > 2u || along[axis] != 0.0 || !Finite( slide ) ) { return map_status_t::INVALID_ARGUMENT; }
+    // Columns of I + slide * e_axis^T: the axis column gains the slide.
+    math::affine3d_t linear = math::CY_AFFINE3D_IDENTITY;
+    linear.m[axis * 3 + 0] += slide.x;
+    linear.m[axis * 3 + 1] += slide.y;
+    linear.m[axis * 3 + 2] += slide.z;
+    return Transform( m, ids, { transform_kind_t::AFFINE, {}, pivot, linear, lock } );
 }
 map_status_t MapEdit_Rotate( map_document_t *m, span_t<const u64> ids, math::vec3d_t degrees, math::vec3d_t pivot, bool lock ) noexcept
 {
@@ -563,6 +842,12 @@ map_status_t MapEdit_Duplicate( map_document_t *m, span_t<const u64> ids, math::
     if ( !idsOut || !Vector_IsValid( idsOut ) || !Allocator_IsValid( idsOut->pAllocator ) || !Finite( offset ) ) { return map_status_t::INVALID_ARGUMENT; }
     Vector_Clear( idsOut );
     vector_t<u64> expanded{}; s = Expand( m, ids, expanded ); if ( s != map_status_t::OK ) { return s; }
+    for ( usize i = 0; i < expanded.nCount; ++i ) {
+        if ( Kind( m, expanded.pData[i] ) == map_geometry_kind_t::MESH ) {
+            s = MapModifiers_CheckTransform( m, expanded.pData[i], math::Affine3d_FromTranslation( offset ) );
+            if ( s != map_status_t::OK ) { return s; }
+        }
+    }
     struct copied_t { u64 oldId; u64 newId; };
     vector_t<copied_t> copied{};
     if ( !Vector_Init( &copied, m->pAllocator, expanded.nCount ) ) { return map_status_t::OUT_OF_MEMORY; }
@@ -577,15 +862,15 @@ map_status_t MapEdit_Duplicate( map_document_t *m, span_t<const u64> ids, math::
         if ( m->nextId == 0 || geo::GeometrySourceIdAllocator_IsExhausted( &m->geometry.sourceIds.allocator ) ) { return map_status_t::LIMIT_EXCEEDED; }
         geo::geometry_source_id_allocator_t allocator{ { std::max( m->nextId, m->geometry.sourceIds.allocator.next.value ) } };
         u64 newId = 0;
-        map_chunk_t *oldChunk = nullptr; auto *oldRecord = MapDocument_FindObject( m, oldId, &oldChunk );
+        map_layer_store_t *oldStore = nullptr; auto *oldRecord = MapDocument_FindObject( m, oldId, &oldStore );
         if ( kind == map_geometry_kind_t::COUNT ) {
             // Point entities, prefab instances, notes and other origin-bearing
             // records retain their complete unknown fields. A generic record
             // with embedded IDs cannot be cloned safely by rewriting root only.
-            if ( !oldRecord || !oldChunk || KeyValue_Find( oldRecord, SV( "brushes" ) ) || KeyValue_Find( oldRecord, SV( "meshes" ) ) || KeyValue_Find( oldRecord, SV( "patches" ) ) ) {
+            if ( !oldRecord || !oldStore || KeyValue_Find( oldRecord, SV( "brushes" ) ) || KeyValue_Find( oldRecord, SV( "meshes" ) ) || KeyValue_Find( oldRecord, SV( "patches" ) ) ) {
                 // Loaded brush entities retain stripped nested records. Copy
                 // the owner without those; canonical children are copied below.
-                if ( !oldRecord || !oldChunk || !KeyValue_Find( oldRecord, SV( "class" ) ) ) { return map_status_t::INVALID_ARGUMENT; }
+                if ( !oldRecord || !oldStore || !KeyValue_Find( oldRecord, SV( "class" ) ) ) { return map_status_t::INVALID_ARGUMENT; }
             }
             for ( auto childKind : { map_geometry_kind_t::BRUSH, map_geometry_kind_t::MESH, map_geometry_kind_t::PATCH } ) {
                 const auto *children = KeyValue_Find( oldRecord, SV( MapGeometry_SectionName( childKind ) ) );
@@ -598,16 +883,16 @@ map_status_t MapEdit_Duplicate( map_document_t *m, span_t<const u64> ids, math::
                     }
                 }
             }
-            auto *parent = FindParent( KeyValue_Root( oldChunk->store.pDocument ), oldRecord );
-            auto *record = parent ? KeyValue_CloneInto( oldChunk->store.pDocument, parent, oldRecord ) : nullptr;
+            auto *parent = FindParent( KeyValue_Root( oldStore->store.pDocument ), oldRecord );
+            auto *record = parent ? KeyValue_CloneInto( oldStore->store.pDocument, parent, oldRecord ) : nullptr;
             if ( !record ) { return map_status_t::OUT_OF_MEMORY; }
             for ( const char *section : { "brushes", "meshes", "patches" } ) {
-                if ( auto *node = KeyValue_Find( record, SV( section ) ) ) { if ( !KeyValue_Remove( oldChunk->store.pDocument, record, node ) ) { return map_status_t::OUT_OF_MEMORY; } }
+                if ( auto *node = KeyValue_Find( record, SV( section ) ) ) { if ( !KeyValue_Remove( oldStore->store.pDocument, record, node ) ) { return map_status_t::OUT_OF_MEMORY; } }
             }
             const auto allocated = geo::GeometrySourceIdAllocator_Allocate( &allocator );
             if ( allocated.status != geo::geometry_status_t::OK ) { return Status( allocated.status ); }
             newId = allocated.id.value;
-            if ( !KeyValue_SetU64( oldChunk->store.pDocument, KeyValue_Find( record, SV( "id" ) ), newId ) ) { return map_status_t::OUT_OF_MEMORY; }
+            if ( !KeyValue_SetU64( oldStore->store.pDocument, KeyValue_Find( record, SV( "id" ) ), newId ) ) { return map_status_t::OUT_OF_MEMORY; }
             m->nextId = allocator.next.value;
         } else {
             key_value_document_desc_t desc{}; desc.pAllocator = m->pAllocator;
@@ -634,16 +919,16 @@ map_status_t MapEdit_Duplicate( map_document_t *m, span_t<const u64> ids, math::
             if ( s == map_status_t::OK && owner ) { s = MapDocument_SetGeometryOwner( m, newId, owner ); }
             // Retain the copied metadata in its original record container.
             // Save rehomes it beside canonical geometry according to placement.
-            if ( s == map_status_t::OK && oldRecord && oldChunk ) {
-                auto *parent = FindParent( KeyValue_Root( oldChunk->store.pDocument ), oldRecord );
+            if ( s == map_status_t::OK && oldRecord && oldStore ) {
+                auto *parent = FindParent( KeyValue_Root( oldStore->store.pDocument ), oldRecord );
                 if ( owner ) {
-                    map_chunk_t *ownerChunk = nullptr; auto *ownerRecord = MapDocument_FindObject( m, owner, &ownerChunk );
-                    if ( ownerRecord && ownerChunk ) {
-                        oldChunk = ownerChunk; parent = KeyValue_Find( ownerRecord, SV( MapGeometry_SectionName( kind ) ) );
-                        if ( !parent ) { parent = KeyValue_ObjectInsert( ownerChunk->store.pDocument, ownerRecord, SV( MapGeometry_SectionName( kind ) ), key_value_type_t::ARRAY ); }
+                    map_layer_store_t *ownerStore = nullptr; auto *ownerRecord = MapDocument_FindObject( m, owner, &ownerStore );
+                    if ( ownerRecord && ownerStore ) {
+                        oldStore = ownerStore; parent = KeyValue_Find( ownerRecord, SV( MapGeometry_SectionName( kind ) ) );
+                        if ( !parent ) { parent = KeyValue_ObjectInsert( ownerStore->store.pDocument, ownerRecord, SV( MapGeometry_SectionName( kind ) ), key_value_type_t::ARRAY ); }
                     }
                 }
-                if ( !MapGeometry_StripRecord( kind, doc, KeyValue_Root( doc ) ) || !parent || !KeyValue_CloneInto( oldChunk->store.pDocument, parent, KeyValue_Root( doc ) ) ) { s = map_status_t::OUT_OF_MEMORY; }
+                if ( !MapGeometry_StripRecord( kind, doc, KeyValue_Root( doc ) ) || !parent || !KeyValue_CloneInto( oldStore->store.pDocument, parent, KeyValue_Root( doc ) ) ) { s = map_status_t::OUT_OF_MEMORY; }
             }
             cleanup(); if ( s != map_status_t::OK ) { return s; }
         }
@@ -659,6 +944,12 @@ map_status_t MapEdit_Duplicate( map_document_t *m, span_t<const u64> ids, math::
     // translate, rather than expanding owners and transforming children twice.
     const transform_t t{ transform_kind_t::TRANSLATE, offset, {}, math::CY_AFFINE3D_IDENTITY, true };
     for ( usize i = 0; i < copied.nCount; ++i ) { s = TransformOne( m, copied.pData[i].newId, t ); if ( s != map_status_t::OK ) { return s; } }
+    // Copied groups come along with the copies (CypherMap_Groups.h).
+    std::vector<std::pair<u64, u64>> pairs;
+    for ( usize i = 0; i < copied.nCount; ++i ) { pairs.emplace_back( copied.pData[i].oldId, copied.pData[i].newId ); }
+    s = MapGroups_Copied( m, pairs, nullptr ); if ( s != map_status_t::OK ) { return s; }
+    // Copied children hang from their copied parent.
+    s = MapHierarchy_Copied( m, pairs ); if ( s != map_status_t::OK ) { return s; }
     ++m->geometry.revision; return map_status_t::OK;
 }
 

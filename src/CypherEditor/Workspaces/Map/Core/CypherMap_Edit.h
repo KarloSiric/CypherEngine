@@ -28,21 +28,35 @@ CYPHER_NODISCARD common::usize MapEdit_EstimateBytes( const map_document_t *pMap
 // No operation performs file I/O. IDs are never recycled. Origin-bearing map
 // records support translation; their class-specific rotation/scale semantics
 // are rejected. Heightfields support translation and equal XY scaling only.
-enum class map_primitive_kind_t : common::u8 { BOX, WEDGE, CYLINDER, CONE, SPHERE, QUAD, COUNT };
+// ARCH..TORUS are Hammer 5's other Block tool shapes; they are made as one
+// mesh each (MapCreate_BlockShape), the others as brushes.
+enum class map_primitive_kind_t : common::u8 { BOX, WEDGE, CYLINDER, CONE, SPHERE, QUAD, ARCH, STAIRS, SPIRAL_STAIRS, PIPE, TORUS, COUNT };
+CYPHER_NODISCARD constexpr bool MapPrimitive_IsMesh( map_primitive_kind_t kind ) noexcept { return kind >= map_primitive_kind_t::ARCH && kind < map_primitive_kind_t::COUNT; }
 struct map_primitive_desc_t
 {
     map_primitive_kind_t kind = map_primitive_kind_t::BOX;
     // The construction frame. Round shapes fit within this envelope; their
     // tessellation need not touch every face of the frame (for example an odd
-    // sided cylinder or the base icosphere).
+    // sided cylinder). A UV sphere touches all six faces of the frame.
     math::aabbd_t bounds{};
     common::u32 axis = 2; // Cylinder/cone length or Quad normal: X=0, Y=1, Z=2.
     common::u32 nSides = 16; // Cylinder/cone: 3..128, also bounded by policy.
     common::u32 wedgeCutAxis = 0;
     common::u32 wedgeSlopeAxis = 2; // Distinct from cut axis; remaining axis is extruded.
-    common::u32 sphereSubdivisions = 1; // 0=20 faces, 1=80 faces; map limit is 256.
+    // Retained field name for construction settings compatibility. These are
+    // UV-sphere detail presets: 0=16 sides x 8 bands, 1=24 sides x 10 bands.
+    common::u32 sphereSubdivisions = 1; // 128/240 faces; map limit is 256.
     common::f64 coneTopRadiusRatio = 0.0; // 0=apex, (0,1)=frustum, 1=cylinder.
     common::f64 worldUnitsPerUv = 128.0; // World distance per one texture repeat.
+    // Mesh shapes (round ones use nSides around, axis as their up):
+    common::f64 wallThickness = 16.0;  // Arch and pipe wall, in world units.
+    common::f64 arcDegrees = 180.0;    // Arch: how far round it goes.
+    common::f64 startDegrees = 0.0;    // Arch: where it starts, from the first axis across `axis`.
+    common::u32 nSteps = 8;            // Stairs and spiral stairs.
+    common::i32 stairsDirection = 1;   // Stairs rise toward this axis: +-(1 + axis index); along `axis` means the first axis across it.
+    common::f64 turnDegrees = 360.0;   // Spiral stairs: total turn (negative turns the other way).
+    common::f64 innerRadius = 16.0;    // Spiral stairs: the open middle, in world units.
+    common::f64 tubeRatio = 0.25;      // Torus: tube radius over the half footprint.
 };
 // Uses backend primitive generators and validates geometry before adoption.
 // QUAD creates one open rectangular mesh face at bounds.minimum on `axis`,
@@ -53,9 +67,22 @@ struct map_primitive_desc_t
 // *pIdOut remains unchanged on failure; discard the private copy as above.
 CYPHER_NODISCARD map_status_t MapEdit_CreatePrimitive( map_document_t *pMap, const map_primitive_desc_t &desc,
     common::string_view_t material, common::string_view_t layer, common::u64 *pIdOut ) noexcept;
+// Builds the same UV sphere directly as a mesh, without expensive convex
+// brush reconstruction/conversion. Requires desc.kind == SPHERE; shares the
+// bounds, detail, material, layer, ID and private-copy failure contracts above.
+CYPHER_NODISCARD map_status_t MapEdit_CreateSphereMesh( map_document_t *pMap, const map_primitive_desc_t &desc,
+    common::string_view_t material, common::string_view_t layer, common::u64 *pIdOut ) noexcept;
 // Compatibility wrapper using the default primitive UV density.
 CYPHER_NODISCARD map_status_t MapEdit_CreateBox( map_document_t *pMap, math::aabbd_t bounds,
     common::string_view_t material, common::string_view_t layer, common::u64 *pIdOut ) noexcept;
+// Read-only target closure used by Translate/Rotate/Scale/Shear/Delete/Duplicate:
+// roots, owned geometry, attached descendants and their owned geometry, once
+// each. This does not expand groups or inspect editor lock/visibility state.
+// pOut must be initialized. Prepare with its allocator and replace it only on
+// success; failure preserves its storage and contents. ids may borrow pOut.
+// Empty input publishes an empty result. Read-only maps can be queried.
+CYPHER_NODISCARD map_status_t MapEdit_CollectAffectedObjects( const map_document_t *pMap,
+    common::span_t<const common::u64> ids, common::vector_t<common::u64> *pOut ) noexcept;
 CYPHER_NODISCARD map_status_t MapEdit_Translate( map_document_t *pMap, common::span_t<const common::u64> ids,
     math::vec3d_t offset, bool textureLock = true ) noexcept;
 CYPHER_NODISCARD map_status_t MapEdit_Scale( map_document_t *pMap, common::span_t<const common::u64> ids,
@@ -81,6 +108,14 @@ CYPHER_NODISCARD map_status_t MapEdit_ResizeTransform( math::aabbd_t bounds, con
 // As with other edits, discard the private working copy on any failure.
 CYPHER_NODISCARD map_status_t MapEdit_Resize( map_document_t *pMap, common::span_t<const common::u64> ids,
     const map_bounds_resize_t &resize, bool textureLock = true ) noexcept;
+// Shear (TrenchBroom's Shear tool): p' = p + slide * (p[axis] - pivot[axis]),
+// so the plane through `pivot` across `axis` stays put and each parallel
+// plane slides by `slide` per unit of distance from it (slide[axis] must be
+// 0). Brushes keep their textures exactly with textureLock; meshes and
+// patches carry their UVs; point entities and instances move without
+// turning. Terrain refuses (INVALID_ARGUMENT): its cells stay square.
+CYPHER_NODISCARD map_status_t MapEdit_Shear( map_document_t *pMap, common::span_t<const common::u64> ids, common::u32 axis,
+    math::vec3d_t slide, math::vec3d_t pivot, bool textureLock = true ) noexcept;
 // Euler XYZ in degrees: X first, then Y, then Z, about the supplied world pivot.
 CYPHER_NODISCARD map_status_t MapEdit_Rotate( map_document_t *pMap, common::span_t<const common::u64> ids,
     math::vec3d_t degrees, math::vec3d_t pivot, bool textureLock = true ) noexcept;

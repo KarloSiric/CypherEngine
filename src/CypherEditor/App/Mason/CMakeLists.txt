@@ -77,6 +77,7 @@ if (CYPHERENGINE_BUILD_TESTS)
     target_compile_definitions(cypher_mason_smoke_tests
         PRIVATE
             CYPHER_MAP_EXAMPLE_DIR="${CYPHERENGINE_ROOT_DIR}/docs/formats/examples/cymap"
+            CYPHER_REPOSITORY_ROOT="${CYPHERENGINE_ROOT_DIR}"
     )
     add_test(
         NAME cypher_mason_smoke_tests

@@ -43,7 +43,8 @@ enum class map_wire_kind_t : common::u8 {
     MESH,
     PATCH,
     TERRAIN,
-    ENTITY
+    ENTITY,
+    PREFAB // A prefab instance (CYMAP.md 6.11): its prefab's contents, placed. Added by the editor, which reads prefab files.
 };
 
 struct map_wire_line_t {
@@ -78,6 +79,7 @@ struct map_wire_face_t {
     common::u32 iFirstIndex{ 0u }; // Into map_wireframe_t::faceIndices.
     common::u32 nIndices{ 0u };
     common::bool_t bTwoSided{ common::CY_FALSE }; // Patches and terrain: drawn from both sides.
+    common::u32 colorRgba{ 0xFFFFFFFFu }; // Mesh faces: the average of their corner colours (vertex paint), 0xRRGGBBAA.
 };
 
 struct map_wire_entity_t {
@@ -119,6 +121,19 @@ struct map_wire_connection_t {
     char target[MAP_WIRE_TEXT_CAPACITY]{};
 };
 
+// An evaluated modifier surface used only for presentation queries. It has
+// no persistent component identities and never becomes an editable source.
+// A failed entry remains present so callers cannot silently pick the cage
+// instead of the visible modifier result. All storage belongs to the wire.
+struct map_wire_mesh_surface_t {
+    common::u64 id{ 0u };
+    geometry::editable_mesh_t mesh{};
+    // Indexed by this immutable mesh's face slot. Zero means no editable
+    // cage face (a generated copy or anonymous face); nonzero is its source.
+    common::vector_t<common::u64> faceSourceIds{};
+    geometry::geometry_status_t status{ geometry::geometry_status_t::NOT_INITIALIZED };
+};
+
 struct map_wireframe_t {
     map_wireframe_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( map_wireframe_t );
@@ -135,6 +150,7 @@ struct map_wireframe_t {
     common::vector_t<map_wire_connection_t> connections{};
     common::vector_t<map_wire_face_t> faces{};      // In object build order.
     common::vector_t<common::u32> faceIndices{};
+    common::vector_t<map_wire_mesh_surface_t *> meshSurfaces{}; // Owned, sorted by object ID; modifiers only.
     map_bounds_t bounds{};                          // Everything, for "zoom to map".
     common::usize nBrokenBrushes{ 0u };             // Brushes whose edges could not be rebuilt.
     const common::allocator_t *pAllocator{ nullptr };
@@ -146,8 +162,17 @@ void MapWireframe_Shutdown( map_wireframe_t *pWire ) noexcept;
 // Rebuilds the wireframe from the document. OUT_OF_MEMORY leaves it empty.
 CYPHER_NODISCARD map_status_t MapWireframe_Build( map_wireframe_t *pWire, const map_document_t &map ) noexcept;
 
+// Moves a terrain's points in the views to the heights of `field` (the same
+// terrain, same samples), for a sculpt stroke's live feedback without a full
+// rebuild. INVALID_ARGUMENT when the footprint differs (rebuild instead).
+CYPHER_NODISCARD map_status_t MapWireframe_RefreshTerrain( map_wireframe_t *pWire, const geometry::heightfield_t &field ) noexcept;
+
 CYPHER_NODISCARD const map_wire_object_t *MapWireframe_FindObject( const map_wireframe_t &wire, common::u64 id ) noexcept;
 CYPHER_NODISCARD const map_wire_entity_t *MapWireframe_FindEntity( const map_wireframe_t &wire, common::u64 id ) noexcept;
+
+// Borrowed until the next build, transfer or shutdown. Null means the object
+// has no evaluated modifier surface and its authored source may be queried.
+CYPHER_NODISCARD const map_wire_mesh_surface_t *MapWireframe_FindMeshSurface( const map_wireframe_t &wire, common::u64 id ) noexcept;
 
 // Picks in a 2D view that shows world axes axisU and axisV (0 = x, 1 = y,
 // 2 = z) at a view point in world units. An object is hit when one of its

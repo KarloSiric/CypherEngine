@@ -14,6 +14,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherMapGui_Workspace.h"
+#include "CypherMapGui_Notice.h"
 
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 #include "CypherGeometry_DocumentMeshes.h"
@@ -388,10 +389,17 @@ TEST_CASE( "Edge loop and ring commands select read-only topology without enabli
     CHECK_FALSE( MapWorkspace_DuplicateSelection( &ws ) ); CHECK_FALSE( MapWorkspace_TranslateSelection( &ws, { 1, 0, 0 } ) );
     CHECK_FALSE( MapWorkspace_ScaleSelection( &ws, { 2, 2, 2 }, {} ) ); CHECK_FALSE( MapWorkspace_RotateSelection( &ws, { 0, 0, 90 }, {} ) );
     CHECK_FALSE( MapWorkspace_FlipMeshNormals( &ws ) ); CHECK_FALSE( MapWorkspace_TriangulateMeshSelection( &ws ) );
-    for ( const char *command : { "map.mesh.extrude_edges", "map.mesh.bevel", "map.mesh.split_edges", "map.mesh.dissolve", "map.mesh.collapse",
-             "map.mesh.connect_edges", "map.mesh.bridge", "map.mesh.extend_edges", "map.mesh.snap_edge_to_edge", "map.mesh.normals_hard",
-             "map.mesh.normals_soft", "map.mesh.normals_default", "map.texture.weld_uvs", "map.select.ribs", "map.pivot.clear",
-             "map.tool.edge_cut", "map.tool.edge_arc", "map.mesh.radial_align" } ) { CAPTURE( command ); CHECK_FALSE( enabled( command ) ); }
+    // Component operations act on the selected edges themselves, not the parent
+    // (CypherMapGui_GeometryCommands). The closed box has no open edges to
+    // extrude, extend, bridge or fill.
+    for ( const char *command : { "map.mesh.bevel", "map.mesh.split_edges", "map.mesh.dissolve", "map.mesh.collapse", "map.mesh.connect_edges",
+             "map.mesh.normals_hard", "map.mesh.normals_soft", "map.mesh.normals_default", "map.texture.weld_uvs", "map.mesh.radial_align",
+             "map.select.ribs", "map.tool.edge_cut", "map.tool.edge_arc" } ) {
+        CAPTURE( command ); CHECK( enabled( command ) );
+    }
+    // Snap Edge to Edge needs a second edge; nothing set a pivot.
+    for ( const char *command : { "map.mesh.extrude_edges", "map.mesh.bridge", "map.mesh.extend_edges", "map.mesh.snap_edge_to_edge",
+             "map.pivot.clear" } ) { CAPTURE( command ); CHECK_FALSE( enabled( command ) ); }
     MapWorkspace_SetTool( &ws, map_tool_t::NONE ); CHECK( MapWorkspace_HasMeshEdges( &ws ) );
     CHECK_FALSE( enabled( "map.select.loop" ) ); CHECK_FALSE( enabled( "map.select.ring" ) );
     CHECK( Run( session.gui, "map.select.ring" ) == command_result_t::DISABLED );
@@ -791,7 +799,8 @@ TEST_CASE( "Selection categories can be opened empty and their root eligibility 
     const struct { const char *id; map_element_mode_t mode; } profiles[]{
         { "vertices", map_element_mode_t::VERTICES }, { "edges", map_element_mode_t::EDGES },
         { "faces", map_element_mode_t::FACES }, { "meshes", map_element_mode_t::MESHES },
-        { "objects", map_element_mode_t::OBJECTS }, { "groups", map_element_mode_t::GROUPS }
+        { "objects", map_element_mode_t::OBJECTS }, { "groups", map_element_mode_t::GROUPS },
+        { "navigation", map_element_mode_t::NAVIGATION }
     };
     for ( const auto &profile : profiles ) {
         CAPTURE( profile.id ); REQUIRE( MapWorkspace_IsElementModeAvailable( profile.mode ) );
@@ -805,12 +814,66 @@ TEST_CASE( "Selection categories can be opened empty and their root eligibility 
             const bool rootMode = profile.mode == map_element_mode_t::OBJECTS || profile.mode == map_element_mode_t::GROUPS;
             const bool surfaceMode = profile.mode == map_element_mode_t::MESHES || profile.mode == map_element_mode_t::FACES;
             const bool geometry = kind == map_wire_kind_t::BRUSH || kind == map_wire_kind_t::MESH;
-            CHECK( MapWorkspace_IsSelectableObject( &ws, object ) == ( rootMode || ( surfaceMode && geometry ) ) );
+            const bool navigation = profile.mode == map_element_mode_t::NAVIGATION && kind != map_wire_kind_t::ENTITY; // Surfaces to walk on.
+            CHECK( MapWorkspace_IsSelectableObject( &ws, object ) == ( rootMode || ( surfaceMode && geometry ) || navigation ) );
             REQUIRE( EditorSelection_Apply( &ws.hidden, object.id, EDITOR_SELECT_ADD ) );
             CHECK_FALSE( MapWorkspace_IsSelectableObject( &ws, object ) ); ( void )EditorSelection_Clear( &ws.hidden );
         }
     }
-    CHECK_FALSE( MapWorkspace_IsElementModeAvailable( map_element_mode_t::NAVIGATION ) );
+}
+
+TEST_CASE( "Navigation mode tells floor from walls and too-steep slopes by the walkable slope", "[map][gui][workspace][navigation]" )
+{
+    gui::editor_gui_t gui{};
+    REQUIRE( gui::EditorGui_Init( &gui, App(), Allocator_GetSystem() ) == gui::editor_gui_status_t::OK );
+    map_workspace_t ws{}; REQUIRE( MapWorkspace_Init( &ws, &gui ) );
+    REQUIRE( MapWorkspace_RegisterCommands( &ws, &gui.commands ) == command_registry_status_t::OK );
+    REQUIRE( MapWorkspace_IsElementModeAvailable( map_element_mode_t::NAVIGATION ) );
+    map_wire_face_t face{};
+    face.normal = { 0, 0, 1 };
+    CHECK( MapWorkspace_FaceWalkable( &ws, face ) == map_walkable_t::WALKABLE );
+    face.normal = { 0.6, 0, 0.8 }; // About 37 degrees.
+    CHECK( MapWorkspace_FaceWalkable( &ws, face ) == map_walkable_t::WALKABLE );
+    face.normal = { 0.8, 0, 0.6 }; // About 53 degrees: steeper than 45.
+    CHECK( MapWorkspace_FaceWalkable( &ws, face ) == map_walkable_t::TOO_STEEP );
+    face.normal = { 1, 0, 0 };
+    CHECK( MapWorkspace_FaceWalkable( &ws, face ) == map_walkable_t::NOT_FLOOR );
+    face.normal = { 0, 0, -1 };
+    CHECK( MapWorkspace_FaceWalkable( &ws, face ) == map_walkable_t::NOT_FLOOR );
+    // Entering the mode reports the map's walkable surface.
+    map_bounds_t bounds{}; MapBounds_AddPoint( bounds, { 0, 0, 0 } ); MapBounds_AddPoint( bounds, { 128, 128, 64 } );
+    REQUIRE( MapWorkspace_CreateBox( &ws, bounds ) );
+    MapWorkspace_SetSelection( &ws, nullptr, 0 );
+    REQUIRE( Run( gui, "map.select_mode.navigation" ) == command_result_t::OK );
+    CHECK( ws.elementMode == map_element_mode_t::NAVIGATION );
+    map_notice_t kind{};
+    const QString notice = MapNotice_Last( &ws, &kind );
+    CHECK( notice.contains( QStringLiteral( "1 walkable faces" ) ) ); // The box's top.
+    CHECK( notice.contains( QStringLiteral( "10.6 m" ) ) );          // 128 x 128 units at 39.37 units a metre.
+    MapWorkspace_Shutdown( &ws );
+    gui::EditorGui_Shutdown( &gui );
+}
+
+TEST_CASE( "Select Same Class selects every entity of the class and says how many", "[map][gui][workspace][menu-fixes]" )
+{
+    gui::editor_gui_t gui{};
+    REQUIRE( gui::EditorGui_Init( &gui, App(), Allocator_GetSystem() ) == gui::editor_gui_status_t::OK );
+    map_workspace_t ws{}; REQUIRE( MapWorkspace_Init( &ws, &gui ) );
+    REQUIRE( MapWorkspace_RegisterCommands( &ws, &gui.commands ) == command_registry_status_t::OK );
+    const string_view_t layer = StringView_FromCString( ws.pDocument->layers.pData[0].id );
+    u64 first = 0, second = 0, other = 0;
+    REQUIRE( MapDocument_AddEntity( ws.pDocument, layer, StringView_FromCString( "light" ), { 0, 0, 64 }, &first ) == map_status_t::OK );
+    REQUIRE( MapDocument_AddEntity( ws.pDocument, layer, StringView_FromCString( "light" ), { 256, 0, 64 }, &second ) == map_status_t::OK );
+    REQUIRE( MapDocument_AddEntity( ws.pDocument, layer, StringView_FromCString( "info_player_start" ), { 0, 256, 0 }, &other ) == map_status_t::OK );
+    MapWorkspace_DocumentChanged( &ws );
+    MapWorkspace_SetSelection( &ws, &first, 1 );
+    REQUIRE( Run( gui, "map.select.same_class" ) == command_result_t::OK );
+    CHECK( EditorSelection_Count( &ws.selection ) == 2u );
+    CHECK( EditorSelection_Contains( &ws.selection, second ) );
+    CHECK_FALSE( EditorSelection_Contains( &ws.selection, other ) );
+    CHECK( MapNotice_Last( &ws ) == QStringLiteral( "Select Same Class: 2 entities selected (light)" ) );
+    MapWorkspace_Shutdown( &ws );
+    gui::EditorGui_Shutdown( &gui );
 }
 
 TEST_CASE( "Opening replaces the map only when it loads", "[map][gui][workspace]" )
@@ -925,7 +988,7 @@ TEST_CASE( "Merge reuses its command and requires exactly two compatible visible
     command_registry_t commands{};
     REQUIRE( EditorCommands_Init( &commands, Allocator_GetSystem() ) == command_registry_status_t::OK );
     REQUIRE( MapWorkspace_RegisterCommands( &ws, &commands ) == command_registry_status_t::OK );
-    CHECK( EditorCommands_Count( &commands ) == 142u ); // Includes the Edge Editing catalog and camera speed controls.
+    CHECK( EditorCommands_Count( &commands ) == 294u ); // Separate measured-width Inset adds one command. // map.compile replaced its placeholder; 19 parity-review object, material, helper and snap commands, 6 layer and 7 prefab instance commands, the Shear tool, 4 hierarchy commands. // Includes the Edge Editing catalog, camera speed controls, Create Terrain, Insert Prefab, component and face queries, Flatten/Offset, cleanup, the patch matrix and the Hammer 5 face operations.
     const auto *merge = EditorCommands_Find( &commands, StringView_FromCString( "map.brush.merge" ) );
     REQUIRE( merge != nullptr );
     CHECK( std::string( merge->pIcon ) == "csg-merge" );
@@ -1009,7 +1072,8 @@ TEST_CASE( "Save As names the map and later saves go to the same place", "[map][
     REQUIRE( MapWorkspace_SaveAs( &workspace, target ).status == map_files_status_t::OK );
     CHECK( workspace.path == target );
     CHECK( MapWorkspace_DisplayName( &workspace ) == QStringLiteral( "copy.cymap" ) );
-    CHECK( std::filesystem::exists( directory / "copy" / "structure" ) );
+    CHECK( std::filesystem::exists( directory / "copy.cymap" ) );
+    CHECK_FALSE( std::filesystem::exists( directory / "copy" ) ); // One file holds the whole level.
     CHECK( MapWorkspace_Save( &workspace ).status == map_files_status_t::OK );
     std::filesystem::remove_all( directory );
 }

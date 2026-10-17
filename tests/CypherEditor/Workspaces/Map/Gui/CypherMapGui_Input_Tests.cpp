@@ -1400,10 +1400,11 @@ TEST_CASE( "Built-in geometry tool shortcuts select only implemented tools", "[m
             REQUIRE( MapInput_DispatchKey( &f.workspace, &key, camera, false, true ) );
             CHECK( f.workspace.tool == binding.tool );
         }
+        // The Vertex tool has viewport input now (CypherMapGui_ToolGestures).
         MapWorkspace_SetTool( &f.workspace, map_tool_t::SELECT );
         QKeyEvent vertex( QEvent::KeyPress, Qt::Key_V, Qt::ShiftModifier );
         REQUIRE( MapInput_DispatchKey( &f.workspace, &vertex, camera, false, true ) );
-        CHECK( f.workspace.tool == map_tool_t::SELECT );
+        CHECK( f.workspace.tool == map_tool_t::VERTEX );
     }
 }
 

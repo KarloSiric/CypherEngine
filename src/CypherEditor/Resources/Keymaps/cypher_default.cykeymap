@@ -80,6 +80,8 @@
             "map.tool.translate" = [ "T" ]
             "map.tool.rotate" = [ "R" ]
             "map.tool.scale" = [ "E" ]
+            // TrenchBroom's key; Hammer has no shear.
+            "map.tool.shear" = [ "G" ]
             // Mason convenience: convex brush-face push/pull, not Hammer's
             // topology-creating Shift+gizmo mesh extrusion.
             "map.tool.extrude" = [ "X" ]
@@ -94,6 +96,11 @@
             "map.transform.rotate_cw" = []
             "map.transform.rotate_ccw" = []
             "map.entity.tie" = [ "Ctrl+T" ]
+            // Hammer 5's hierarchy keys.
+            "map.entity.reparent" = [ "P" ]
+            "map.entity.unparent" = [ "Ctrl+P" ]
+            "map.select.parent" = [ "Ctrl+PageUp" ]
+            "map.select.children" = [ "Ctrl+PageDown" ]
             "map.entity.move_to_world" = [ "Ctrl+W" ]
             "view.properties.open" = [ "Alt+Enter" ]
             "map.entity.properties" = []
@@ -114,6 +121,7 @@
             "map.grid.larger" = [ "BracketRight", "Plus", "Shift+Plus", "NumAdd" ]
             "map.grid.show" = [ "Shift+R" ]
             "map.grid.snap" = [ "Shift+W" ]
+            "map.grid.snap_vertices" = [ "Ctrl+Shift+X" ]
             "map.grid.show_3d" = [ "Ctrl+Shift+W" ]
             "map.texture.lock" = [ "Shift+L" ]
             "map.texture.scale_lock" = []
@@ -142,6 +150,14 @@
             "map.run" = [ "F9" ]
             "map.stop" = [ "Shift+F9" ]
             "map.leak.show" = [ "Ctrl+Shift+L" ]
+            // Hammer 5: Ctrl+Num2 drops onto the surface below, Ctrl+Num0
+            // clears rotation and scale, Ctrl+Alt+C boxes the selection.
+            // Ctrl+Shift+Down and Ctrl+Shift+0 serve keyboards without a keypad.
+            "map.transform.drop_to_floor" = [ "Ctrl+Num2", "Ctrl+Shift+Down" ]
+            "map.transform.clear_rotation" = [ "Ctrl+Num0", "Ctrl+Shift+0" ]
+            "map.brush.bounding_box" = [ "Ctrl+Alt+C" ]
+            "map.select.cycle_next" = []
+            "map.select.cycle_previous" = []
         }
         // Whole authored meshes in Objects/Groups can reverse all normals.
         // Faces/Edges retain their own future component operation contexts;
@@ -158,6 +174,16 @@
             "map.mesh.extrude" = [ "X" ]
             "map.mesh.inset" = [ "I" ]
             "map.mesh.quad_slice" = [ "Ctrl+Shift+U" ]
+            // Hammer 5 face-mode material keys; the nudges take Ctrl+Alt+arrows
+            // (Hammer puts them on the side mouse buttons).
+            "map.texture.flip_horizontal" = [ "Alt+D" ]
+            "map.texture.flip_vertical" = [ "Alt+E" ]
+            "map.texture.rotate_cw" = [ "Alt+A" ]
+            "map.texture.rotate_ccw" = [ "Alt+Q" ]
+            "map.texture.nudge_left" = [ "Ctrl+Alt+Left" ]
+            "map.texture.nudge_right" = [ "Ctrl+Alt+Right" ]
+            "map.texture.nudge_up" = [ "Ctrl+Alt+Up" ]
+            "map.texture.nudge_down" = [ "Ctrl+Alt+Down" ]
         }
         "map.viewport" = {
             // Mason navigation convenience: return to the complete map.
@@ -171,7 +197,11 @@
             "map.render.normals" = [ "F7" ]
             "map.render.wire_overlay" = [ "F8" ]
             "map.render.mesh_edges" = [ "F11" ]
+            // Hammer 5: 1 Vertices, 2 Edges, 3 Faces, 4 Meshes, 5 Objects, 6 Groups.
+            "map.select_mode.vertices" = [ "1" ]
+            "map.select_mode.edges" = [ "2" ]
             "map.select_mode.faces" = [ "3" ]
+            "map.select_mode.meshes" = [ "4" ]
             "map.select_mode.objects" = [ "5" ]
             "map.select_mode.groups" = [ "6" ]
             "map.tool.cancel" = [ "Escape" ]
@@ -179,6 +209,11 @@
             // Mason convenience: cycle visible panes. Hammer's local/world
             // gizmo-axis toggle remains unavailable until frames are authored.
             "map.view.cycle" = [ "Tab" ]
+            // Hammer 5: Alt+arrows turn the selection by the angle snap.
+            "map.nudge_rotate.left" = [ "Alt+Left" ]
+            "map.nudge_rotate.right" = [ "Alt+Right" ]
+            "map.nudge_rotate.up" = [ "Alt+Up" ]
+            "map.nudge_rotate.down" = [ "Alt+Down" ]
         }
         "map.viewport.2d" = {
             "map.nudge.left" = [ "Left" ]

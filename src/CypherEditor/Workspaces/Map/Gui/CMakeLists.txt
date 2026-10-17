@@ -19,14 +19,52 @@ add_library(CypherEditorMapGui STATIC
     CypherMapGui_Dialogs.cpp
     CypherMapGui_Dialogs.h
     CypherMapGui_Edit.cpp
+    CypherMapGui_GeometryCommands.cpp
+    CypherMapGui_GeometryCommands.h
     CypherMapGui_EntityProperties.cpp
     CypherMapGui_EntityProperties.h
     CypherMapGui_Input.cpp
     CypherMapGui_Input.h
+    CypherMapGui_Instances.cpp
+    CypherMapGui_Instances.h
     CypherMapGui_Panels.cpp
     CypherMapGui_Panels.h
+    CypherMapGui_PropertyEditors.cpp
+    CypherMapGui_PropertyEditors.h
+    CypherMapGui_ToolGestures.cpp
+    CypherMapGui_EntityIo.cpp
+    CypherMapGui_EntityIo.h
+    CypherMapGui_EntityLook.cpp
+    CypherMapGui_EntityLook.h
+    CypherMapGui_ViewMenu.cpp
+    CypherMapGui_ViewMenu.h
+    CypherMapGui_Notice.cpp
+    CypherMapGui_Notice.h
+    CypherMapGui_ObjectTools.cpp
+    CypherMapGui_ObjectTools.h
+    CypherMapGui_Autosave.cpp
+    CypherMapGui_Autosave.h
+    CypherMapGui_Falloff.cpp
+    CypherMapGui_Falloff.h
+    CypherMapGui_Game.cpp
+    CypherMapGui_Game.h
+    CypherMapGui_FastTexture.cpp
+    CypherMapGui_FastTexture.h
+    CypherMapGui_Hotspots.cpp
+    CypherMapGui_Hotspots.h
+    CypherMapGui_Layers.cpp
+    CypherMapGui_Layers.h
+    CypherMapGui_FindEntities.cpp
+    CypherMapGui_FindEntities.h
+    CypherMapGui_FaceEdit.cpp
+    CypherMapGui_FaceEdit.h
+    CypherMapGui_ToolGestures.h
     CypherMapGui_ToolPanels.cpp
     CypherMapGui_ToolPanels.h
+    CypherMapGui_Hierarchy.cpp
+    CypherMapGui_Hierarchy.h
+    CypherMapGui_UvEditor.cpp
+    CypherMapGui_UvEditor.h
     CypherMapGui_Views.cpp
     CypherMapGui_Views.h
     CypherMapGui_Workspace.cpp
@@ -52,6 +90,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_Views_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_OrbitWheel_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_OrbitSurface_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_TerrainCreate_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_PanWheel_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_ViewContent_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_ToolPanels_Tests.cpp"
@@ -62,10 +101,18 @@ if (CYPHERENGINE_BUILD_TESTS)
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_Edit_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_EntityEdit_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_EntityProperties_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_PropertyEditors_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_ObjectTools_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_Layers_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_Instances_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_UvEditor_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_Hierarchy_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_MeshEdit_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_Block_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_Clipboard_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_QuadSlice_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_GeometryCommands_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_ToolGestures_Tests.cpp"
     )
     target_link_libraries(cypher_editor_map_gui_contract_tests
         PRIVATE
@@ -83,6 +130,6 @@ if (CYPHERENGINE_BUILD_TESTS)
     set_tests_properties(cypher_editor_map_gui_contract_tests PROPERTIES
         LABELS "CypherEditor;Map;Gui;Contract"
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 120
+        TIMEOUT 300
     )
 endif()

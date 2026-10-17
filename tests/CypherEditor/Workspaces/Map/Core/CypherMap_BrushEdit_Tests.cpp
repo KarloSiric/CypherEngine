@@ -5,6 +5,7 @@
 //////////////////////////////////////////////////////////////////////////
 #include "CypherMap_BrushEdit.h"
 #include "CypherMap_Edit.h"
+#include "CypherMap_Groups.h"
 #include "CypherGeometry_BrushValidation.h"
 #include "CypherGeometry_BrushGenerator.h"
 #include "CypherGeometry_BrushClip.h"
@@ -76,35 +77,36 @@ const key_value_t *Face( const key_value_t *pRecord, u64 id )
     }
     return nullptr;
 }
+key_value_t *GroupMember( map_document_t &map, u64 group, u64 member )
+{
+    auto *array = KeyValue_Find( MapDocument_FindObject( &map, group, nullptr ), SV( "members" ) );
+    for ( auto *node = KeyValue_FirstChildMutable( array ); node; node = KeyValue_NextSiblingMutable( node ) ) {
+        u64 id = 0; i64 signedId = 0;
+        if ( ( KeyValue_GetU64( node, &id ) && id == member ) || ( KeyValue_GetI64( node, &signedId ) && signedId > 0 && static_cast<u64>( signedId ) == member ) ) { return node; }
+    }
+    FAIL( "Missing direct group member" ); return nullptr;
+}
 struct saved_t {
     std::string root;
-    std::map<std::string, std::string> chunks;
-    map_save_sink_t Sink()
+    map_status_t Save( map_document_t *pMap )
     {
-        return { this,
-            []( void *ctx, string_view_t path, string_view_t text ) noexcept -> bool_t {
-                static_cast<saved_t *>( ctx )->chunks[std::string( path.pData, path.cchLength )].assign( text.pData, text.cchLength ); return CY_TRUE;
-            },
-            []( void *ctx, string_view_t path ) noexcept -> bool_t {
-                static_cast<saved_t *>( ctx )->chunks.erase( std::string( path.pData, path.cchLength ) ); return CY_TRUE;
-            },
-            []( void *ctx, string_view_t text ) noexcept -> bool_t {
-                static_cast<saved_t *>( ctx )->root.assign( text.pData, text.cchLength ); return CY_TRUE;
-            } };
+        text_buffer_t text{};
+        if ( !TextBuffer_Init( &text, Allocator_GetSystem() ) ) { return map_status_t::OUT_OF_MEMORY; }
+        const map_status_t status = MapDocument_Save( pMap, &text );
+        if ( status == map_status_t::OK ) { root.assign( TextBuffer_Data( &text ), TextBuffer_Length( &text ) ); }
+        return status;
     }
 };
 void Load( map_document_t &map, const saved_t &saved )
 {
-    std::vector<map_chunk_input_t> inputs;
-    for ( const auto &[path, text] : saved.chunks ) { inputs.push_back( { SV( path ), SV( text ) } ); }
-    REQUIRE( MapDocument_Load( &map, Allocator_GetSystem(), SV( saved.root ), { inputs.data(), inputs.size() } ) == map_status_t::OK );
+    REQUIRE( MapDocument_Load( &map, Allocator_GetSystem(), SV( saved.root ) ) == map_status_t::OK );
 }
 
 // Add genuinely future per-face fields to a retained record, so a 1-to-many
 // operation has to follow exact side ancestry rather than only copy materials.
 void AddMetadata( map_document_t &map, u64 id )
 {
-    map_chunk_t *pChunk = nullptr; auto *pRecord = MapDocument_FindObject( &map, id, &pChunk ); REQUIRE( pRecord ); REQUIRE( pChunk );
+    map_layer_store_t *pChunk = nullptr; auto *pRecord = MapDocument_FindObject( &map, id, &pChunk ); REQUIRE( pRecord ); REQUIRE( pChunk );
     auto *pDoc = pChunk->store.pDocument;
     auto *pName = KeyValue_ObjectInsert( pDoc, pRecord, SV( "name" ), key_value_type_t::STRING );
     REQUIRE( pName ); REQUIRE( KeyValue_SetString( pDoc, pName, SV( "Named authored shell" ) ) );
@@ -162,7 +164,7 @@ struct audit_t {
 
 void TagOperand( map_document_t &map, u64 id, const char *name, const char *material )
 {
-    map_chunk_t *pChunk = nullptr; auto *pRecord = MapDocument_FindObject( &map, id, &pChunk ); REQUIRE( pRecord ); REQUIRE( pChunk );
+    map_layer_store_t *pChunk = nullptr; auto *pRecord = MapDocument_FindObject( &map, id, &pChunk ); REQUIRE( pRecord ); REQUIRE( pChunk );
     auto *pAttributes = geo::GeometryDocument_FindBrushAttributesMutable( &map.geometry, { id } ); REQUIRE( pAttributes );
     u64 ref = 0; REQUIRE( MapDocument_MaterialRef( &map, SV( material ), &ref ) == map_status_t::OK );
     const auto *pBrush = Brush( map, id );
@@ -242,7 +244,7 @@ TEST_CASE( "Hollow fragments inherit layer ownership and retained face metadata 
     REQUIRE( MapDocument_SetGeometryLayer( &original, id, SV( "detail" ) ) == map_status_t::OK );
     REQUIRE( MapDocument_AddEntity( &original, SV( "detail" ), SV( "func_shell" ), {}, &owner ) == map_status_t::OK );
     REQUIRE( MapDocument_SetGeometryOwner( &original, id, owner ) == map_status_t::OK );
-    saved_t initial; REQUIRE( MapDocument_Save( &original, initial.Sink() ) == map_status_t::OK );
+    saved_t initial; REQUIRE( initial.Save( &original ) == map_status_t::OK );
     AddMetadata( original, id ); const u32 layer = Placement( original, id ).iLayer;
     map_document_t *pCopy = nullptr; REQUIRE( MapEdit_Clone( &original, &pCopy ) == map_status_t::OK );
     std::unique_ptr<map_document_t> copy( pCopy ); vector_t<u64> roots; REQUIRE( Vector_Init( &roots, copy->pAllocator ) );
@@ -250,16 +252,250 @@ TEST_CASE( "Hollow fragments inherit layer ownership and retained face metadata 
     for ( usize i = 0u; i < roots.nCount; ++i ) { CheckMetadata( *copy, roots.pData[i], owner, layer ); }
     CHECK( MapDocument_FindObject( copy.get(), id, nullptr ) == nullptr );
     CHECK( MapDocument_FindObject( &original, id, nullptr ) != nullptr );
-    saved_t saved; REQUIRE( MapDocument_Save( copy.get(), saved.Sink() ) == map_status_t::OK );
+    saved_t saved; REQUIRE( saved.Save( copy.get() ) == map_status_t::OK );
     map_document_t loaded; Load( loaded, saved ); CHECK( loaded.geometry.brushes.nCount == 6u );
     for ( usize i = 0u; i < roots.nCount; ++i ) { CheckMetadata( loaded, roots.pData[i], owner, layer ); }
     REQUIRE( MapEdit_Delete( &loaded, { &owner, 1u } ) == map_status_t::OK ); CHECK( loaded.geometry.brushes.nCount == 0u );
 }
 
+TEST_CASE( "Hollow replaces only a brush's direct group membership and retains nested named groups", "[map][brush-edit][hollow-group-lineage]" )
+{
+    map_document_t original; Create( original ); const u64 brush = Box( original ); u64 owner = 0, inner = 0, outer = 0, peer = 0;
+    REQUIRE( MapDocument_AddLayer( &original, SV( "detail" ), SV( "Detail" ) ) == map_status_t::OK );
+    REQUIRE( MapDocument_SetGeometryLayer( &original, brush, SV( "detail" ) ) == map_status_t::OK );
+    REQUIRE( MapDocument_AddEntity( &original, SV( "detail" ), SV( "func_shell" ), {}, &owner ) == map_status_t::OK );
+    REQUIRE( MapDocument_SetGeometryOwner( &original, brush, owner ) == map_status_t::OK );
+    REQUIRE( MapDocument_AddEntity( &original, SV( "default" ), SV( "info_target" ), { 300, 0, 0 }, &peer ) == map_status_t::OK );
+    const u64 members[]{ brush, peer };
+    REQUIRE( MapDocument_AddGroup( &original, SV( "Shell details" ), { members, 2 }, &inner ) == map_status_t::OK );
+    REQUIRE( MapDocument_AddGroup( &original, SV( "Building" ), { &inner, 1 }, &outer ) == map_status_t::OK );
+    saved_t saved; REQUIRE( saved.Save( &original ) == map_status_t::OK ); AddMetadata( original, brush );
+    for ( const u64 group : { inner, outer } ) {
+        map_layer_store_t *store = nullptr; auto *record = MapDocument_FindObject( &original, group, &store ); REQUIRE( record ); REQUIRE( store );
+        auto *marker = KeyValue_ObjectInsert( store->store.pDocument, record, SV( "future_group" ), key_value_type_t::U64 ); REQUIRE( marker );
+        REQUIRE( KeyValue_SetU64( store->store.pDocument, marker, group + 9000 ) );
+        REQUIRE( KeyValue_SetComments( store->store.pDocument, record, { SV( "// Group lineage survives Hollow" ), {}, {} } ) );
+        REQUIRE( KeyValue_SetComments( store->store.pDocument, KeyValue_Find( record, SV( "members" ) ), { SV( "// Authored membership note" ), {}, SV( "// End of members" ) } ) );
+        if ( group == inner ) {
+            REQUIRE( KeyValue_SetComments( store->store.pDocument, GroupMember( original, inner, brush ), { SV( "// Original shell" ), SV( "// Shell inline note" ), {} } ) );
+            REQUIRE( KeyValue_SetComments( store->store.pDocument, GroupMember( original, inner, peer ), { SV( "// Keep this peer before" ), SV( "/* Keep this peer after */" ), {} } ) );
+        }
+    }
+    const u32 layer = Placement( original, brush ).iLayer;
+    const auto groups = MapGroups_All( &original ); const u64 next = original.nextId;
+    map_document_t *raw = nullptr; REQUIRE( MapEdit_Clone( &original, &raw ) == map_status_t::OK );
+    std::unique_ptr<map_document_t> copy( raw ); vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, copy->pAllocator ) );
+    REQUIRE( MapBrushEdit_Hollow( copy.get(), { &brush, 1 }, 16, &roots ) == map_status_t::OK ); REQUIRE( roots.nCount == 6 );
+    std::vector<u64> expected( roots.pData, roots.pData + roots.nCount ); expected.push_back( peer ); std::sort( expected.begin(), expected.end() );
+    const auto check = [&]( map_document_t &map ) {
+        auto actualGroups = MapGroups_All( &map ), expectedGroups = groups; std::sort( actualGroups.begin(), actualGroups.end() ); std::sort( expectedGroups.begin(), expectedGroups.end() );
+        CHECK( actualGroups == expectedGroups ); CHECK( MapGroups_Name( &map, inner ) == "Shell details" ); CHECK( MapGroups_Name( &map, outer ) == "Building" );
+        std::vector<u64> direct; REQUIRE( MapGroups_Members( &map, inner, direct ) == map_status_t::OK ); CHECK( direct == expected );
+        REQUIRE( MapGroups_Members( &map, outer, direct ) == map_status_t::OK ); CHECK( direct == std::vector<u64>{ inner } );
+        CHECK( MapGroups_Parent( &map, brush ) == 0 ); CHECK( MapGroups_Parent( &map, peer ) == inner ); CHECK( MapGroups_Parent( &map, inner ) == outer );
+        const auto peerNotes = KeyValue_Comments( GroupMember( map, inner, peer ) );
+        CHECK( StringView_Equals( peerNotes.leading, SV( "// Keep this peer before" ) ) ); CHECK( StringView_Equals( peerNotes.trailing, SV( "/* Keep this peer after */" ) ) );
+        const u64 first = *std::min_element( roots.pData, roots.pData + roots.nCount );
+        for ( usize i = 0; i < roots.nCount; ++i ) {
+            const auto notes = KeyValue_Comments( GroupMember( map, inner, roots.pData[i] ) );
+            CHECK( StringView_Equals( notes.leading, SV( roots.pData[i] == first ? "// Original shell" : "" ) ) );
+            CHECK( StringView_Equals( notes.trailing, SV( roots.pData[i] == first ? "// Shell inline note" : "" ) ) );
+        }
+        const auto arrayNotes = KeyValue_Comments( KeyValue_Find( MapDocument_FindObject( &map, inner, nullptr ), SV( "members" ) ) );
+        CHECK( StringView_Equals( arrayNotes.inner, SV( "// End of members" ) ) );
+        for ( const u64 group : groups ) {
+            const auto *record = MapDocument_FindObject( &map, group, nullptr ); REQUIRE( record ); u64 marker = 0;
+            REQUIRE( KeyValue_GetU64( KeyValue_Find( record, SV( "future_group" ) ), &marker ) ); CHECK( marker == group + 9000 );
+        }
+        for ( usize i = 0; i < roots.nCount; ++i ) { CHECK( MapGroups_Parent( &map, roots.pData[i] ) == inner ); CheckMetadata( map, roots.pData[i], owner, layer ); }
+    };
+    check( *copy );
+    CHECK( StringView_Equals( KeyValue_Comments( MapDocument_FindObject( copy.get(), inner, nullptr ) ).leading, SV( "// Group lineage survives Hollow" ) ) );
+    CHECK( StringView_Equals( KeyValue_Comments( KeyValue_Find( MapDocument_FindObject( copy.get(), inner, nullptr ), SV( "members" ) ) ).leading, SV( "// Authored membership note" ) ) );
+    bool pruned = true; REQUIRE( MapGroups_Prune( copy.get(), &pruned ) == map_status_t::OK ); CHECK_FALSE( pruned );
+    REQUIRE( saved.Save( copy.get() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); check( loaded );
+    CHECK( original.nextId == next ); CHECK( MapGroups_Parent( &original, brush ) == inner ); CHECK( original.geometry.brushes.nCount == 1 );
+}
+
+TEST_CASE( "Prepared group replacement allocation failure leaves its membership available for retry", "[map][brush-edit][hollow-group-lineage]" )
+{
+    audit_t audit;
+    {
+        map_document_t map; Create( map, &audit.allocator ); const u64 original = Box( map ), replacement = Box( map ); u64 group = 0;
+        REQUIRE( MapDocument_AddGroup( &map, SV( "Retained" ), { &original, 1 }, &group ) == map_status_t::OK );
+        const auto bytes = audit.bytes;
+        const auto next = map.nextId, revision = map.geometry.revision;
+        const u64 missing = next + 1000;
+        CHECK( MapGroups_ReplaceMember( &map, original, { &missing, 1 } ) == map_status_t::INVALID_ARGUMENT );
+        CHECK( MapGroups_Parent( &map, original ) == group ); CHECK( audit.bytes == bytes );
+        audit.failAt = audit.calls;
+        CHECK( MapGroups_ReplaceMember( &map, original, { &replacement, 1 } ) == map_status_t::OUT_OF_MEMORY );
+        audit.failAt = CY_USIZE_MAX;
+        CHECK( audit.bytes == bytes ); CHECK( map.nextId == next ); CHECK( map.geometry.revision == revision );
+        CHECK( MapGroups_Parent( &map, original ) == group ); CHECK( MapGroups_Parent( &map, replacement ) == 0 );
+        REQUIRE( MapGroups_ReplaceMember( &map, original, { &replacement, 1 } ) == map_status_t::OK );
+        CHECK( MapGroups_Parent( &map, original ) == 0 ); CHECK( MapGroups_Parent( &map, replacement ) == group ); CHECK( MapGroups_Name( &map, group ) == "Retained" );
+    }
+    CHECK( audit.bytes == 0 );
+}
+
+TEST_CASE( "One Hollow batch keeps each source's fragments in its own nested group", "[map][brush-edit][hollow-group-lineage]" )
+{
+    map_document_t original; Create( original );
+    const u64 sources[]{ Box( original ), Box( original, { { 192, -64, -64 }, { 320, 64, 64 } } ) };
+    u64 owners[2]{}, peers[2]{}, inner[2]{}, outer[2]{}; u32 layers[2]{};
+    const char *layerNames[]{ "shell_a", "shell_b" }, *innerNames[]{ "Inner A", "Inner B" }, *outerNames[]{ "Outer A", "Outer B" };
+    for ( usize i = 0; i < 2; ++i ) {
+        REQUIRE( MapDocument_AddLayer( &original, SV( layerNames[i] ), SV( innerNames[i] ) ) == map_status_t::OK );
+        REQUIRE( MapDocument_SetGeometryLayer( &original, sources[i], SV( layerNames[i] ) ) == map_status_t::OK );
+        REQUIRE( MapDocument_AddEntity( &original, SV( layerNames[i] ), SV( "func_shell" ), {}, &owners[i] ) == map_status_t::OK );
+        REQUIRE( MapDocument_SetGeometryOwner( &original, sources[i], owners[i] ) == map_status_t::OK );
+        REQUIRE( MapDocument_AddEntity( &original, SV( layerNames[i] ), SV( "info_target" ), { 512, static_cast<f64>( i ) * 64, 0 }, &peers[i] ) == map_status_t::OK );
+        const u64 members[]{ sources[i], peers[i] };
+        REQUIRE( MapDocument_AddGroup( &original, SV( innerNames[i] ), { members, 2 }, &inner[i] ) == map_status_t::OK );
+        REQUIRE( MapDocument_AddGroup( &original, SV( outerNames[i] ), { &inner[i], 1 }, &outer[i] ) == map_status_t::OK );
+        layers[i] = Placement( original, sources[i] ).iLayer;
+    }
+    saved_t initial; REQUIRE( initial.Save( &original ) == map_status_t::OK );
+    for ( usize i = 0; i < 2; ++i ) {
+        AddMetadata( original, sources[i] );
+        for ( const u64 id : { sources[i], peers[i], inner[i], outer[i] } ) {
+            map_layer_store_t *store = nullptr; auto *record = MapDocument_FindObject( &original, id, &store ); REQUIRE( record ); REQUIRE( store );
+            auto *marker = KeyValue_ObjectInsert( store->store.pDocument, record, SV( "source_shell" ), key_value_type_t::U64 ); REQUIRE( marker );
+            REQUIRE( KeyValue_SetU64( store->store.pDocument, marker, sources[i] ) );
+        }
+    }
+    const auto originalGroups = MapGroups_All( &original ); const auto revision = original.geometry.revision;
+    map_document_t *raw = nullptr; REQUIRE( MapEdit_Clone( &original, &raw ) == map_status_t::OK ); std::unique_ptr<map_document_t> copy( raw );
+    vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, copy->pAllocator ) );
+    REQUIRE( MapBrushEdit_Hollow( copy.get(), { sources, 2 }, 16, &roots ) == map_status_t::OK ); REQUIRE( roots.nCount == 12 );
+    CHECK( copy->geometry.revision == revision + 1 ); CHECK( copy->geometry.brushes.nCount == 12 );
+    std::vector<u64> fragments[2];
+    for ( usize k = 0; k < roots.nCount; ++k ) {
+        const auto bounds = Bounds( *copy, roots.pData[k] ).box;
+        const usize source = bounds.maximum.x <= 64 ? 0 : 1;
+        REQUIRE( bounds.minimum.x >= ( source == 0 ? -64 : 192 ) ); REQUIRE( bounds.maximum.x <= ( source == 0 ? 64 : 320 ) );
+        fragments[source].push_back( roots.pData[k] ); CheckMetadata( *copy, roots.pData[k], owners[source], layers[source] );
+        CHECK( MapGroups_Parent( copy.get(), roots.pData[k] ) == inner[source] );
+        u64 ancestry = 0; REQUIRE( KeyValue_GetU64( KeyValue_Find( MapDocument_FindObject( copy.get(), roots.pData[k], nullptr ), SV( "source_shell" ) ), &ancestry ) ); CHECK( ancestry == sources[source] );
+    }
+    auto groups = MapGroups_All( copy.get() ), expectedGroups = originalGroups; std::sort( groups.begin(), groups.end() ); std::sort( expectedGroups.begin(), expectedGroups.end() ); CHECK( groups == expectedGroups );
+    for ( usize i = 0; i < 2; ++i ) {
+        REQUIRE( fragments[i].size() == 6 ); fragments[i].push_back( peers[i] ); std::sort( fragments[i].begin(), fragments[i].end() );
+        std::vector<u64> members; REQUIRE( MapGroups_Members( copy.get(), inner[i], members ) == map_status_t::OK ); CHECK( members == fragments[i] );
+        REQUIRE( MapGroups_Members( copy.get(), outer[i], members ) == map_status_t::OK ); CHECK( members == std::vector<u64>{ inner[i] } );
+        CHECK( MapGroups_Name( copy.get(), inner[i] ) == innerNames[i] ); CHECK( MapGroups_Name( copy.get(), outer[i] ) == outerNames[i] );
+        CHECK( MapGroups_Parent( copy.get(), peers[i] ) == inner[i] ); CHECK( MapGroups_Parent( copy.get(), inner[i] ) == outer[i] ); CHECK( MapGroups_Parent( copy.get(), sources[i] ) == 0 );
+        for ( const u64 id : { peers[i], inner[i], outer[i] } ) {
+            u64 ancestry = 0; REQUIRE( KeyValue_GetU64( KeyValue_Find( MapDocument_FindObject( copy.get(), id, nullptr ), SV( "source_shell" ) ), &ancestry ) ); CHECK( ancestry == sources[i] );
+        }
+        REQUIRE( MapGroups_Members( &original, inner[i], members ) == map_status_t::OK ); CHECK( members == std::vector<u64>{ sources[i], peers[i] } );
+        CHECK( geo::GeometryDocument_FindBrush( &copy->geometry, { sources[i] } ) == nullptr ); CHECK( geo::GeometryDocument_FindBrush( &original.geometry, { sources[i] } ) != nullptr );
+    }
+    bool pruned = true; REQUIRE( MapGroups_Prune( copy.get(), &pruned ) == map_status_t::OK ); CHECK_FALSE( pruned );
+    CHECK( original.geometry.revision == revision ); CHECK( original.geometry.brushes.nCount == 2 );
+}
+
+TEST_CASE( "Commented member replacement is deterministic and allocation failures preserve exact authored state", "[map][brush-edit][hollow-group-lineage][group-member-comments][allocation]" )
+{
+    const auto run = []( usize failure ) {
+        audit_t audit; usize allocations = 0;
+        {
+            map_document_t map; Create( map, &audit.allocator ); u64 ids[4]{}, group = 0;
+            for ( usize i = 0; i < 4; ++i ) { REQUIRE( MapDocument_AddEntity( &map, SV( "default" ), SV( "info_target" ), { static_cast<f64>( i ) * 64, 0, 0 }, &ids[i] ) == map_status_t::OK ); }
+            const u64 original = ids[0], low = ids[1], high = ids[2], peer = ids[3], members[]{ original, peer };
+            REQUIRE( MapDocument_AddGroup( &map, SV( "Commented group" ), { members, 2 }, &group ) == map_status_t::OK );
+            map_layer_store_t *store = nullptr; auto *record = MapDocument_FindObject( &map, group, &store ); REQUIRE( record ); REQUIRE( store );
+            REQUIRE( KeyValue_SetComments( store->store.pDocument, GroupMember( map, group, original ), { SV( "// Source leading" ), SV( "// Source inline" ), {} } ) );
+            REQUIRE( KeyValue_SetComments( store->store.pDocument, GroupMember( map, group, peer ), { SV( "/* Peer leading */" ), SV( "// Peer trailing" ), {} } ) );
+            saved_t before; REQUIRE( before.Save( &map ) == map_status_t::OK );
+            const auto next = map.nextId, revision = map.geometry.revision;
+            const auto checkOld = [&]() {
+                std::vector<u64> actual; REQUIRE( MapGroups_Members( &map, group, actual ) == map_status_t::OK ); CHECK( actual == std::vector<u64>{ original, peer } );
+                const auto sourceNotes = KeyValue_Comments( GroupMember( map, group, original ) ), peerNotes = KeyValue_Comments( GroupMember( map, group, peer ) );
+                CHECK( StringView_Equals( sourceNotes.leading, SV( "// Source leading" ) ) ); CHECK( StringView_Equals( sourceNotes.trailing, SV( "// Source inline" ) ) );
+                CHECK( StringView_Equals( peerNotes.leading, SV( "/* Peer leading */" ) ) ); CHECK( StringView_Equals( peerNotes.trailing, SV( "// Peer trailing" ) ) );
+                saved_t after; REQUIRE( after.Save( &map ) == map_status_t::OK ); CHECK( after.root == before.root );
+            };
+            // Reusing an already-commented peer would require merging notes;
+            // the helper's fresh-root contract refuses that ambiguity.
+            REQUIRE( MapGroups_ReplaceMember( &map, original, { &peer, 1 } ) == map_status_t::INVALID_ARGUMENT ); checkOld();
+            const u64 reversed[]{ high, low, high };
+            const usize start = audit.calls;
+            if ( failure != CY_USIZE_MAX ) { audit.failAt = start + failure; }
+            const auto status = MapGroups_ReplaceMember( &map, original, { reversed, 3 } ); allocations = audit.calls - start;
+            audit.failAt = CY_USIZE_MAX;
+            if ( failure != CY_USIZE_MAX ) {
+                REQUIRE( status == map_status_t::OUT_OF_MEMORY ); CHECK( map.nextId == next ); CHECK( map.geometry.revision == revision ); checkOld();
+                REQUIRE( MapGroups_ReplaceMember( &map, original, { reversed, 3 } ) == map_status_t::OK );
+            } else { REQUIRE( status == map_status_t::OK ); }
+            const auto checkNew = [&]( map_document_t &document ) {
+                std::vector<u64> actual; REQUIRE( MapGroups_Members( &document, group, actual ) == map_status_t::OK ); CHECK( actual == std::vector<u64>{ low, high, peer } );
+                const auto firstNotes = KeyValue_Comments( GroupMember( document, group, low ) ), lastNotes = KeyValue_Comments( GroupMember( document, group, high ) ), peerNotes = KeyValue_Comments( GroupMember( document, group, peer ) );
+                CHECK( StringView_Equals( firstNotes.leading, SV( "// Source leading" ) ) ); CHECK( StringView_Equals( firstNotes.trailing, SV( "// Source inline" ) ) );
+                CHECK( lastNotes.leading.cchLength == 0 ); CHECK( lastNotes.trailing.cchLength == 0 );
+                CHECK( StringView_Equals( peerNotes.leading, SV( "/* Peer leading */" ) ) ); CHECK( StringView_Equals( peerNotes.trailing, SV( "// Peer trailing" ) ) );
+            };
+            checkNew( map );
+            if ( failure == CY_USIZE_MAX ) {
+                saved_t saved; REQUIRE( saved.Save( &map ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); checkNew( loaded );
+            }
+        }
+        CHECK( audit.bytes == 0 ); return allocations;
+    };
+    const usize allocations = run( CY_USIZE_MAX ); REQUIRE( allocations > 0 );
+    for ( usize failure = 0; failure < allocations; ++failure ) { CAPTURE( failure ); (void)run( failure ); }
+}
+
+TEST_CASE( "Group replacement refuses a foreign parent and a failed destination clone without losing members", "[map][brush-edit][hollow-group-lineage][allocation]" )
+{
+    audit_t destination, scratch;
+    {
+        map_document_t map; Create( map, &destination.allocator ); const u64 original = Box( map ), replacement = Box( map ), foreign = Box( map );
+        u64 group = 0, other = 0;
+        REQUIRE( MapDocument_AddGroup( &map, SV( "Target group" ), { &original, 1 }, &group ) == map_status_t::OK );
+        REQUIRE( MapDocument_AddGroup( &map, SV( "Other group" ), { &foreign, 1 }, &other ) == map_status_t::OK );
+        map_layer_store_t *store = nullptr; auto *record = MapDocument_FindObject( &map, group, &store ); REQUIRE( record ); REQUIRE( store );
+        auto *members = KeyValue_Find( record, SV( "members" ) ); REQUIRE( members );
+        // Larger than the default data block, so copying this retained comment
+        // needs a destination allocation even when spare tree nodes exist.
+        const std::string comment( 32u * 1024u, 'x' );
+        REQUIRE( KeyValue_SetComments( store->store.pDocument, members, { SV( comment ), {}, {} } ) );
+        const auto next = map.nextId, revision = map.geometry.revision; const usize children = KeyValue_ChildCount( record );
+        const u64 conflicted[]{ replacement, foreign };
+        REQUIRE( MapGroups_ReplaceMember( &map, original, { conflicted, 2 } ) == map_status_t::INVALID_ARGUMENT );
+        CHECK( MapGroups_Parent( &map, original ) == group ); CHECK( MapGroups_Parent( &map, replacement ) == 0 ); CHECK( MapGroups_Parent( &map, foreign ) == other );
+        struct allocator_scope_t {
+            map_document_t &map; const allocator_t *before;
+            allocator_scope_t( map_document_t &value, const allocator_t *allocator ) : map( value ), before( value.pAllocator ) { map.pAllocator = allocator; }
+            ~allocator_scope_t() { map.pAllocator = before; }
+        };
+        const usize beforeCalls = destination.calls;
+        destination.failAt = beforeCalls;
+        {
+            // Scratch vectors and the prepared CYKV array use the second
+            // allocator. Existing group storage still uses destination.
+            allocator_scope_t scope( map, &scratch.allocator );
+            CHECK( MapGroups_ReplaceMember( &map, original, { &replacement, 1 } ) == map_status_t::OUT_OF_MEMORY );
+        }
+        destination.failAt = CY_USIZE_MAX;
+        CHECK( scratch.calls > 0 ); CHECK( scratch.bytes == 0 ); CHECK( destination.calls == beforeCalls + 1 );
+        CHECK( map.nextId == next ); CHECK( map.geometry.revision == revision ); CHECK( KeyValue_ChildCount( record ) == children );
+        CHECK( KeyValue_Find( record, SV( "members" ) ) == members ); CHECK( StringView_Equals( KeyValue_Comments( members ).leading, SV( comment ) ) );
+        std::vector<u64> current; REQUIRE( MapGroups_Members( &map, group, current ) == map_status_t::OK ); CHECK( current == std::vector<u64>{ original } );
+        REQUIRE( MapGroups_Members( &map, other, current ) == map_status_t::OK ); CHECK( current == std::vector<u64>{ foreign } );
+        REQUIRE( MapGroups_ReplaceMember( &map, original, { &replacement, 1 } ) == map_status_t::OK );
+        REQUIRE( MapGroups_Members( &map, group, current ) == map_status_t::OK ); CHECK( current == std::vector<u64>{ replacement } );
+        CHECK( MapGroups_Parent( &map, original ) == 0 ); CHECK( MapGroups_Parent( &map, replacement ) == group ); CHECK( MapGroups_Parent( &map, foreign ) == other );
+        CHECK( StringView_Equals( KeyValue_Comments( KeyValue_Find( record, SV( "members" ) ) ).leading, SV( comment ) ) );
+    }
+    CHECK( destination.bytes == 0 ); CHECK( scratch.bytes == 0 );
+}
+
 TEST_CASE( "Plane clips keep original identities and surface records while assigning a new cut face", "[map][brush-edit]" )
 {
     map_document_t map; Create( map ); const u64 id = Box( map );
-    saved_t initial; REQUIRE( MapDocument_Save( &map, initial.Sink() ) == map_status_t::OK ); AddMetadata( map, id );
+    saved_t initial; REQUIRE( initial.Save( &map ) == map_status_t::OK ); AddMetadata( map, id );
     const auto *pOriginal = Brush( map, id ); std::set<u64> oldIds;
     for ( usize i = 0u; i < pOriginal->sides.nCount; ++i ) { oldIds.insert( pOriginal->sides.pData[i].sourceId.value ); }
     const u64 revision = map.geometry.revision; vector_t<u64> roots; REQUIRE( Vector_Init( &roots, map.pAllocator ) );
@@ -283,7 +519,7 @@ TEST_CASE( "Plane clips keep original identities and surface records while assig
         }
     }
     CHECK( newSides == 1u ); CHECK( geo::BrushValidation_Deep( pBrush, map.geometryPolicy, map.pAllocator ).bWatertight );
-    saved_t saved; REQUIRE( MapDocument_Save( &map, saved.Sink() ) == map_status_t::OK );
+    saved_t saved; REQUIRE( saved.Save( &map ) == map_status_t::OK );
     map_document_t loaded; Load( loaded, saved ); pBrush = Brush( loaded, id ); pRecord = MapDocument_FindObject( &loaded, id, nullptr ); REQUIRE( pRecord );
     CHECK( KeyValue_ChildCount( KeyValue_Find( pRecord, SV( "faces" ) ) ) == 5u );
     CHECK( Bounds( loaded, id ).box.maximum.x == Catch::Approx( 0.0 ) );
@@ -395,17 +631,17 @@ TEST_CASE( "Subtraction adopts target ownership and exact target or cutter surfa
     REQUIRE( MapDocument_SetGeometryLayer( &original, target, SV( "detail" ) ) == map_status_t::OK );
     REQUIRE( MapDocument_AddEntity( &original, SV( "detail" ), SV( "func_structure" ), {}, &owner ) == map_status_t::OK );
     REQUIRE( MapDocument_SetGeometryOwner( &original, target, owner ) == map_status_t::OK );
-    saved_t initial; REQUIRE( MapDocument_Save( &original, initial.Sink() ) == map_status_t::OK );
+    saved_t initial; REQUIRE( initial.Save( &original ) == map_status_t::OK );
     AddMetadata( original, target ); AddMetadata( original, cutter ); TagOperand( original, target, "target", "materials/target.cymat" ); TagOperand( original, cutter, "cutter", "materials/cutter.cymat" );
     // Cutter root metadata must not leak onto the replacement target roots.
-    map_chunk_t *cutterChunk = nullptr; auto *cutterRecord = MapDocument_FindObject( &original, cutter, &cutterChunk ); REQUIRE( cutterRecord ); REQUIRE( cutterChunk );
+    map_layer_store_t *cutterChunk = nullptr; auto *cutterRecord = MapDocument_FindObject( &original, cutter, &cutterChunk ); REQUIRE( cutterRecord ); REQUIRE( cutterChunk );
     REQUIRE( KeyValue_SetU64( cutterChunk->store.pDocument, KeyValue_Find( cutterRecord, SV( "future_root" ) ), 99999u ) );
     const u32 layer = Placement( original, target ).iLayer; map_document_t *raw = nullptr;
     REQUIRE( MapEdit_Clone( &original, &raw ) == map_status_t::OK ); std::unique_ptr<map_document_t> copy( raw );
     vector_t<u64> roots; REQUIRE( Vector_Init( &roots, copy->pAllocator ) );
     REQUIRE( MapBrushEdit_Subtract( copy.get(), { &target, 1 }, cutter, &roots ) == map_status_t::OK );
     CheckSubtractionMetadata( *copy, roots, owner, layer ); CHECK( Placement( *copy, cutter ).owner == 0 );
-    saved_t saved; REQUIRE( MapDocument_Save( copy.get(), saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+    saved_t saved; REQUIRE( saved.Save( copy.get() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
     CheckSubtractionMetadata( loaded, roots, owner, layer );
     u64 marker = 0; REQUIRE( KeyValue_GetU64( KeyValue_Find( MapDocument_FindObject( &loaded, cutter, nullptr ), SV( "future_root" ) ), &marker ) ); CHECK( marker == 99999u );
     REQUIRE( MapEdit_Delete( &loaded, { &owner, 1 } ) == map_status_t::OK );
@@ -423,13 +659,13 @@ TEST_CASE( "Subtraction preserves disjoint and touching targets and deletes comp
     CHECK_FALSE( changed ); CHECK( m.geometry.revision == revision ); CHECK( m.nextId == next );
     REQUIRE( roots.nCount == 2 ); CHECK( roots.pData[0] == disjoint ); CHECK( roots.pData[1] == touching ); CHECK( m.geometry.brushes.nCount == 3 );
     const u64 inside = Box( m, { { -16, -16, -16 }, { 16, 16, 16 } } ); const u64 identical = Box( m );
-    saved_t saved; REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK );
+    saved_t saved; REQUIRE( saved.Save( &m ) == map_status_t::OK );
     const u64 covered[]{ inside, identical }; const auto beforeRemove = m.geometry.revision, nextBefore = m.nextId; changed = CY_FALSE;
     REQUIRE( MapBrushEdit_Subtract( &m, { covered, 2 }, cutter, &roots, &changed ) == map_status_t::OK );
     CHECK( changed ); CHECK( roots.nCount == 0 ); CHECK( m.geometry.brushes.nCount == 3 ); CHECK( m.nextId == nextBefore ); CHECK( m.geometry.revision == beforeRemove + 1 );
     CHECK( MapDocument_FindObject( &m, inside, nullptr ) == nullptr ); CHECK( MapDocument_FindObject( &m, identical, nullptr ) == nullptr );
     CHECK( Brush( m, cutter ) != nullptr );
-    REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); CHECK( loaded.geometry.brushes.nCount == 3 );
+    REQUIRE( saved.Save( &m ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); CHECK( loaded.geometry.brushes.nCount == 3 );
     CHECK( !geo::GeometryDocument_FindBrush( &loaded.geometry, { inside } ) ); CHECK( !geo::GeometryDocument_FindBrush( &loaded.geometry, { identical } ) );
 }
 
@@ -460,7 +696,7 @@ TEST_CASE( "Subtraction allocation failures release adopted geometry and retaine
         map_document_t original; Create( original, &audit.allocator ); u64 target = unsavedTarget ? 0 : Box( original );
         const u64 cutter = Box( original, { { 0, -128, -128 }, { 128, 128, 128 } } );
         const u64 covered = Box( original, { { 16, -16, -16 }, { 32, 16, 16 } } );
-        saved_t saved; REQUIRE( MapDocument_Save( &original, saved.Sink() ) == map_status_t::OK );
+        saved_t saved; REQUIRE( saved.Save( &original ) == map_status_t::OK );
         if ( unsavedTarget ) { target = Box( original ); } else { AddMetadata( original, target ); }
         AddMetadata( original, cutter );
         const u64 ids[]{ covered, target }; const usize baseline = audit.bytes; const auto next = original.nextId, revision = original.geometry.revision;
@@ -495,21 +731,21 @@ TEST_CASE( "Unsaved subtraction targets receive minimal residual records on thei
         CAPTURE( owned );
         map_document_t m; Create( m ); const u64 cutter = Box( m, { { 0, -128, -128 }, { 128, 128, 128 } } );
         REQUIRE( MapDocument_AddLayer( &m, SV( "detail" ), SV( "Detail" ) ) == map_status_t::OK );
-        saved_t saved; REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK );
+        saved_t saved; REQUIRE( saved.Save( &m ) == map_status_t::OK );
         AddMetadata( m, cutter ); TagOperand( m, cutter, "cutter", "materials/cutter.cymat" );
         u64 owner = 0;
         if ( owned ) { REQUIRE( MapDocument_AddEntity( &m, SV( "detail" ), SV( "func_structure" ), {}, &owner ) == map_status_t::OK ); }
         const u64 target = Box( m ); REQUIRE( MapDocument_SetGeometryLayer( &m, target, SV( "detail" ) ) == map_status_t::OK );
         if ( owned ) { REQUIRE( MapDocument_SetGeometryOwner( &m, target, owner ) == map_status_t::OK ); }
         REQUIRE( MapDocument_FindObject( &m, target, nullptr ) == nullptr );
-        const u32 layer = Placement( m, target ).iLayer; const usize chunksBefore = m.chunks.nCount;
+        const u32 layer = Placement( m, target ).iLayer; const usize chunksBefore = m.layerStores.nCount;
         vector_t<u64> roots; REQUIRE( Vector_Init( &roots, m.pAllocator ) );
         REQUIRE( MapBrushEdit_Subtract( &m, { &target, 1 }, cutter, &roots ) == map_status_t::OK ); REQUIRE( roots.nCount == 1 );
-        const u64 fragment = roots.pData[0]; map_chunk_t *pChunk = nullptr;
+        const u64 fragment = roots.pData[0]; map_layer_store_t *pChunk = nullptr;
         const auto *pRecord = MapDocument_FindObject( &m, fragment, &pChunk ); REQUIRE( pRecord ); REQUIRE( pChunk );
         CHECK( Placement( m, fragment ).owner == owner ); CHECK( Placement( m, fragment ).iLayer == layer ); CHECK( StringView_Equals( SV( pChunk->layer ), SV( "detail" ) ) );
         CHECK( KeyValue_Find( pRecord, SV( "name" ) ) == nullptr ); CHECK( KeyValue_Find( pRecord, SV( "future_root" ) ) == nullptr );
-        CHECK( m.chunks.nCount == chunksBefore + ( owned ? 0u : 1u ) );
+        CHECK( m.layerStores.nCount == chunksBefore + ( owned ? 0u : 1u ) );
         usize preserved = 0;
         const auto check = [&]( const map_document_t &map, const key_value_t *record ) {
             const auto *brush = Brush( map, fragment );
@@ -528,18 +764,18 @@ TEST_CASE( "Unsaved subtraction targets receive minimal residual records on thei
             const auto *nested = KeyValue_Find( MapDocument_FindObject( &m, owner, nullptr ), SV( "brushes" ) );
             REQUIRE( KeyValue_ChildCount( nested ) == 1 ); CHECK( KeyValue_ChildAt( nested, 0 ) == pRecord );
         }
-        REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
+        REQUIRE( saved.Save( &m ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved );
         pRecord = MapDocument_FindObject( &loaded, fragment, nullptr ); REQUIRE( pRecord ); check( loaded, pRecord );
         CHECK( Placement( loaded, fragment ).owner == owner ); CHECK( Placement( loaded, fragment ).iLayer == layer );
     }
     // A retained cutter with no unknown face data must not cause record or
     // working-chunk growth for an otherwise unsaved target.
     map_document_t m; Create( m ); const u64 cutter = Box( m, { { 0, -128, -128 }, { 128, 128, 128 } } );
-    saved_t saved; REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK );
-    const u64 target = Box( m ); const usize chunksBefore = m.chunks.nCount;
+    saved_t saved; REQUIRE( saved.Save( &m ) == map_status_t::OK );
+    const u64 target = Box( m ); const usize chunksBefore = m.layerStores.nCount;
     vector_t<u64> roots; REQUIRE( Vector_Init( &roots, m.pAllocator ) );
     REQUIRE( MapBrushEdit_Subtract( &m, { &target, 1 }, cutter, &roots ) == map_status_t::OK );
-    REQUIRE( roots.nCount == 1 ); CHECK( MapDocument_FindObject( &m, roots.pData[0], nullptr ) == nullptr ); CHECK( m.chunks.nCount == chunksBefore );
+    REQUIRE( roots.nCount == 1 ); CHECK( MapDocument_FindObject( &m, roots.pData[0], nullptr ) == nullptr ); CHECK( m.layerStores.nCount == chunksBefore );
 }
 
 TEST_CASE( "Brush Boolean adoption respects the map face limit under a permissive backend policy", "[map][brush-edit][subtract][limit]" )
@@ -572,7 +808,7 @@ TEST_CASE( "Front and back clipping preserve authored identities and independent
     for ( const auto mode : { map_brush_clip_mode_t::BACK, map_brush_clip_mode_t::FRONT } ) {
         CAPTURE( static_cast<int>( mode ) );
         map_document_t m; Create( m ); const u64 id = Box( m );
-        saved_t saved; REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK ); AddMetadata( m, id );
+        saved_t saved; REQUIRE( saved.Save( &m ) == map_status_t::OK ); AddMetadata( m, id );
         std::set<u64> inherited;
         for ( usize i = 0; i < Brush( m, id )->sides.nCount; ++i ) { inherited.insert( Brush( m, id )->sides.pData[i].sourceId.value ); }
         const u64 next = m.nextId, revision = m.geometry.revision;
@@ -602,7 +838,7 @@ TEST_CASE( "Front and back clipping preserve authored identities and independent
             }
             CHECK( cuts == 1 ); CHECK( geo::BrushValidation_Deep( brush, map.geometryPolicy, map.pAllocator ).bWatertight );
         };
-        checkSurfaces( m ); REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); checkSurfaces( loaded );
+        checkSurfaces( m ); REQUIRE( saved.Save( &m ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); checkSurfaces( loaded );
         CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &loaded.geometry.sourceIds ) );
     }
 }
@@ -616,7 +852,7 @@ TEST_CASE( "Split clipping gives both halves fresh identities with exact metadat
         REQUIRE( MapDocument_SetGeometryLayer( &m, id, SV( "detail" ) ) == map_status_t::OK );
         REQUIRE( MapDocument_AddEntity( &m, SV( "detail" ), SV( "func_structure" ), {}, &owner ) == map_status_t::OK );
         REQUIRE( MapDocument_SetGeometryOwner( &m, id, owner ) == map_status_t::OK );
-        saved_t saved; REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK ); AddMetadata( m, id );
+        saved_t saved; REQUIRE( saved.Save( &m ) == map_status_t::OK ); AddMetadata( m, id );
         const u32 layer = Placement( m, id ).iLayer; const u64 next = m.nextId, revision = m.geometry.revision;
         std::set<u64> oldIds{ id }; std::map<u64, math::planed_t> oldPlanes;
         auto *original = geo::GeometryDocument_FindBrushMutable( &m.geometry, { id } ); REQUIRE( original );
@@ -662,7 +898,7 @@ TEST_CASE( "Split clipping gives both halves fresh identities with exact metadat
             for ( const auto &[marker, plane] : oldPlanes ) { CHECK( uses[marker] == ( plane.normal.x == 0.0 ? 2u : 1u ) ); }
             CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &map.geometry.sourceIds ) );
         };
-        checkHalves( m ); REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); checkHalves( loaded );
+        checkHalves( m ); REQUIRE( saved.Save( &m ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); checkHalves( loaded );
         const auto *owned = KeyValue_Find( MapDocument_FindObject( &loaded, owner, nullptr ), SV( "brushes" ) ); CHECK( KeyValue_ChildCount( owned ) == 2 );
     }
 }
@@ -681,11 +917,11 @@ TEST_CASE( "Clip modes retain exact no-ops and delete only wholly discarded brus
         REQUIRE( MapBrushEdit_ClipMode( &m, { &id, 1 }, { { 1, 0, 0 }, outside > 0 ? 64.0 : -64.0 }, mode, {}, &roots, &changed ) == map_status_t::OK );
         CHECK_FALSE( changed ); CHECK( m.nextId == next ); CHECK( m.geometry.revision == revision );
         if ( mode == map_brush_clip_mode_t::BOTH ) { continue; }
-        saved_t saved; REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK );
+        saved_t saved; REQUIRE( saved.Save( &m ) == map_status_t::OK );
         REQUIRE( MapBrushEdit_ClipMode( &m, { &id, 1 }, { { 1, 0, 0 }, -outside }, mode, SV( "materials/unused.cymat" ), &roots, &changed ) == map_status_t::OK );
         CHECK( changed ); CHECK( roots.nCount == 0 ); CHECK( m.geometry.brushes.nCount == 0 ); CHECK( MapDocument_FindObject( &m, id, nullptr ) == nullptr );
         CHECK( m.nextId == next ); CHECK( m.geometry.revision == revision + 1 ); CHECK( m.materials.entries.nCount == materials );
-        REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); CHECK( loaded.geometry.brushes.nCount == 0 );
+        REQUIRE( saved.Save( &m ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); CHECK( loaded.geometry.brushes.nCount == 0 );
     }
     map_document_t m; Create( m ); const u64 left = Box( m, { { -192, -64, -64 }, { -128, 64, 64 } } ), center = Box( m ), right = Box( m, { { 128, -64, -64 }, { 192, 64, 64 } } );
     const u64 ids[]{ left, center, right }; const auto revision = m.geometry.revision;
@@ -701,7 +937,7 @@ TEST_CASE( "Clip modes accept bare preview sources and reject invalid output con
     geo::brush_source_t source{};
     REQUIRE( geo::GeometryDocument_TryCopyBrushSource( &live.geometry, { id }, preview.pAllocator, &source ) == geo::geometry_status_t::OK );
     REQUIRE( geo::GeometryDocument_TryAddBrushSource( &preview.geometry, &source ) == geo::geometry_status_t::OK ); geo::BrushSource_Shutdown( &source ); preview.nextId = live.nextId;
-    REQUIRE( preview.geometryRecords.nCount == 0 ); const usize chunks = preview.chunks.nCount;
+    REQUIRE( preview.geometryRecords.nCount == 0 ); const usize chunks = preview.layerStores.nCount;
     vector_t<u64> roots; REQUIRE( Vector_Init( &roots, preview.pAllocator ) ); REQUIRE( Vector_PushBack( &roots, u64{ 123456 } ) ); bool_t changed = CY_FALSE;
     vector_t<u64> uninitialized{};
     CHECK( MapBrushEdit_ClipMode( &preview, { &id, 1 }, { { 1, 0, 0 }, 0 }, map_brush_clip_mode_t::BOTH, {}, &uninitialized, &changed ) == map_status_t::INVALID_ARGUMENT );
@@ -714,7 +950,7 @@ TEST_CASE( "Clip modes accept bare preview sources and reject invalid output con
     CHECK( MapBrushEdit_ClipMode( &preview, { &id, 1 }, { { 1, 0, 0 }, 0 }, map_brush_clip_mode_t::BOTH, {}, &roots, &changed ) == map_status_t::READ_ONLY ); preview.bReadOnly = CY_FALSE;
     REQUIRE( roots.nCount == 1 ); CHECK( roots.pData[0] == 123456 ); CHECK_FALSE( changed ); CHECK( preview.geometry.brushes.nCount == 1 );
     REQUIRE( MapBrushEdit_ClipMode( &preview, { &id, 1 }, { { 1, 0, 0 }, 0 }, map_brush_clip_mode_t::BOTH, {}, &roots, &changed ) == map_status_t::OK );
-    REQUIRE( roots.nCount == 2 ); CHECK( changed ); CHECK( preview.chunks.nCount == chunks );
+    REQUIRE( roots.nCount == 2 ); CHECK( changed ); CHECK( preview.layerStores.nCount == chunks );
     for ( usize i = 0; i < roots.nCount; ++i ) { CHECK( MapDocument_FindObject( &preview, roots.pData[i], nullptr ) == nullptr ); CHECK( Brush( preview, roots.pData[i] )->sides.nCount == 6 ); }
     // Same bare-source construction also permits complete removal.
     const u64 halves[]{ roots.pData[0], roots.pData[1] };
@@ -728,7 +964,7 @@ TEST_CASE( "Every split clipping allocation failure preserves external results a
     {
         map_document_t original; Create( original, &audit.allocator );
         const u64 discarded = Box( original, { { 128, -64, -64 }, { 192, 64, 64 } } ), id = Box( original );
-        saved_t saved; REQUIRE( MapDocument_Save( &original, saved.Sink() ) == map_status_t::OK ); AddMetadata( original, id );
+        saved_t saved; REQUIRE( saved.Save( &original ) == map_status_t::OK ); AddMetadata( original, id );
         const usize baseline = audit.bytes; const auto next = original.nextId, revision = original.geometry.revision;
         for ( const auto mode : { map_brush_clip_mode_t::BACK, map_brush_clip_mode_t::FRONT, map_brush_clip_mode_t::BOTH } ) {
             CAPTURE( static_cast<int>( mode ) ); const u64 ids[]{ discarded, id }; usize allocations = 0;
@@ -800,9 +1036,9 @@ TEST_CASE( "Merge keeps first operand root metadata and exact surfaces from both
             REQUIRE( MapDocument_SetGeometryLayer( &m, id, SV( "detail" ) ) == map_status_t::OK );
             REQUIRE( MapDocument_SetGeometryOwner( &m, id, owner ) == map_status_t::OK );
         }
-        saved_t saved; REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK ); AddMetadata( m, a ); AddMetadata( m, b );
+        saved_t saved; REQUIRE( saved.Save( &m ) == map_status_t::OK ); AddMetadata( m, a ); AddMetadata( m, b );
         TagOperand( m, a, "a", "materials/merge_a.cymat" ); TagOperand( m, b, "b", "materials/merge_b.cymat" );
-        auto *bRecord = MapDocument_FindObject( &m, b, nullptr ); map_chunk_t *bChunk = nullptr; REQUIRE( MapDocument_FindObject( &m, b, &bChunk ) );
+        auto *bRecord = MapDocument_FindObject( &m, b, nullptr ); map_layer_store_t *bChunk = nullptr; REQUIRE( MapDocument_FindObject( &m, b, &bChunk ) );
         REQUIRE( KeyValue_SetString( bChunk->store.pDocument, KeyValue_Find( bRecord, SV( "name" ) ), SV( "Second root must not win" ) ) );
         REQUIRE( KeyValue_SetU64( bChunk->store.pDocument, KeyValue_Find( bRecord, SV( "future_root" ) ), 76543 ) );
         auto *bAttributes = geo::GeometryDocument_FindBrushAttributesMutable( &m.geometry, { b } ); REQUIRE( bAttributes );
@@ -831,7 +1067,7 @@ TEST_CASE( "Merge keeps first operand root metadata and exact surfaces from both
             if ( scenario == 2 ) { CHECK( fromA == ( reverse ? 6 : 0 ) ); CHECK( fromB == ( reverse ? 0 : 6 ) ); }
             if ( scenario == 3 ) { CHECK( fromA == 6 ); CHECK( fromB == 0 ); }
         };
-        check( m ); REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); check( loaded );
+        check( m ); REQUIRE( saved.Save( &m ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); check( loaded );
         const auto *nested = KeyValue_Find( MapDocument_FindObject( &loaded, owner, nullptr ), SV( "brushes" ) ); REQUIRE( KeyValue_ChildCount( nested ) == 1 );
       }
     }
@@ -899,7 +1135,7 @@ TEST_CASE( "Merge validates exact operands writable state explicit placement and
 TEST_CASE( "Merge preserves a second operand's residual faces onto an unsaved first root without stealing its name", "[map][brush-edit][merge]" )
 {
     map_document_t m; Create( m ); const u64 b = Box( m, { { 64, -64, -64 }, { 192, 64, 64 } } );
-    saved_t saved; REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK ); AddMetadata( m, b ); TagOperand( m, b, "b", "materials/merge_b.cymat" );
+    saved_t saved; REQUIRE( saved.Save( &m ) == map_status_t::OK ); AddMetadata( m, b ); TagOperand( m, b, "b", "materials/merge_b.cymat" );
     const u64 a = Box( m ), ids[]{ a, b }; REQUIRE( MapDocument_FindObject( &m, a, nullptr ) == nullptr );
     vector_t<u64> roots; REQUIRE( Vector_Init( &roots, m.pAllocator ) ); REQUIRE( MapBrushEdit_Merge( &m, { ids, 2 }, &roots ) == map_status_t::OK ); REQUIRE( roots.nCount == 1 );
     const auto check = [&]( map_document_t &map ) {
@@ -913,7 +1149,7 @@ TEST_CASE( "Merge preserves a second operand's residual faces onto an unsaved fi
         }
         CHECK( inherited == 1 );
     };
-    check( m ); REQUIRE( MapDocument_Save( &m, saved.Sink() ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); check( loaded );
+    check( m ); REQUIRE( saved.Save( &m ) == map_status_t::OK ); map_document_t loaded; Load( loaded, saved ); check( loaded );
 }
 
 TEST_CASE( "Merge checks the persisted face limit before removing either source", "[map][brush-edit][merge][limit]" )
@@ -939,7 +1175,7 @@ TEST_CASE( "Every merge allocation failure preserves external results and releas
         {
             map_document_t original; Create( original, &audit.allocator ); u64 a = unsavedFirst ? 0 : Box( original );
             const u64 b = Box( original, { { 64, -64, -64 }, { 192, 64, 64 } } );
-            saved_t saved; REQUIRE( MapDocument_Save( &original, saved.Sink() ) == map_status_t::OK ); AddMetadata( original, b );
+            saved_t saved; REQUIRE( saved.Save( &original ) == map_status_t::OK ); AddMetadata( original, b );
             if ( unsavedFirst ) { a = Box( original ); } else { AddMetadata( original, a ); }
             const u64 ids[]{ a, b }; const usize baseline = audit.bytes; const auto next = original.nextId, revision = original.geometry.revision; usize allocations = 0;
             {

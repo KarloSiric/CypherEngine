@@ -21,7 +21,13 @@
 #include "CypherMapGui_Panels.h"
 #include "CypherMapGui_EntityProperties.h"
 #include "CypherMap_EntityEdit.h"
+#include "CypherMap_Groups.h"
+#include "CypherMapGui_Game.h"
+#include "CypherMapGui_PropertyEditors.h"
+#include "CypherMapGui_Layers.h"
+#include "CypherMapGui_Instances.h"
 
+#include "CypherEditorGui_Actions.h"
 #include "CypherEditorGui_Style.h"
 #include "CypherGeometry_DocumentBrushAttributes.h"
 #include "CypherGeometry_DocumentMeshes.h"
@@ -29,7 +35,11 @@
 
 #include "CypherCommon/Tier0/CypherCommon_Assert.h"
 
+#include <QApplication>
+#include <QFileInfo>
+#include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QHash>
 #include <QHeaderView>
 #include <QLabel>
@@ -45,10 +55,13 @@
 #include <QStyleOptionViewItem>
 #include <QToolButton>
 #include <QTreeWidget>
+#include <QTimer>
 #include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cstring>
+#include <functional>
 #include <vector>
 
 namespace cypher::editor::map
@@ -64,6 +77,18 @@ constexpr int kScalarListMax = 16; // Longer arrays expand into rows instead of 
 constexpr int kEntityKeyRole = Qt::UserRole + 20;
 constexpr int kEntityIdentityRole = Qt::UserRole + 21;
 constexpr int kEntityEditableRole = Qt::UserRole + 22;
+// Rows the game profile defines (kEntityProfileRole), whether any selected
+// entity has the value written (kEntityPresentRole), and the value text of a
+// row whose value cell is an editor (column 1).
+constexpr int kEntityProfileRole = Qt::UserRole + 30;
+constexpr int kEntityPresentRole = Qt::UserRole + 31;
+constexpr int kValueTextRole = Qt::UserRole + 32;
+
+// A row's value as text: the cell, or what its editor shows.
+QString ValueText( const QTreeWidgetItem *pItem )
+{
+    return pItem->text( 1 ).isEmpty() ? pItem->data( 1, kValueTextRole ).toString() : pItem->text( 1 );
+}
 
 const char *KindName( map_wire_kind_t kind ) noexcept
 {
@@ -73,6 +98,7 @@ const char *KindName( map_wire_kind_t kind ) noexcept
         case map_wire_kind_t::PATCH: return "Patch";
         case map_wire_kind_t::TERRAIN: return "Terrain";
         case map_wire_kind_t::ENTITY: return "Entity";
+        case map_wire_kind_t::PREFAB: return "Prefab";
     }
     return "Object";
 }
@@ -90,6 +116,10 @@ constexpr int kOutlinerTipRole = Qt::UserRole + 5;
 constexpr int kOutlinerLabelRole = Qt::UserRole + 6;
 constexpr int kOutlinerNamedRole = Qt::UserRole + 7;
 constexpr int kOutlinerGroupKind = 5;
+// Prefab instance rows: their own filter, apart from group rows (the wire
+// kind's number would collide with kOutlinerGroupKind).
+constexpr int kOutlinerPrefabKind = 6;
+int OutlinerKind( map_wire_kind_t kind ) noexcept { return kind == map_wire_kind_t::PREFAB ? kOutlinerPrefabKind : static_cast<int>( kind ); }
 constexpr const char *kTreeLinesSetting = "editor.ui.tree_lines";
 constexpr const char *kShowIdsSetting = "editor.outliner.show_ids";
 
@@ -100,7 +130,23 @@ class map_outliner_tree_t final : public QTreeWidget {
 public:
     map_outliner_tree_t( QWidget *pParent, gui::editor_gui_t *pGui ) : QTreeWidget( pParent ), m_pGui( pGui ) {}
 
+    // The Outliner's own keys (keymap context `outliner`): (event, execute)
+    // returns whether the key is one of them.
+    std::function<bool( QKeyEvent *, bool )> keys{};
+
 protected:
+    // Taken before window shortcuts: F2 there is Top View.
+    bool event( QEvent *pEvent ) override
+    {
+        if ( pEvent->type() == QEvent::ShortcutOverride && keys && keys( static_cast<QKeyEvent *>( pEvent ), false ) ) { pEvent->accept(); return true; }
+        return QTreeWidget::event( pEvent );
+    }
+    void keyPressEvent( QKeyEvent *pEvent ) override
+    {
+        if ( keys && keys( pEvent, true ) ) { pEvent->accept(); return; }
+        QTreeWidget::keyPressEvent( pEvent );
+    }
+
     void drawBranches( QPainter *pPainter, const QRect &rect, const QModelIndex &index ) const override
     {
         if ( rect.isEmpty() || !index.isValid() ) { return; }
@@ -179,6 +225,7 @@ const char *OutlinerIcon( map_wire_kind_t kind, const QString &className = QStri
         case map_wire_kind_t::MESH: return "select-meshes";
         case map_wire_kind_t::PATCH: return "tool-patch";
         case map_wire_kind_t::TERRAIN: return "tool-terrain";
+        case map_wire_kind_t::PREFAB: return "asset-folder";
         case map_wire_kind_t::ENTITY: break;
     }
     if ( className.startsWith( QLatin1StringView( "light" ) ) ) { return "entity-light"; }
@@ -219,8 +266,8 @@ public:
         auto *pMenu = new QMenu( m_pFilters );
         pMenu->setToolTipsVisible( true );
         pMenu->addSection( QStringLiteral( "Mapnode types" ) );
-        constexpr const char *kNames[]{ "Brushes", "Meshes", "Patches", "Terrain", "Entities", "Groups" };
-        for ( int i = 0; i < 6; ++i ) {
+        constexpr const char *kNames[]{ "Brushes", "Meshes", "Patches", "Terrain", "Entities", "Groups", "Prefab instances" };
+        for ( int i = 0; i < 7; ++i ) {
             m_pKinds[i] = pMenu->addAction( QString::fromUtf8( kNames[i] ) );
             m_pKinds[i]->setObjectName( QStringLiteral( "MapOutlinerKind%1" ).arg( i ) );
             m_pKinds[i]->setCheckable( true );
@@ -279,7 +326,7 @@ public:
         m_pTree->setIndentation( 14 );
         m_pTree->setIconSize( QSize( 16, 16 ) );
         m_pTree->setRootIsDecorated( true );
-        m_pTree->setToolTip( QStringLiteral( "Select map objects. Selections outside the current filter are preserved.\nGroups show authored membership; group editing is not available yet." ) );
+        m_pTree->setToolTip( QStringLiteral( "Select map objects. Selections outside the current filter are preserved.\nClick a group to select everything in it; double-click a group to rename it." ) );
         m_pStatus = new QLabel( this );
         m_pStatus->setObjectName( QStringLiteral( "MapOutlinerStatus" ) );
         m_pStatus->setProperty( "muted", true );
@@ -288,6 +335,20 @@ public:
         pLayout->addWidget( m_pStatus );
         QObject::connect( m_pFilter, &QLineEdit::textChanged, this, [this]() { ApplyFilter(); } );
         QObject::connect( m_pTree, &QTreeWidget::itemSelectionChanged, this, [this]() { PushSelection(); } );
+        // Hammer 5's Outliner names groups: double-click a group (or F2) to rename it.
+        QObject::connect( m_pTree, &QTreeWidget::itemDoubleClicked, this, [this]( QTreeWidgetItem *pItem, int ) { StartRename( pItem ); } );
+        // Layer rows: current, hide, lock, isolate (TrenchBroom's layer editor).
+        m_pTree->setContextMenuPolicy( Qt::CustomContextMenu );
+        QObject::connect( m_pTree, &QTreeWidget::customContextMenuRequested, this, [this]( const QPoint &position ) { LayerMenu( position ); } );
+        // The rename rebuilds the tree, so it runs after the item's signal.
+        QObject::connect( m_pTree, &QTreeWidget::itemChanged, this, [this]( QTreeWidgetItem *pItem, int column ) {
+            if ( pItem == nullptr || column != 0 || m_renaming == 0 || pItem->data( 0, kIdRole ).toULongLong() != m_renaming ) { return; }
+            const u64 group = m_renaming;
+            const QString name = pItem->text( 0 ).trimmed();
+            m_renaming = 0;
+            QMetaObject::invokeMethod( this, [this, group, name]() { RenameGroup( group, name ); }, Qt::QueuedConnection );
+        } );
+        static_cast<map_outliner_tree_t *>( m_pTree )->keys = [this]( QKeyEvent *pEvent, bool execute ) { return OutlinerKey( pEvent, execute ); };
         ( void )MapWorkspace_AddListener( pWorkspace, &map_outliner_t::OnChanged, this );
         ( void )gui::EditorGui_AddStyleListener( pWorkspace->pGui, &map_outliner_t::OnStyleChanged, this );
         ( void )EditorSettings_AddListener( &pWorkspace->pGui->settings, &map_outliner_t::OnSettingsChanged, this );
@@ -320,6 +381,7 @@ private:
         auto *pOutliner = static_cast<map_outliner_t *>( pContext );
         if ( ( changes & MAP_CHANGE_DOCUMENT ) != 0u ) { pOutliner->Rebuild(); }
         else if ( ( changes & ( MAP_CHANGE_SELECTION | MAP_CHANGE_VIEW | MAP_CHANGE_TITLE ) ) != 0u ) {
+            if ( ( changes & MAP_CHANGE_VIEW ) != 0u ) { pOutliner->RefreshLayers(); }
             pOutliner->ApplyFilter();
             pOutliner->PullSelection();
         }
@@ -385,7 +447,7 @@ private:
         pItem->setData( 0, kOutlinerCountRole, type != kOutlinerGroupKind );
         pItem->setData( 0, kOutlinerTipRole, QStringLiteral( "%1 · %2 · ID %3" ).arg( name, kind ).arg( id ) );
         pItem->setExpanded( true );
-        if ( type == kOutlinerGroupKind ) { pItem->setFlags( pItem->flags() & ~Qt::ItemIsSelectable ); }
+        if ( type == kOutlinerGroupKind ) { pItem->setFlags( pItem->flags() | Qt::ItemIsEditable ); } // Selecting it selects its members.
         else { m_items.insert( id, pItem ); }
         return pItem;
     }
@@ -418,10 +480,9 @@ private:
         const map_wireframe_t &wire = m_pWorkspace->wire;
         QHash<quint64, QString> names;
         std::vector<group_t> groups;
-        for ( usize i = 0u; i < map.chunks.nCount; ++i ) {
-            const map_chunk_t &chunk = *map.chunks.pData[i];
-            if ( chunk.bDamaged ) { continue; }
-            const key_value_t *pRoot = SettingsDocument_Root( &chunk.store );
+        for ( usize i = 0u; i < map.layerStores.nCount; ++i ) {
+            const map_layer_store_t &layerStore = *map.layerStores.pData[i];
+            const key_value_t *pRoot = SettingsDocument_Root( &layerStore.store );
             IndexNames( pRoot, names );
             const key_value_t *pGroups = OutlinerMember( pRoot, "groups" );
             if ( KeyValue_Type( pGroups ) != key_value_type_t::ARRAY ) { continue; }
@@ -429,7 +490,7 @@ private:
                 const key_value_t *pGroup = KeyValue_ChildAt( pGroups, g );
                 const u64 id = OutlinerId( OutlinerMember( pGroup, "id" ) );
                 if ( id != 0u ) {
-                    groups.push_back( { id, OutlinerText( OutlinerMember( pGroup, "name" ) ), QString::fromUtf8( chunk.layer ), OutlinerMember( pGroup, "members" ) } );
+                    groups.push_back( { id, OutlinerText( OutlinerMember( pGroup, "name" ) ), QString::fromUtf8( layerStore.layer ), OutlinerMember( pGroup, "members" ) } );
                 }
             }
         }
@@ -451,6 +512,7 @@ private:
             pLayer->setData( 0, kOutlinerCountRole, true );
             pLayer->setFlags( pLayer->flags() & ~Qt::ItemIsSelectable );
             pLayer->setExpanded( true );
+            DecorateLayer( pLayer );
             layers.push_back( pLayer );
             layersByName.insert( layer, pLayer );
         }
@@ -468,7 +530,12 @@ private:
             QTreeWidgetItem *pParent = object.owner != 0u ? m_items.value( object.owner, nullptr ) : nullptr;
             if ( pParent == nullptr ) { pParent = layerRow( object.iLayer ); }
             const QString kind = QString::fromUtf8( KindName( object.kind ) );
-            AddRow( pParent, names.value( object.id, kind ), kind, object.id, static_cast<int>( object.kind ), OutlinerIcon( object.kind ) );
+            QString label = names.value( object.id, kind );
+            // An instance reads as its prefab: "security_door (prefab)".
+            if ( map_instance_info_t instance{}; object.kind == map_wire_kind_t::PREFAB && MapInstances_Info( m_pWorkspace, object.id, &instance ) ) {
+                label = QStringLiteral( "%1 (prefab)" ).arg( instance.name.isEmpty() ? QFileInfo( instance.source ).completeBaseName() : instance.name );
+            }
+            AddRow( pParent, label, kind, object.id, OutlinerKind( object.kind ), OutlinerIcon( object.kind ) );
         }
         // CYMAP groups are authored membership, not ownership. This read-only
         // tree gives a multiply-listed member to the lowest group ID, keeps
@@ -478,7 +545,7 @@ private:
         for ( const group_t &group : groups ) {
             if ( groupRows.contains( group.id ) || m_items.contains( group.id ) ) { continue; }
             auto *pRow = AddRow( layersByName.value( group.layer, m_pRoot ), group.name, QStringLiteral( "Group" ), group.id, kOutlinerGroupKind, "select-groups" );
-            pRow->setData( 0, kOutlinerTipRole, pRow->data( 0, kOutlinerTipRole ).toString() + QStringLiteral( "\nAuthored membership. Group editing is not available yet." ) );
+            pRow->setData( 0, kOutlinerTipRole, pRow->data( 0, kOutlinerTipRole ).toString() + QStringLiteral( "\nClick to select everything in the group; double-click to rename it." ) );
             groupRows.insert( group.id, pRow );
         }
         QSet<quint64> assigned;
@@ -563,6 +630,11 @@ private:
         }
         const bool visible = selfVisible || childVisible;
         pItem->setHidden( !visible );
+        if ( !LayerOfRow( pItem ).isEmpty() ) { // A layer row shows its own state.
+            DecorateLayer( pItem );
+            if ( m_bFiltering && childVisible ) { pItem->setExpanded( true ); }
+            return visible;
+        }
         pItem->setForeground( 0, hidden ? m_pTree->palette().brush( QPalette::Disabled, QPalette::Text ) : QBrush() );
         QFont font = pItem->font( 0 );
         font.setItalic( hidden );
@@ -612,12 +684,151 @@ private:
             if ( pItem != nullptr && !IsVisible( pItem ) ) { ids.push_back( id ); }
         }
         for ( QTreeWidgetItem *pItem : m_pTree->selectedItems() ) {
-            if ( IsVisible( pItem ) && pItem->data( 0, kIdRole ).isValid() ) { ids.push_back( pItem->data( 0, kIdRole ).toULongLong() ); }
+            if ( !IsVisible( pItem ) || !pItem->data( 0, kIdRole ).isValid() ) { continue; }
+            const u64 id = pItem->data( 0, kIdRole ).toULongLong();
+            if ( pItem->data( 0, kOutlinerKindRole ).toInt() != kOutlinerGroupKind ) { ids.push_back( id ); continue; }
+            // A group stands for everything in it, nested groups included.
+            vector_t<u64> members{};
+            if ( !Vector_Init( &members, m_pWorkspace->pGui->pAllocator ) ||
+                 MapDocument_GroupMembers( m_pWorkspace->pDocument, id, &members ) != map_status_t::OK ) {
+                PullSelection(); return; // Never publish only the other rows from an incomplete group request.
+            }
+            ids.insert( ids.end(), members.pData, members.pData + members.nCount );
         }
+        std::sort( ids.begin(), ids.end() );
+        ids.erase( std::unique( ids.begin(), ids.end() ), ids.end() );
         m_bSyncing = true;
         MapWorkspace_SetSelection( m_pWorkspace, ids.data(), ids.size() );
         m_bSyncing = false;
+        PullSelection(); // A refused batch has no selection notification: restore its authored UI selection here.
         ApplyFilter();
+    }
+
+    static QString LayerOfRow( const QTreeWidgetItem *pItem )
+    {
+        const QString key = pItem != nullptr ? pItem->data( 0, kOutlinerKeyRole ).toString() : QString();
+        return key.startsWith( QStringLiteral( "layer:" ) ) ? key.mid( 6 ) : QString();
+    }
+
+    // TrenchBroom's layer list: the current layer in bold, a hidden one
+    // dimmed and italic, a locked one with the lock.
+    void DecorateLayer( QTreeWidgetItem *pItem )
+    {
+        const QString layer = LayerOfRow( pItem );
+        if ( layer.isEmpty() ) { return; }
+        const bool current = layer == MapLayers_Current( m_pWorkspace );
+        const bool hidden = MapLayers_IsHiddenId( m_pWorkspace, layer ), locked = MapLayers_IsLockedId( m_pWorkspace, layer );
+        QStringList marks;
+        if ( current ) { marks << QStringLiteral( "current" ); }
+        if ( hidden ) { marks << QStringLiteral( "hidden" ); }
+        if ( locked ) { marks << QStringLiteral( "locked" ); }
+        pItem->setText( 0, marks.isEmpty() ? layer : QStringLiteral( "%1   (%2)" ).arg( layer, marks.join( QStringLiteral( ", " ) ) ) );
+        QFont font = pItem->font( 0 );
+        font.setBold( current );
+        font.setItalic( hidden );
+        pItem->setFont( 0, font );
+        pItem->setForeground( 0, hidden ? gui::EditorStyle_TokenColor( m_pWorkspace->pGui->style, "ui.text.disabled" ) : QBrush() );
+        pItem->setData( 0, kOutlinerIconRole, hidden ? QStringLiteral( "hide-selected" ) : locked ? QStringLiteral( "texture-lock" ) : QStringLiteral( "asset-folder" ) );
+        pItem->setIcon( 0, gui::EditorStyle_Icon( m_pWorkspace->pGui->style, pItem->data( 0, kOutlinerIconRole ).toString().toUtf8().constData() ) );
+        pItem->setToolTip( 0, QStringLiteral( "Layer %1%2\nDouble-click to make it the current layer (new objects go there); right-click to hide, lock or isolate it." )
+            .arg( layer, current ? QStringLiteral( ", the current layer" ) : QString() ) );
+    }
+
+    void RefreshLayers()
+    {
+        const QSignalBlocker blocker( m_pTree );
+        for ( QTreeWidgetItemIterator it( m_pTree ); *it != nullptr; ++it ) { DecorateLayer( *it ); }
+    }
+
+    void Run( const char *pCommand, const QString &argument = QString() )
+    {
+        const QByteArray utf8 = argument.toUtf8();
+        const string_view_t view{ utf8.constData(), static_cast<usize>( utf8.size() ) };
+        ( void )EditorCommands_Execute( &m_pWorkspace->pGui->commands, StringView_FromCString( pCommand ), argument.isEmpty() ? command_args_t{} : command_args_t{ &view, 1u } );
+    }
+
+    void LayerMenu( const QPoint &position )
+    {
+        const QString layer = LayerOfRow( m_pTree->itemAt( position ) );
+        if ( layer.isEmpty() ) { return; }
+        QMenu menu( this );
+        menu.setObjectName( QStringLiteral( "MapOutlinerLayerMenu" ) );
+        const bool hidden = MapLayers_IsHiddenId( m_pWorkspace, layer ), locked = MapLayers_IsLockedId( m_pWorkspace, layer );
+        QAction *pCurrent = menu.addAction( QStringLiteral( "Make Current Layer" ), this, [this, layer]() { Run( "map.layer.set_current", layer ); } );
+        pCurrent->setEnabled( layer != MapLayers_Current( m_pWorkspace ) );
+        menu.addAction( QStringLiteral( "Select Objects in Layer" ), this, [this, layer]() { Run( "map.layer.select_objects", layer ); } );
+        QAction *pMove = menu.addAction( QStringLiteral( "Move Selection Here" ), this, [this, layer]() { Run( "map.layer.move_selection", layer ); } );
+        pMove->setEnabled( EditorSelection_Count( &m_pWorkspace->selection ) != 0u );
+        menu.addSeparator();
+        menu.addAction( hidden ? QStringLiteral( "Show Layer" ) : QStringLiteral( "Hide Layer" ), this, [this, layer]() { Run( "map.layer.toggle_hidden", layer ); } );
+        menu.addAction( locked ? QStringLiteral( "Unlock Layer" ) : QStringLiteral( "Lock Layer" ), this, [this, layer]() { Run( "map.layer.toggle_locked", layer ); } );
+        menu.addAction( QStringLiteral( "Isolate Layer" ), this, [this, layer]() { Run( "map.layer.isolate", layer ); } );
+        menu.addAction( QStringLiteral( "Show All Layers" ), this, [this]() { Run( "map.layer.show_all" ); } );
+        menu.addSeparator();
+        menu.addAction( QStringLiteral( "New Layer" ), this, [this]() { Run( "map.layer.create" ); } );
+        menu.exec( m_pTree->viewport()->mapToGlobal( position ) );
+    }
+
+    void StartRename( QTreeWidgetItem *pItem )
+    {
+        if ( const QString layer = LayerOfRow( pItem ); !layer.isEmpty() ) {
+            // Deferred: making a layer current repaints the rows under the click.
+            QMetaObject::invokeMethod( this, [this, layer]() { Run( "map.layer.set_current", layer ); }, Qt::QueuedConnection );
+            return;
+        }
+        if ( pItem == nullptr || pItem->data( 0, kOutlinerKindRole ).toInt() != kOutlinerGroupKind ) { return; }
+        m_renaming = pItem->data( 0, kIdRole ).toULongLong();
+        const QSignalBlocker blocker( m_pTree );
+        pItem->setText( 0, QString::fromStdString( MapGroups_Name( m_pWorkspace->pDocument, m_renaming ) ) ); // Edit the name, not the label.
+        m_pTree->editItem( pItem, 0 );
+    }
+
+    // outliner.rename renames the current group row; outliner.focus_in_views
+    // frames the selection in the 2D views and brings it before the camera.
+    bool OutlinerKey( QKeyEvent *pEvent, bool execute )
+    {
+        const gui::editor_gui_t &gui = *m_pWorkspace->pGui;
+        key_chord_t chord{};
+        if ( gui.nKeymapChain == 0u || !gui::EditorKeyChord_FromKeySequence( QKeySequence( QKeyCombination( pEvent->modifiers(), static_cast<Qt::Key>( pEvent->key() ) ) ), &chord ) ) {
+            return false;
+        }
+        for ( const char *pCommand : { "outliner.rename", "outliner.focus_in_views" } ) {
+            keymap_binding_t binding{};
+            if ( EditorKeymap_FindBindingOn( gui.keymapChain, gui.nKeymapChain, EditorKeymap_HostPlatform(), StringView_FromCString( "outliner" ),
+                     StringView_FromCString( pCommand ), &binding ) != keymap_lookup_t::BOUND ) { continue; }
+            bool bound = false;
+            for ( usize i = 0u; i < binding.nChords && !bound; ++i ) { bound = EditorKeyChord_Equals( binding.chords[i], chord ); }
+            if ( !bound ) { continue; }
+            if ( std::strcmp( pCommand, "outliner.rename" ) == 0 ) {
+                QTreeWidgetItem *pItem = m_pTree->currentItem();
+                if ( pItem == nullptr || pItem->data( 0, kOutlinerKindRole ).toInt() != kOutlinerGroupKind ) { return false; } // Leave the key to the window.
+                if ( execute ) { StartRename( pItem ); }
+                return true;
+            }
+            if ( EditorSelection_Count( &m_pWorkspace->selection ) == 0u ) { return false; }
+            if ( execute ) {
+                for ( const char *pFrame : { "map.view.center_selection_2d", "map.view.center_selection_3d" } ) {
+                    ( void )EditorCommands_Execute( &m_pWorkspace->pGui->commands, StringView_FromCString( pFrame ), command_args_t{} );
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    void RenameGroup( u64 group, const QString &name )
+    {
+        const QByteArray utf8 = name.toUtf8();
+        struct rename_t { u64 group; const QByteArray *pName; const map_workspace_t *pWorkspace; } job{ group, &utf8, m_pWorkspace };
+        const bool renamed = MapWorkspace_ApplyMetadataEdit( m_pWorkspace, "Rename Group", []( void *pContext, map_document_t *pCopy, vector_t<u64> *pSelection, bool *pChanged ) noexcept {
+            const auto &j = *static_cast<const rename_t *>( pContext );
+            // The selection stays as it is.
+            for ( usize i = 0; i < j.pWorkspace->selection.ids.nCount; ++i ) {
+                if ( !Vector_PushBack( pSelection, j.pWorkspace->selection.ids.pData[i] ) ) { return map_status_t::OUT_OF_MEMORY; }
+            }
+            return MapGroups_Rename( pCopy, j.group, { j.pName->constData(), static_cast<usize>( j.pName->size() ) }, pChanged );
+        }, &job );
+        if ( !renamed ) { Rebuild(); ApplyFilter(); } // Unchanged or refused: show the authored label again.
     }
 
     void PullSelection()
@@ -643,7 +854,7 @@ private:
     map_workspace_t *m_pWorkspace{ nullptr };
     QLineEdit *m_pFilter{ nullptr };
     QToolButton *m_pFilters{ nullptr };
-    QAction *m_pKinds[6]{};
+    QAction *m_pKinds[7]{};
     QAction *m_pShowHidden{ nullptr };
     QAction *m_pSelectedOnly{ nullptr };
     QAction *m_pShowIds{ nullptr };
@@ -654,6 +865,7 @@ private:
     QSet<QString> m_collapsedBeforeFilter{};
     bool m_bSyncing{ false };
     bool m_bFiltering{ false };
+    u64 m_renaming{ 0u }; // The group whose name is being edited.
 };
 
 // ---------------------------------------------------------------------------
@@ -738,7 +950,7 @@ const char *PropertyIcon( const QString &name, key_value_type_t type = key_value
     if ( key == QLatin1StringView( "color" ) || key == QLatin1StringView( "intensity" ) || key == QLatin1StringView( "radius" ) || key == QLatin1StringView( "range" ) || key == QLatin1StringView( "cast_shadows" ) ) { return "entity-light"; }
     if ( key.contains( QLatin1StringView( "script" ) ) || key == QLatin1StringView( "outputs" ) || key == QLatin1StringView( "inputs" ) ) { return "entity-logic"; }
     if ( key == QLatin1StringView( "owner entity" ) || key == QLatin1StringView( "parent entity" ) || key == QLatin1StringView( "parent" ) || key == QLatin1StringView( "owner" ) ) { return "group-create"; }
-    if ( key == QLatin1StringView( "id" ) || key == QLatin1StringView( "source file" ) || key == QLatin1StringView( "(chunk)" ) ) { return "map-info"; }
+    if ( key == QLatin1StringView( "id" ) || key == QLatin1StringView( "source file" ) || key == QLatin1StringView( "(record)" ) ) { return "map-info"; }
     if ( key == QLatin1StringView( "class" ) || key == QLatin1StringView( "type" ) ) { return "entity-point"; }
     return "keymap";
 }
@@ -824,6 +1036,10 @@ constexpr int kPropertyBeginRole = Qt::UserRole + 21;
 constexpr int kPropertyEndRole = Qt::UserRole + 22;
 constexpr int kPropertyLoadedRole = Qt::UserRole + 23;
 constexpr int kPropertyGeometryRole = Qt::UserRole + 24;
+constexpr int kPropertyMapFileRole = Qt::UserRole + 25; // 1: the whole map; 2: the selected objects.
+// The map file view is built on opening; maps up to this many objects open
+// it straight away, larger ones when the group is expanded.
+constexpr usize kMapFileAutoOpen = 5000u;
 constexpr usize kPropertyPageSize = 128u;
 
 const key_value_t *PropertyNode( const QTreeWidgetItem *pItem )
@@ -874,6 +1090,15 @@ void AddMembers( QTreeWidgetItem *pParent, QTreeWidget *pTree, const gui::editor
     }
 }
 
+// One entity key across the selected entities: the first value, whether
+// the others agree, and how many have it.
+struct entity_row_state_t {
+    const key_value_t *first{};
+    QString text{};
+    usize present{};
+    bool mixed{}, canEdit{ true };
+};
+
 class map_properties_t final : public QWidget {
 public:
     map_properties_t( QWidget *pParent, map_workspace_t *pWorkspace ) : QWidget( pParent ), m_pWorkspace( pWorkspace )
@@ -899,7 +1124,7 @@ public:
         pGear->setToolTip( QStringLiteral( "Property view options" ) );
         pGear->setPopupMode( QToolButton::InstantPopup );
         auto *pMenu = new QMenu( pGear );
-        m_pShowInternal = pMenu->addAction( QStringLiteral( "Show Editor Rows (chunk, bounds)" ) );
+        m_pShowInternal = pMenu->addAction( QStringLiteral( "Show Editor Rows (record, bounds)" ) );
         m_pShowInternal->setCheckable( true );
         m_pShowInternal->setChecked( true );
         pMenu->addSeparator();
@@ -997,6 +1222,8 @@ public:
         EditorSettings_RemoveListener( &m_pWorkspace->pGui->settings, &map_properties_t::OnSettingsChanged, this );
         MapWorkspace_RemoveListener( m_pWorkspace, &map_properties_t::OnChanged, this );
         m_pTree->clear();
+        KeyValue_DestroyDocument( m_pMapTree );
+        KeyValue_DestroyDocument( m_pMapSelection );
         KeyValue_DestroyDocument( m_pGeometrySnapshot );
     }
 
@@ -1018,10 +1245,15 @@ private:
         const auto *row = m_pTree->currentItem();
         const bool hasKey = row != nullptr && row->data( 0, kEntityKeyRole ).isValid();
         const bool custom = hasKey && !row->data( 0, kEntityIdentityRole ).toBool();
+        // A key the game profile defines keeps its name; removing it returns
+        // the entity to the class default, so it needs a written value.
+        const bool profile = custom && row->data( 0, kEntityProfileRole ).toBool();
         m_pKeyAdd->setEnabled( canEdit );
         m_pKeyEdit->setEnabled( canEdit && hasKey && row->data( 0, kEntityEditableRole ).toBool() );
-        m_pKeyRename->setEnabled( canEdit && custom );
-        m_pKeyRemove->setEnabled( canEdit && custom );
+        m_pKeyRename->setEnabled( canEdit && custom && !profile );
+        m_pKeyRemove->setEnabled( canEdit && custom && ( !profile || row->data( 0, kEntityPresentRole ).toBool() ) );
+        m_pKeyRemove->setToolTip( profile ? QStringLiteral( "Remove the written value: the entity uses the class default again (Delete). Undo restores it." ) :
+                                            QStringLiteral( "Remove this custom key from every target (Delete). Undo restores it." ) );
         m_pEntityTools->setVisible( !m_entityOwners.empty() );
     }
 
@@ -1067,12 +1299,7 @@ private:
         for ( const auto id : m_entityOwners ) { ids.append( QString::number( id ) ); }
         auto *group = Group( QStringLiteral( "Entity keys" ), QStringLiteral( "Authored data for %1 owning entities (#%2). Selecting tied geometry targets its entity owner. Class and name are canonical identity fields. Custom keys retain their CYKV types. Double-click to edit." )
             .arg( m_entityOwners.size() ).arg( ids.join( QStringLiteral( ", #" ) ) ) );
-        struct row_state_t {
-            const key_value_t *first{};
-            QString text{};
-            usize present{};
-            bool mixed{}, canEdit{ true };
-        };
+        using row_state_t = entity_row_state_t;
         QMap<QString, row_state_t> identityRows, customRows;
         identityRows.insert( QStringLiteral( "class" ), {} );
         identityRows.insert( QStringLiteral( "name" ), {} );
@@ -1099,7 +1326,7 @@ private:
         const QString className = !classRow.mixed ? OutlinerText( classRow.first ) : QString();
         const char *entityIcon = OutlinerIcon( map_wire_kind_t::ENTITY, className );
         DecorateProperty( group, m_pWorkspace->pGui->style, map_property_row_kind_t::GROUP, entityIcon );
-        const auto addRow = [&]( const QString &key, bool identity, const row_state_t &state ) {
+        const auto addRow = [&]( const QString &key, bool identity, const row_state_t &state ) -> QTreeWidgetItem * {
             const QString value = state.mixed ? QStringLiteral( "Multiple values" ) : state.text;
             auto *row = Property( group, key, value );
             const auto type = state.first != nullptr ? KeyValue_Type( state.first ) : key_value_type_t::STRING;
@@ -1117,10 +1344,189 @@ private:
             }
             if ( state.mixed ) { tip += QStringLiteral( "\nMultiple values or types. Applying a value replaces it on every target." ); }
             if ( !state.canEdit ) { tip += QStringLiteral( "\nThis value exceeds the text editor limits or contains binary data; it remains preserved." ); }
+            tip += GameHelp( className, key, identity );
             row->setToolTip( 0, tip ); row->setToolTip( 1, tip );
+            return row;
         };
-        for ( auto it = identityRows.cbegin(); it != identityRows.cend(); ++it ) { addRow( it.key(), true, it.value() ); }
+        const bool hasProfile = MapGame_Profile( m_pWorkspace ) != nullptr;
+        for ( auto it = identityRows.cbegin(); it != identityRows.cend(); ++it ) {
+            QTreeWidgetItem *row = addRow( it.key(), true, it.value() );
+            // With a game profile the class is picked from its classes, and
+            // the name typed in place.
+            if ( hasProfile && it.value().canEdit ) {
+                if ( it.key() == QLatin1StringView( "class" ) ) { AttachClassEditor( row, className, it.value().mixed ); }
+                else if ( it.key() == QLatin1StringView( "name" ) ) { AttachNameEditor( row, it.value().mixed ); }
+            }
+        }
+        const QByteArray classUtf8 = className.toUtf8();
+        if ( const map_game_class_t *pClass = className.isEmpty() ? nullptr : MapGame_Class( m_pWorkspace, { classUtf8.constData(), static_cast<usize>( classUtf8.size() ) } ) ) {
+            AddProfileRows( group, *pClass, className, customRows );
+        }
         for ( auto it = customRows.cbegin(); it != customRows.cend(); ++it ) { addRow( it.key(), false, it.value() ); }
+        FitKeyColumn( group );
+    }
+
+    // Widens the Property column so the entity's labels read in full (never
+    // past half the panel, and never narrower than the user left it).
+    void FitKeyColumn( QTreeWidgetItem *pGroup )
+    {
+        int needed = 0;
+        const std::function<void( QTreeWidgetItem *, int )> measure = [&]( QTreeWidgetItem *pItem, int depth ) {
+            for ( int i = 0; i < pItem->childCount(); ++i ) {
+                QTreeWidgetItem *pChild = pItem->child( i );
+                if ( !pChild->isFirstColumnSpanned() ) {
+                    // Default rows are italic, and wider for it.
+                    const QFontMetrics metrics( pChild->font( 0 ) );
+                    needed = std::max( needed, m_pTree->indentation() * ( depth + 1 ) + m_pTree->iconSize().width() + 40 + metrics.horizontalAdvance( pChild->text( 0 ) ) );
+                }
+                measure( pChild, depth + 1 );
+            }
+        };
+        measure( pGroup, 1 );
+        const int limit = std::max( 160, m_pTree->viewport()->width() / 2 );
+        if ( needed > m_pTree->columnWidth( 0 ) ) { m_pTree->setColumnWidth( 0, std::min( needed, limit ) ); }
+    }
+
+    void AttachNameEditor( QTreeWidgetItem *pRow, bool mixed )
+    {
+        auto *pEdit = new QLineEdit();
+        pEdit->setObjectName( QStringLiteral( "MapPropertyName" ) );
+        pEdit->setFrame( false );
+        const QString start = mixed ? QString() : pRow->text( 1 );
+        pEdit->setText( start );
+        pEdit->setPlaceholderText( mixed ? QStringLiteral( "Multiple values" ) : QStringLiteral( "No name" ) );
+        pEdit->setToolTip( pRow->toolTip( 0 ) );
+        QObject::connect( pEdit, &QLineEdit::editingFinished, pEdit, [this, pEdit, start, owners = m_entityOwners]() {
+            const QString name = pEdit->text().trimmed();
+            if ( m_bRebuilding || name == start || ( name.isEmpty() && start.isEmpty() ) ) { return; }
+            QTimer::singleShot( 0, this, [this, owners, name]() {
+                if ( owners != m_entityOwners ) { return; }
+                const QByteArray utf8 = name.toUtf8();
+                if ( !MapWorkspace_SetEntityIdentityField( m_pWorkspace, StringView_FromCString( "name" ), { utf8.constData(), static_cast<usize>( utf8.size() ) } ) ) {
+                    m_pHelp->setText( QStringLiteral( "Could not rename to %1. The map is unchanged." ).arg( name.toHtmlEscaped() ) );
+                }
+            } );
+        } );
+        pRow->setData( 1, kValueTextRole, pRow->text( 1 ) );
+        pRow->setText( 1, QString() );
+        m_pTree->setItemWidget( pRow, 1, pEdit );
+    }
+
+    // A commit from an editor, applied on the next event-loop turn: applying
+    // it rebuilds the panel, which deletes the editor that is still inside
+    // its signal. Dropped when the selection's entities changed meanwhile,
+    // and while the panel is rebuilding (an editor losing focus as the rows
+    // are cleared must not write into the document that replaced its own).
+    map_property_commit_fn Commit( const QString &key )
+    {
+        return [this, key, owners = m_entityOwners]( const map_property_value_t &value ) {
+            if ( m_bRebuilding ) { return; }
+            QTimer::singleShot( 0, this, [this, key, owners, value]() {
+                if ( owners != m_entityOwners || value == nullptr ) { return; }
+                const QByteArray utf8 = key.toUtf8();
+                if ( !MapWorkspace_SetEntityProperty( m_pWorkspace, { utf8.constData(), static_cast<usize>( utf8.size() ) }, KeyValue_Root( value.get() ) ) ) {
+                    m_pHelp->setText( QStringLiteral( "Could not set %1. The map is unchanged." ).arg( key.toHtmlEscaped() ) );
+                }
+            } );
+        };
+    }
+
+    void AttachClassEditor( QTreeWidgetItem *pRow, const QString &className, bool mixed )
+    {
+        QWidget *pEditor = MapClassEditor_Create( nullptr, m_pWorkspace, className, mixed, [this, owners = m_entityOwners]( const QString &name ) {
+            if ( m_bRebuilding ) { return; }
+            QTimer::singleShot( 0, this, [this, owners, name]() {
+                if ( owners != m_entityOwners ) { return; }
+                const QByteArray utf8 = name.toUtf8();
+                if ( !MapWorkspace_SetEntityIdentityField( m_pWorkspace, StringView_FromCString( "class" ), { utf8.constData(), static_cast<usize>( utf8.size() ) } ) ) {
+                    m_pHelp->setText( QStringLiteral( "Could not change the class to %1. The map is unchanged." ).arg( name.toHtmlEscaped() ) );
+                }
+            } );
+        } );
+        pRow->setData( 1, kValueTextRole, pRow->text( 1 ) );
+        pRow->setText( 1, QString() );
+        m_pTree->setItemWidget( pRow, 1, pEditor );
+    }
+
+    // Every property the game profile gives the class, in its order and
+    // groups, each with the editor for its type (Hammer's SmartEdit). A
+    // value no selected entity has written shows the class default, greyed;
+    // setting it writes it. Keys the profile does not define stay in
+    // customRows and are listed after, as written.
+    void AddProfileRows( QTreeWidgetItem *pGroup, const map_game_class_t &cls, const QString &className, QMap<QString, entity_row_state_t> &customRows )
+    {
+        const auto &style = m_pWorkspace->pGui->style;
+        QMap<QString, QTreeWidgetItem *> sections;
+        // Ungrouped properties first, then each section in the order its
+        // first property comes (Hammer 5 lists the class's own keys first).
+        std::vector<const map_game_property_t *> order;
+        for ( const auto &property : cls.properties ) { if ( property.group.empty() ) { order.push_back( &property ); } }
+        for ( const auto &property : cls.properties ) { if ( !property.group.empty() ) { order.push_back( &property ); } }
+        for ( const map_game_property_t *pProperty : order ) {
+            const map_game_property_t &property = *pProperty;
+            const QString key = QString::fromStdString( property.key );
+            entity_row_state_t state{};
+            if ( const auto it = customRows.find( key ); it != customRows.end() ) { state = it.value(); customRows.erase( it ); }
+            if ( property.bHidden ) { continue; }
+            QTreeWidgetItem *pParent = pGroup;
+            if ( !property.group.empty() ) {
+                const QString name = QString::fromStdString( property.group );
+                QTreeWidgetItem *&pSection = sections[name];
+                if ( pSection == nullptr ) {
+                    pSection = new QTreeWidgetItem( pGroup, { name } );
+                    DecorateProperty( pSection, style, map_property_row_kind_t::GROUP, "asset-folder" );
+                    pSection->setFirstColumnSpanned( true );
+                    pSection->setExpanded( true );
+                    pSection->setToolTip( 0, QStringLiteral( "%1 properties of %2 (game profile)" ).arg( name, className ) );
+                }
+                pParent = pSection;
+            }
+            const key_value_t *pShown = state.first != nullptr ? state.first : property.pDefault;
+            const QString valueText = state.mixed ? QStringLiteral( "Multiple values" ) : pShown != nullptr ? MapEntityProperty_ValueText( pShown, nullptr ) : QString();
+            auto *pRow = new QTreeWidgetItem( pParent, { property.label.empty() ? key : QString::fromStdString( property.label ) } );
+            DecorateProperty( pRow, style, map_property_row_kind_t::VALUE, PropertyIcon( key, pShown != nullptr ? KeyValue_Type( pShown ) : key_value_type_t::STRING ) );
+            pRow->setData( 0, kEntityKeyRole, key );
+            pRow->setData( 0, kEntityIdentityRole, false );
+            pRow->setData( 0, kEntityEditableRole, state.first == nullptr || state.canEdit );
+            pRow->setData( 0, kEntityProfileRole, true );
+            pRow->setData( 0, kEntityPresentRole, state.present != 0u );
+            pRow->setData( 1, kValueTextRole, valueText );
+            QString tip = QStringLiteral( "Key: %1" ).arg( key );
+            if ( state.present == 0u ) {
+                tip += QStringLiteral( "\nNot written: the entity uses the class default. Setting a value writes it." );
+                QFont font = pRow->font( 0 );
+                font.setItalic( true );
+                pRow->setFont( 0, font );
+                pRow->setForeground( 0, gui::EditorStyle_TokenColor( style, "ui.text.disabled" ) );
+            } else if ( state.present < m_entityOwners.size() ) {
+                tip += QStringLiteral( "\nWritten on %1 of %2 entities; the others use the default. Setting a value writes it on all." ).arg( state.present ).arg( m_entityOwners.size() );
+            }
+            if ( state.mixed ) { tip += QStringLiteral( "\nThe selected entities differ. Setting a value replaces it on every one." ); }
+            std::string why;
+            const bool empty = pShown == nullptr || valueText.isEmpty();
+            if ( state.first != nullptr && !state.mixed && !MapGame_CheckValue( property, state.first, &why ) ) {
+                tip += QStringLiteral( "\nProblem: %1" ).arg( QString::fromStdString( why ) );
+                pRow->setForeground( 0, gui::EditorStyle_TokenColor( style, "ui.status.warning.text" ) );
+            } else if ( property.bRequired && empty ) {
+                tip += QStringLiteral( "\nRequired: the map is flagged until this has a value." );
+                pRow->setForeground( 0, gui::EditorStyle_TokenColor( style, "ui.status.warning.text" ) );
+            }
+            tip += GameHelp( className, key, false );
+            pRow->setToolTip( 0, tip );
+            pRow->setToolTip( 1, tip );
+            map_property_editor_args_t args{};
+            args.pWorkspace = m_pWorkspace;
+            args.pProperty = &property;
+            args.pValue = state.first;
+            args.bMixed = state.mixed;
+            args.commit = Commit( key );
+            if ( QWidget *pEditor = ( state.first == nullptr || state.canEdit ) ? MapPropertyEditor_Create( nullptr, args ) : nullptr ) {
+                pEditor->setToolTip( tip );
+                m_pTree->setItemWidget( pRow, 1, pEditor );
+            } else {
+                pRow->setText( 1, valueText ); // Lists of IDs, oversized values: the value dialog (double-click).
+            }
+        }
     }
 
     static void OnChanged( void *pContext, u32 changes ) noexcept
@@ -1156,7 +1562,7 @@ private:
 
     static void AppendText( const QTreeWidgetItem *pItem, int depth, QString &text )
     {
-        text += QString( depth * 2, QLatin1Char( ' ' ) ) + pItem->text( 0 ) + QStringLiteral( " = " ) + pItem->text( 1 ) + QLatin1Char( '\n' );
+        text += QString( depth * 2, QLatin1Char( ' ' ) ) + pItem->text( 0 ) + QStringLiteral( " = " ) + ValueText( pItem ) + QLatin1Char( '\n' );
         for ( int i = 0; i < pItem->childCount(); ++i ) { AppendText( pItem->child( i ), depth + 1, text ); }
     }
 
@@ -1175,7 +1581,8 @@ private:
     static bool FilterItem( QTreeWidgetItem *pItem, const QString &text )
     {
         const bool bSelf = text.isEmpty() || pItem->text( 0 ).contains( text, Qt::CaseInsensitive ) ||
-                           pItem->text( 1 ).contains( text, Qt::CaseInsensitive );
+                           ValueText( pItem ).contains( text, Qt::CaseInsensitive ) ||
+                           pItem->data( 0, kEntityKeyRole ).toString().contains( text, Qt::CaseInsensitive );
         bool bAnyChild = false;
         for ( int i = 0; i < pItem->childCount(); ++i ) { bAnyChild = FilterItem( pItem->child( i ), bSelf ? QString() : text ) || bAnyChild; }
         pItem->setHidden( !( bSelf || bAnyChild ) );
@@ -1188,8 +1595,39 @@ private:
         for ( int i = 0; i < m_pTree->topLevelItemCount(); ++i ) { FilterItem( m_pTree->topLevelItem( i ), text ); }
     }
 
-    // The member's full path and value; class and property descriptions
-    // come from the game definition once .cygame is decoded.
+    // What the game profile says about the class (on its class row) or the
+    // property: label, type, unit, choices, default and description.
+    QString GameHelp( const QString &className, const QString &key, bool identity ) const
+    {
+        const QByteArray name = className.toUtf8();
+        const map_game_class_t *pClass = name.isEmpty() ? nullptr : MapGame_Class( m_pWorkspace, { name.constData(), static_cast<usize>( name.size() ) } );
+        if ( pClass == nullptr ) { return QString(); }
+        if ( identity ) {
+            if ( key != QLatin1StringView( "class" ) ) { return QString(); }
+            QString help = QStringLiteral( "\n\n%1" ).arg( QString::fromStdString( pClass->label.empty() ? pClass->name : pClass->label ) );
+            if ( !pClass->description.empty() ) { help += QStringLiteral( ": " ) + QString::fromStdString( pClass->description ); }
+            return help;
+        }
+        const QByteArray utf8 = key.toUtf8();
+        const map_game_property_t *pProperty = MapGame_FindProperty( *pClass, { utf8.constData(), static_cast<usize>( utf8.size() ) } );
+        if ( pProperty == nullptr ) { return QStringLiteral( "\n\nNot a property of %1 in the game profile; kept as written." ).arg( className ); }
+        QString help = QStringLiteral( "\n\n%1 (%2%3)" ).arg( QString::fromStdString( pProperty->label.empty() ? pProperty->key : pProperty->label ),
+            QString::fromLatin1( MapGame_TypeName( pProperty->type ) ), pProperty->unit.empty() ? QString() : QStringLiteral( ", " ) + QString::fromStdString( pProperty->unit ) );
+        if ( !pProperty->description.empty() ) { help += QStringLiteral( ": " ) + QString::fromStdString( pProperty->description ); }
+        if ( !pProperty->choices.empty() ) {
+            QStringList choices;
+            for ( const auto &choice : pProperty->choices ) { choices.append( QString::fromStdString( choice ) ); }
+            help += QStringLiteral( "\nChoices: " ) + choices.join( QStringLiteral( ", " ) );
+        }
+        if ( pProperty->bMin || pProperty->bMax ) {
+            help += QStringLiteral( "\nRange: %1 to %2" ).arg( pProperty->bMin ? QString::number( pProperty->min ) : QStringLiteral( "-" ), pProperty->bMax ? QString::number( pProperty->max ) : QStringLiteral( "-" ) );
+        }
+        if ( pProperty->pDefault != nullptr ) { help += QStringLiteral( "\nDefault: " ) + MapEntityProperty_ValueText( pProperty->pDefault, nullptr ); }
+        if ( pProperty->bRequired ) { help += QStringLiteral( "\nRequired." ); }
+        return help;
+    }
+
+    // The member's full path and value, with what the game profile says.
     void ShowHelp( const QTreeWidgetItem *pItem )
     {
         if ( pItem == nullptr ) {
@@ -1198,7 +1636,7 @@ private:
         }
         QStringList path;
         for ( const QTreeWidgetItem *pAt = pItem; pAt != nullptr; pAt = pAt->parent() ) { path.prepend( pAt->text( 0 ) ); }
-        m_pHelp->setText( QStringLiteral( "<b>%1</b><br>%2" ).arg( path.join( QLatin1Char( '.' ) ).toHtmlEscaped(), ( pItem->text( 1 ) + ( pItem->toolTip( 0 ).isEmpty() ? QString() : QStringLiteral( "\n\n" ) + pItem->toolTip( 0 ) ) ).toHtmlEscaped().replace( QLatin1Char( '\n' ), QStringLiteral( "<br>" ) ) ) );
+        m_pHelp->setText( QStringLiteral( "<b>%1</b><br>%2" ).arg( path.join( QLatin1Char( '.' ) ).toHtmlEscaped(), ( ValueText( pItem ) + ( pItem->toolTip( 0 ).isEmpty() ? QString() : QStringLiteral( "\n\n" ) + pItem->toolTip( 0 ) ) ).toHtmlEscaped().replace( QLatin1Char( '\n' ), QStringLiteral( "<br>" ) ) ) );
     }
 
     static QString PropertyPath( const QTreeWidgetItem *pItem )
@@ -1237,12 +1675,32 @@ private:
                 if ( ( *it )->isExpanded() ) { expanded.insert( PropertyPath( *it ) ); }
             }
         }
+        // The editor with focus is rebuilt too (a commit from the field the
+        // user just left rebuilds while they are in the next one): put focus
+        // back into the same field of the new row.
+        QString focusPath;
+        int focusIndex = -1;
+        if ( QWidget *pFocus = QApplication::focusWidget(); pFocus != nullptr && m_pTree->isAncestorOf( pFocus ) ) {
+            for ( QTreeWidgetItemIterator it( m_pTree ); *it != nullptr; ++it ) {
+                QWidget *pEditor = m_pTree->itemWidget( *it, 1 );
+                if ( pEditor == nullptr || ( pEditor != pFocus && !pEditor->isAncestorOf( pFocus ) ) ) { continue; }
+                focusPath = PropertyPath( *it );
+                focusIndex = static_cast<int>( FocusTargets( pEditor ).indexOf( pFocus ) );
+                break;
+            }
+        }
         const QSignalBlocker blocker( m_pTree );
+        m_bRebuilding = true;
         m_pTree->clear();
         m_pGeometryData = nullptr;
         KeyValue_DestroyDocument( m_pGeometrySnapshot );
         m_pGeometrySnapshot = nullptr;
+        KeyValue_DestroyDocument( m_pMapTree );
+        m_pMapTree = nullptr;
+        KeyValue_DestroyDocument( m_pMapSelection );
+        m_pMapSelection = nullptr;
         RebuildRows();
+        m_bRebuilding = false;
         if ( restore ) {
             for ( int i = 0; i < m_pTree->topLevelItemCount(); ++i ) { RestoreExpansion( m_pTree->topLevelItem( i ), expanded ); }
         }
@@ -1254,7 +1712,28 @@ private:
                 if ( PropertyPath( *it ) == currentPath ) { m_pTree->setCurrentItem( *it ); ShowHelp( *it ); break; }
             }
         }
+        if ( restore && !focusPath.isEmpty() ) {
+            for ( QTreeWidgetItemIterator it( m_pTree ); *it != nullptr; ++it ) {
+                if ( PropertyPath( *it ) != focusPath ) { continue; }
+                if ( QWidget *pEditor = m_pTree->itemWidget( *it, 1 ) ) {
+                    const QList<QWidget *> targets = FocusTargets( pEditor );
+                    if ( focusIndex >= 0 && focusIndex < targets.size() ) { targets[focusIndex]->setFocus( Qt::OtherFocusReason ); }
+                }
+                break;
+            }
+        }
         RefreshKeyActions();
+    }
+
+    // The fields of an editor that take focus, in order.
+    static QList<QWidget *> FocusTargets( QWidget *pEditor )
+    {
+        QList<QWidget *> targets;
+        if ( pEditor->focusPolicy() != Qt::NoFocus ) { targets.append( pEditor ); }
+        for ( QWidget *pChild : pEditor->findChildren<QWidget *>() ) {
+            if ( pChild->focusPolicy() != Qt::NoFocus && pChild->isVisibleTo( pEditor ) ) { targets.append( pChild ); }
+        }
+        return targets;
     }
 
     static QString BoundsText( const map_bounds_t &bounds )
@@ -1278,7 +1757,7 @@ private:
         // Read the same cached geometry as the views. Entity boxes describe
         // editor markers, not physical geometry, so they must not inflate
         // a mixed selection's dimensions.
-        usize counts[5]{};
+        usize counts[6]{};
         usize nUnknown = 0u;
         for ( usize i = 0u; i < nSelected; ++i ) {
             const map_wire_object_t *pObject = MapWireframe_FindObject( workspace.wire, EditorSelection_At( &workspace.selection, i ) );
@@ -1290,10 +1769,10 @@ private:
             ++counts[static_cast<usize>( pObject->kind )];
             if ( pObject->kind != map_wire_kind_t::ENTITY ) { MapBounds_AddBounds( bounds, pObject->bounds ); }
         }
-        constexpr const char *singular[]{ "brush", "mesh", "patch", "terrain", "entity" };
-        constexpr const char *plural[]{ "brushes", "meshes", "patches", "terrains", "entities" };
+        constexpr const char *singular[]{ "brush", "mesh", "patch", "terrain", "entity", "prefab instance" };
+        constexpr const char *plural[]{ "brushes", "meshes", "patches", "terrains", "entities", "prefab instances" };
         QStringList parts;
-        for ( usize i = 0u; i < 5u; ++i ) {
+        for ( usize i = 0u; i < 6u; ++i ) {
             if ( counts[i] != 0u ) {
                 parts.append( QStringLiteral( "%1 %2" ).arg( counts[i] ).arg( QString::fromLatin1( counts[i] == 1u ? singular[i] : plural[i] ) ) );
             }
@@ -1374,6 +1853,11 @@ private:
     {
         if ( pItem->data( 0, kPropertyLoadedRole ).toBool() ) { return; }
         const QSignalBlocker blocker( m_pTree );
+        if ( const int mapFile = pItem->data( 0, kPropertyMapFileRole ).toInt(); mapFile != 0 ) {
+            pItem->setData( 0, kPropertyLoadedRole, true );
+            PopulateMapFile( pItem, mapFile == 2 );
+            return;
+        }
         if ( pItem->data( 0, kPropertyGeometryRole ).toBool() ) {
             pItem->setData( 0, kPropertyLoadedRole, true );
             auto &map = *m_pWorkspace->pDocument;
@@ -1405,6 +1889,102 @@ private:
             pItem->setData( 0, kPropertyLoadedRole, true );
             AddMembers( pItem, m_pTree, m_pWorkspace->pGui->style, pNode, 1, pItem->data( 0, kPropertyBeginRole ).toULongLong(), pItem->data( 0, kPropertyEndRole ).toULongLong() );
         }
+    }
+
+    // The map file view: the tree a save would write, so what the panel
+    // shows is exactly what the file holds - map members, the summary, and
+    // each layer with its sections and objects. With objects selected it
+    // shows only those, still inside their layers and sections; an entity
+    // is shown whole when it or geometry it owns is selected, because the
+    // file holds owned geometry inside its entity.
+    void AddMapFile( bool_t bSelected )
+    {
+        const map_workspace_t &workspace = *m_pWorkspace;
+        auto *pGroup = Group( bSelected ? QStringLiteral( "In the map file" ) : QStringLiteral( "Map file" ),
+            bSelected ? QStringLiteral( "The selected objects as the map file holds them: inside their layers and sections, with every authored value, unsaved changes included." )
+                      : QStringLiteral( "The whole map as its file holds it: identity and settings, the summary, then each layer with its sections and objects, unsaved changes included." ) );
+        pGroup->setData( 0, kPropertyMapFileRole, bSelected ? 2 : 1 );
+        pGroup->setChildIndicatorPolicy( QTreeWidgetItem::ShowIndicator );
+        // Building costs the whole map whatever is selected.
+        if ( workspace.wire.objects.nCount + workspace.wire.entities.nCount <= kMapFileAutoOpen ) {
+            Populate( pGroup );
+            pGroup->setExpanded( true );
+        } else {
+            pGroup->setExpanded( false );
+            pGroup->setToolTip( 0, pGroup->toolTip( 0 ) + QStringLiteral( " Large maps build this view when it is expanded." ) );
+        }
+    }
+
+    void PopulateMapFile( QTreeWidgetItem *pItem, bool_t bSelected )
+    {
+        if ( MapDocument_BuildTree( m_pWorkspace->pDocument, &m_pMapTree ) != map_status_t::OK || m_pMapTree == nullptr ) {
+            Property( pItem, QStringLiteral( "Unavailable" ), QStringLiteral( "The map could not be described; the console says why." ) );
+            return;
+        }
+        const key_value_t *pShown = KeyValue_Root( m_pMapTree );
+        if ( bSelected ) {
+            m_pMapSelection = SelectedObjects( pShown );
+            if ( m_pMapSelection == nullptr ) {
+                Property( pItem, QStringLiteral( "Unavailable" ), QStringLiteral( "Out of memory." ) );
+                return;
+            }
+            pShown = KeyValue_Root( m_pMapSelection );
+        }
+        AddMembers( pItem, m_pTree, m_pWorkspace->pGui->style, pShown, 0 );
+    }
+
+    // The layers of a built map tree reduced to the selected objects.
+    key_value_document_t *SelectedObjects( const key_value_t *pTreeRoot ) const
+    {
+        QSet<quint64> ids;
+        for ( usize i = 0u; i < EditorSelection_Count( &m_pWorkspace->selection ); ++i ) { ids.insert( EditorSelection_At( &m_pWorkspace->selection, i ) ); }
+        key_value_document_desc_t desc{};
+        desc.pAllocator = m_pWorkspace->pDocument->pAllocator;
+        key_value_document_t *pOut = KeyValue_CreateDocument( desc );
+        key_value_t *pLayersOut = nullptr;
+        bool bOk = pOut != nullptr && KeyValue_SetRootType( pOut, key_value_type_t::OBJECT ) &&
+                   ( pLayersOut = KeyValue_ObjectInsert( pOut, KeyValue_Root( pOut ), StringView_FromCString( "layers" ), key_value_type_t::ARRAY ) ) != nullptr;
+        const auto selected = [&ids]( const key_value_t *pObject ) {
+            if ( ids.contains( OutlinerId( OutlinerMember( pObject, "id" ) ) ) ) { return true; }
+            for ( const char *pOwned : { "brushes", "meshes", "patches" } ) {
+                const key_value_t *pNested = OutlinerMember( pObject, pOwned );
+                for ( usize i = 0u; i < KeyValue_ChildCount( pNested ); ++i ) {
+                    if ( ids.contains( OutlinerId( OutlinerMember( KeyValue_ChildAt( pNested, i ), "id" ) ) ) ) { return true; }
+                }
+            }
+            return false;
+        };
+        const key_value_t *pLayers = OutlinerMember( pTreeRoot, "layers" );
+        for ( usize i = 0u; bOk && i < KeyValue_ChildCount( pLayers ); ++i ) {
+            const key_value_t *pLayer = KeyValue_ChildAt( pLayers, i );
+            key_value_t *pLayerOut = nullptr;
+            for ( usize k = 0u; bOk && k < KeyValue_ChildCount( pLayer ); ++k ) {
+                const key_value_t *pSection = KeyValue_ChildAt( pLayer, k );
+                if ( KeyValue_Type( pSection ) != key_value_type_t::ARRAY ) { continue; }
+                key_value_t *pSectionOut = nullptr;
+                for ( usize j = 0u; bOk && j < KeyValue_ChildCount( pSection ); ++j ) {
+                    const key_value_t *pObject = KeyValue_ChildAt( pSection, j );
+                    if ( KeyValue_Type( pObject ) != key_value_type_t::OBJECT || !selected( pObject ) ) { continue; }
+                    if ( pLayerOut == nullptr ) {
+                        pLayerOut = KeyValue_ArrayAppend( pOut, pLayersOut, key_value_type_t::OBJECT );
+                        bOk = pLayerOut != nullptr;
+                        for ( const char *pHeader : { "id", "name" } ) {
+                            if ( const key_value_t *pValue = OutlinerMember( pLayer, pHeader ); bOk && pValue != nullptr ) { bOk = KeyValue_CloneInto( pOut, pLayerOut, pValue ) != nullptr; }
+                        }
+                    }
+                    if ( bOk && pSectionOut == nullptr ) {
+                        pSectionOut = KeyValue_ObjectInsert( pOut, pLayerOut, KeyValue_Name( pSection ), key_value_type_t::ARRAY );
+                        bOk = pSectionOut != nullptr;
+                    }
+                    bOk = bOk && KeyValue_CloneInto( pOut, pSectionOut, pObject ) != nullptr;
+                }
+            }
+        }
+        if ( !bOk ) {
+            KeyValue_DestroyDocument( pOut );
+            return nullptr;
+        }
+        return pOut;
     }
 
     bool AddGeometry( u64 objectId )
@@ -1518,10 +2098,10 @@ private:
         const map_bounds_t selectionBounds = RefreshSelectionSummary();
         AddEntityKeys();
         if ( nSelected == 0u ) {
-            // Nothing selected: the map's own properties, as Hammer shows
-            // worldspawn.
+            // Nothing selected: the map itself, as Hammer shows worldspawn -
+            // here the whole file, nested as it is written.
             m_pTitle->setText( QStringLiteral( "Map: %1" ).arg( MapWorkspace_DisplayName( &workspace ) ) );
-            AddMembers( nullptr, m_pTree, m_pWorkspace->pGui->style, SettingsDocument_Root( &workspace.pDocument->root ), 0 );
+            AddMapFile( CY_FALSE );
             return;
         }
         if ( nSelected > 1u ) {
@@ -1542,14 +2122,15 @@ private:
             Property( pSelection, QStringLiteral( "Object IDs" ), identities.join( QStringLiteral( ", " ) ) );
             Property( pSelection, QStringLiteral( "Layer" ), layers.size() == 1 ? *layers.cbegin() : QStringLiteral( "Mixed (%1 layers)" ).arg( layers.size() ) );
             if ( selectionBounds.bHas ) { AddRow( QStringLiteral( "(bounds)" ), BoundsText( selectionBounds ) ); }
+            AddMapFile( CY_TRUE );
             return;
         }
         const u64 id = EditorSelection_At( &workspace.selection, 0u );
         const map_wire_object_t *pObject = MapWireframe_FindObject( workspace.wire, id );
         const map_wire_entity_t *pEntity = MapWireframe_FindEntity( workspace.wire, id );
-        map_chunk_t *pChunk = nullptr;
-        const key_value_t *pRecord = pEntity != nullptr ? MapEntityEdit_FindEntity( workspace.pDocument, id, &pChunk ) :
-            MapDocument_FindObject( workspace.pDocument, id, &pChunk );
+        map_layer_store_t *pStore = nullptr;
+        const key_value_t *pRecord = pEntity != nullptr ? MapEntityEdit_FindEntity( workspace.pDocument, id, &pStore ) :
+            MapDocument_FindObject( workspace.pDocument, id, &pStore );
         const QString className = OutlinerText( OutlinerMember( pRecord, "class" ) );
         const QString kind = pEntity != nullptr ? QStringLiteral( "Entity" ) : QString::fromUtf8( pObject != nullptr ? KindName( pObject->kind ) : "Object" );
         m_pTitle->setText( QStringLiteral( "%1  #%2" ).arg( className.isEmpty() ? kind : className ).arg( id ) );
@@ -1569,7 +2150,7 @@ private:
         const u32 layer = pObject != nullptr ? pObject->iLayer : pEntity != nullptr ? pEntity->iLayer : 0u;
         const QString layerName = pObject != nullptr || pEntity != nullptr
             ? layer < workspace.pDocument->layers.nCount ? QString::fromUtf8( workspace.pDocument->layers.pData[layer].id ) : QStringLiteral( "Unresolved layer index %1" ).arg( layer )
-            : pChunk != nullptr ? QString::fromUtf8( pChunk->layer ) : QStringLiteral( "Unassigned" );
+            : pStore != nullptr ? QString::fromUtf8( pStore->layer ) : QStringLiteral( "Unassigned" );
         Property( pPlacement, QStringLiteral( "Layer" ), layerName );
         if ( pObject != nullptr && pObject->kind != map_wire_kind_t::ENTITY ) {
             Property( pPlacement, QStringLiteral( "Owner entity" ), pObject->owner != 0u ? QString::number( pObject->owner ) : QStringLiteral( "World" ), QStringLiteral( "The entity that owns this geometry; distinct from an entity's attachment parent." ) );
@@ -1581,17 +2162,22 @@ private:
             Property( pPlacement, QStringLiteral( "Owned geometry" ), QString::number( pEntity->nOwned ) );
         }
         if ( m_pShowInternal->isChecked() ) {
-            if ( pChunk != nullptr ) {
-                char path[MAP_CHUNK_PATH_CAPACITY]{};
-                if ( MapDocument_ChunkPath( *pChunk, path ) != 0u ) {
-                    Property( pPlacement, QStringLiteral( "(chunk)" ), QString::fromUtf8( path ), QStringLiteral( "Chunk containing retained source metadata. Geometry moved across cells can be reassigned when saved." ) );
-                }
-                if ( pChunk->sourcePath[0] != '\0' ) { Property( pPlacement, QStringLiteral( "Source file" ), QString::fromUtf8( pChunk->sourcePath ) ); }
-            } else { Property( pPlacement, QStringLiteral( "(chunk)" ), QStringLiteral( "Assigned when saved" ) ); }
+            Property( pPlacement, QStringLiteral( "(record)" ),
+                pStore != nullptr ? QStringLiteral( "In layer %1" ).arg( QString::fromUtf8( pStore->layer ) ) : QStringLiteral( "Written on the next save" ),
+                QStringLiteral( "Where the object's authored members (name, comment, visgroups, properties) are kept. Geometry a tool just made gets its record when the map is saved." ) );
             if ( pObject != nullptr && pObject->bounds.bHas && pObject->kind != map_wire_kind_t::ENTITY ) {
                 Property( pPlacement, QStringLiteral( "(bounds)" ), BoundsText( pObject->bounds ), QStringLiteral( "Current world-space geometry bounds. Entity helper boxes are excluded." ) );
                 Property( pPlacement, QStringLiteral( "Bounds center" ), VectorText( MapBounds_Center( pObject->bounds ) ) );
             }
+        }
+        map_instance_info_t instance{};
+        if ( pObject != nullptr && pObject->kind == map_wire_kind_t::PREFAB && MapInstances_Info( m_pWorkspace, id, &instance ) ) {
+            auto *pInstance = Group( QStringLiteral( "Prefab instance" ), QStringLiteral( "A placed copy of a prefab file: Edit Prefab changes every instance of it, Collapse Instance makes ordinary objects of this one." ) );
+            Property( pInstance, QStringLiteral( "Prefab" ), instance.source );
+            Property( pInstance, QStringLiteral( "State" ), instance.bLoaded ? QStringLiteral( "Shown from the file" ) : instance.problem );
+            Property( pInstance, QStringLiteral( "Origin" ), VectorText( instance.origin ) );
+            Property( pInstance, QStringLiteral( "Angles" ), VectorText( instance.angles ), QStringLiteral( "Pitch, yaw, roll in degrees." ) );
+            Property( pInstance, QStringLiteral( "Scale" ), VectorText( instance.scale ) );
         }
         AddSelectedMeshFace( id );
         const bool bGeometry = AddGeometry( id );
@@ -1613,7 +2199,10 @@ private:
     QWidget *m_pEntityTools{ nullptr };
     QToolButton *m_pKeyAdd{ nullptr }, *m_pKeyEdit{ nullptr }, *m_pKeyRename{ nullptr }, *m_pKeyRemove{ nullptr };
     std::vector<u64> m_entityOwners{};
+    bool m_bRebuilding{ false }; // Rows are being replaced: editors that finish now do not commit.
     key_value_document_t *m_pGeometrySnapshot{ nullptr };
+    key_value_document_t *m_pMapTree{ nullptr };      // The map file view's tree; rebuilt with the rows.
+    key_value_document_t *m_pMapSelection{ nullptr }; // Its selected objects, when objects are selected.
     QTreeWidgetItem *m_pGeometryData{ nullptr };
     u64 m_geometryId{ 0u };
     QString m_selectionKey{ QStringLiteral( "uninitialized" ) };

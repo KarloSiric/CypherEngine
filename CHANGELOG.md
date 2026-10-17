@@ -323,6 +323,52 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Publishes the tested Mason authoring integration and its V11 single-file
+  map foundation: layer/owner/identity retention, component selection and
+  scoped transforms, connected edge continuation with custom pivots/repeat,
+  transaction-safe tool captures, geometry queries and contextual properties.
+  The documented facility fixture migrates with the format. User maps and
+  renderer/compiler changes are excluded from this publication.
+- 3D Select handles interrupted camera-look release, incomplete surface
+  queries, modified clicks at handles, inside/outside and clipped views,
+  warped authored quads and evaluated modifier output without substituting
+  whole-object transforms for component edits. Native regression coverage is
+  widget event dispatch, not a manual OS-pointer/performance benchmark.
+- Inset Face (Width) exposes a separate perpendicular width setting/command
+  for one planar convex authored mesh face, with retained cap selection,
+  Undo/Redo and save metadata. Radial Corner Inset remains available. The
+  new operation refuses brush auto-conversion, multiple faces and collapsing
+  widths; connected-region Inset and a live width drag remain open work.
+- Linked prefab Scale now updates its placed local scale and pivot-relative
+  origin. Rotated-axis factor mapping is checked before every target changes;
+  unrepresentable shear refuses with a specific warning. Exact quarter-turn
+  placement and per-entry roundoff checks prevent amplified near-axis errors.
+  Numeric controls and preview notification use the same eligibility as the
+  gizmo. This checks positive placement transforms, not external asset bounds.
+- Group-member comments survive sorted save output and Hollow replacement.
+  Unchanged members keep their notes; a removed source's notes transfer once
+  to its lowest replacement ID. Membership is prepared before replacement,
+  and failure/retry checks cover every measured helper allocation. A new
+  prefab Save/Open test exposed and helped fix a null root-writer allocator.
+- Curve Hollow Pipe, connected-region Extrude, vertex target acquisition,
+  topology/ownership retention and evaluated OBJ delivery are integrated with
+  their contextual properties and failure feedback. OBJ/MTL remain separate
+  final commits with explicit partial-output feedback; unsupported terrain
+  and unresolved instances are reported rather than silently substituted.
+- Coordinated validation: complete Geometry 1,298 cases / 387,701 assertions;
+  Editor Core 60 / 1,170; framework 151 / 20,916; default Map Core
+  265 / 215,638; Map GUI offscreen 838 / 185,014; focused Cocoa
+  28 / 3,655; full Mason offscreen 71 / 4,394; six application routing
+  cases / 410 also pass on Cocoa. Nine Common contract suites pass. Mason
+  app/standalone strict signatures verify, arm64 UUID
+  64BEFCC2-D72D-44CB-AF65-A65E5240EA37. The default Core target excludes
+  an unpublished private-map generator, and its bounded timeout is 600s
+  after a successful 365s local run. No functional assertion was removed.
+- Remaining audited work includes connected-region Inset/bevel interaction,
+  local/workplane axes, component per-axis Scale, prefab clipboard support
+  and combined transactional brush conversion for legacy command adapters.
+  Some legacy adapters still publish conversion separately and can lose a
+  Redo branch on refusal. No whole-editor or renderer completion is claimed.
 - Publishes Mason's history and geometry prerequisites: explicit redo
   invalidation after an external document change, affine brush texture lock,
   shared planar UV projection and UV transforms used by component tools.

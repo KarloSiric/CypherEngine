@@ -22,6 +22,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -112,28 +113,30 @@ usize CountProblems( const map_document_t &map, map_problem_code_t code )
 
 } // namespace
 
-TEST_CASE( "The chunk folder is the root path without its extension", "[map][files]" )
-{
-    char buffer[64]{};
-    CHECK( MapFiles_ChunkDirectory( "maps/facility.cymap", buffer, sizeof( buffer ) ) == 13u );
-    CHECK( std::string( buffer ) == "maps/facility" );
-    CHECK( MapFiles_ChunkDirectory( "maps/facility.txt", buffer, sizeof( buffer ) ) == 0u );
-    CHECK( MapFiles_ChunkDirectory( ".cymap", buffer, sizeof( buffer ) ) == 0u );
-    CHECK( MapFiles_ChunkDirectory( "maps/.cymap", buffer, sizeof( buffer ) ) == 0u );
-    char tiny[8]{};
-    CHECK( MapFiles_ChunkDirectory( "maps/facility.cymap", tiny, sizeof( tiny ) ) == 0u );
-}
-
-TEST_CASE( "Loading reports a missing root and rejects paths that are not maps", "[map][files]" )
+TEST_CASE( "Loading reports a missing file and refuses files that are not maps", "[map][files]" )
 {
     scratch_dir_t scratch( "missing" );
     map_document_t map{};
     CHECK( MapFiles_Load( &map, Allocator_GetSystem(), ( scratch.path / "nothing.cymap" ).string().c_str() ).status ==
            map_files_status_t::ROOT_MISSING );
-    CHECK( MapFiles_Load( &map, Allocator_GetSystem(), ( scratch.path / "nothing.txt" ).string().c_str() ).status ==
-           map_files_status_t::INVALID_ARGUMENT );
     CHECK( MapFiles_Load( nullptr, Allocator_GetSystem(), "a.cymap" ).status == map_files_status_t::INVALID_ARGUMENT );
     CHECK( MapFiles_Save( &map, nullptr ).status == map_files_status_t::INVALID_ARGUMENT );
+    WriteFile( scratch.path / "notes.cymap", "just some notes" );
+    const map_files_result_t notes = MapFiles_Load( &map, Allocator_GetSystem(), ( scratch.path / "notes.cymap" ).string().c_str() );
+    CHECK( notes.status == map_files_status_t::DOCUMENT_FAILED );
+    CHECK( notes.documentStatus == map_status_t::ROOT_UNREADABLE );
+    CHECK( CountProblems( map, map_problem_code_t::TEXT_UNREADABLE ) == 1u );
+}
+
+TEST_CASE( "A file larger than the format allows is refused without being read", "[map][files]" )
+{
+    scratch_dir_t scratch( "huge" );
+    const fs::path path = scratch.path / "huge.cymap";
+    WriteFile( path, "@cykv 1\n" );
+    fs::resize_file( path, MAP_TEXT_MAX + 1u ); // Sparse: no real disk use.
+    map_document_t map{};
+    CHECK( MapFiles_Load( &map, Allocator_GetSystem(), path.string().c_str() ).status == map_files_status_t::READ_FAILED );
+    CHECK( map.pAllocator == nullptr );
 }
 
 TEST_CASE( "The example map loads from disk and saves back byte for byte", "[map][files]" )
@@ -146,13 +149,12 @@ TEST_CASE( "The example map loads from disk and saves back byte for byte", "[map
     const map_files_result_t loaded = MapFiles_Load( &map, Allocator_GetSystem(), root.string().c_str() );
     REQUIRE( loaded.status == map_files_status_t::OK );
     CHECK( loaded.documentStatus == map_status_t::OK );
-    CHECK( loaded.nChunkFiles == 13u );
+    CHECK( loaded.cbFile == fs::file_size( root ) );
     CHECK( map.problems.nCount == 0u );
 
     const map_files_result_t saved = MapFiles_Save( &map, root.string().c_str() );
     REQUIRE( saved.status == map_files_status_t::OK );
-    CHECK( saved.nChunkFiles == 13u );
-    CHECK( saved.nRemoved == 0u );
+    CHECK( saved.cbFile == loaded.cbFile );
     CHECK( Snapshot( scratch.path ) == before );
 }
 
@@ -162,89 +164,63 @@ TEST_CASE( "Save As writes a complete copy under the new name", "[map][files]" )
     map_document_t map{};
     REQUIRE( MapFiles_Load( &map, Allocator_GetSystem(), ( ExampleDir() / "facility.cymap" ).string().c_str() ).status ==
              map_files_status_t::OK );
-    const fs::path copy = scratch.path / "facility_copy.cymap";
+    const fs::path copy = scratch.path / "nested" / "facility_copy.cymap";
     REQUIRE( MapFiles_Save( &map, copy.string().c_str() ).status == map_files_status_t::OK );
-
     CHECK( ReadFile( copy ) == ReadFile( ExampleDir() / "facility.cymap" ) );
-    CHECK( Snapshot( scratch.path / "facility_copy" ) == Snapshot( ExampleDir() / "facility" ) );
+    // The whole level is the one file: nothing else was written.
+    CHECK( Snapshot( scratch.path ).size() == 1u );
 
-    // The copy is a map in its own right.
     map_document_t reopened{};
-    const map_files_result_t loaded = MapFiles_Load( &reopened, Allocator_GetSystem(), copy.string().c_str() );
-    CHECK( loaded.status == map_files_status_t::OK );
-    CHECK( loaded.nChunkFiles == 13u );
+    CHECK( MapFiles_Load( &reopened, Allocator_GetSystem(), copy.string().c_str() ).status == map_files_status_t::OK );
 }
 
-TEST_CASE( "A map with no objects has no chunk folder and still reopens", "[map][files]" )
+TEST_CASE( "A map with no objects saves and reopens", "[map][files]" )
 {
     scratch_dir_t scratch( "empty" );
     map_document_t map{};
     CreateMap( &map );
     const fs::path root = scratch.path / "empty.cymap";
-    const map_files_result_t saved = MapFiles_Save( &map, root.string().c_str() );
-    REQUIRE( saved.status == map_files_status_t::OK );
-    CHECK( saved.nChunkFiles == 0u );
-    CHECK_FALSE( fs::exists( scratch.path / "empty" ) );
-
+    REQUIRE( MapFiles_Save( &map, root.string().c_str() ).status == map_files_status_t::OK );
+    CHECK( Snapshot( scratch.path ).size() == 1u );
     map_document_t reopened{};
-    const map_files_result_t loaded = MapFiles_Load( &reopened, Allocator_GetSystem(), root.string().c_str() );
-    CHECK( loaded.status == map_files_status_t::OK );
-    CHECK( loaded.nChunkFiles == 0u );
+    CHECK( MapFiles_Load( &reopened, Allocator_GetSystem(), root.string().c_str() ).status == map_files_status_t::OK );
 }
 
-TEST_CASE( "Saving deletes emptied chunks and leaves other files alone", "[map][files]" )
+TEST_CASE( "Saving rewrites only the map file and leaves files beside it alone", "[map][files]" )
 {
-    scratch_dir_t scratch( "moves" );
+    scratch_dir_t scratch( "beside" );
     map_document_t map{};
     CreateMap( &map );
     const u64 id = AddLight( &map, 16.0 );
-    const fs::path root = scratch.path / "moves.cymap";
+    const fs::path root = scratch.path / "beside.cymap";
     REQUIRE( MapFiles_Save( &map, root.string().c_str() ).status == map_files_status_t::OK );
-    REQUIRE( fs::exists( scratch.path / "moves/default/x0_y0.cymapchunk" ) );
 
-    // Files the writer never produces: a note, a stray backup, a deep copy.
-    WriteFile( scratch.path / "moves/notes.txt", "keep me" );
-    WriteFile( scratch.path / "moves/default/x0_y0.cymapchunk.bak", "old" );
-    WriteFile( scratch.path / "moves/old/default/x0_y0.cymapchunk", ReadFile( scratch.path / "moves/default/x0_y0.cymapchunk" ) );
+    // Files the writer never produces, including a folder left by the
+    // retired split format: none of them is read, moved, or deleted.
+    WriteFile( scratch.path / "notes.txt", "keep me" );
+    WriteFile( scratch.path / "beside.cymap.bak", "old" );
+    WriteFile( scratch.path / "beside/default/x0_y0.cymapchunk", "@cykv 1\n@schema \"cypher.map_chunk\" 10\n{ entities = [ { id = 1u } ] }" );
+    const std::map<std::string, std::string> others = [&] {
+        auto files = Snapshot( scratch.path );
+        files.erase( "beside.cymap" );
+        return files;
+    }();
 
     REQUIRE( MapDocument_SetEntityOrigin( &map, id, { 9000.0, 0.0, 0.0 } ) == map_status_t::OK );
-    const map_files_result_t saved = MapFiles_Save( &map, root.string().c_str() );
-    REQUIRE( saved.status == map_files_status_t::OK );
-    CHECK( saved.nRemoved == 1u );
-    CHECK_FALSE( fs::exists( scratch.path / "moves/default/x0_y0.cymapchunk" ) );
-    CHECK( fs::exists( scratch.path / "moves/default/x1_y0.cymapchunk" ) );
-    CHECK( ReadFile( scratch.path / "moves/notes.txt" ) == "keep me" );
-    CHECK( fs::exists( scratch.path / "moves/default/x0_y0.cymapchunk.bak" ) );
+    REQUIRE( MapFiles_Save( &map, root.string().c_str() ).status == map_files_status_t::OK );
+    auto after = Snapshot( scratch.path );
+    after.erase( "beside.cymap" );
+    CHECK( after == others );
     CHECK_FALSE( AnyStagingFiles( scratch.path ) );
 
-    // The deep copy is not a chunk path, so it does not load as a duplicate.
     map_document_t reopened{};
     const map_files_result_t loaded = MapFiles_Load( &reopened, Allocator_GetSystem(), root.string().c_str() );
     REQUIRE( loaded.status == map_files_status_t::OK );
-    CHECK( loaded.documentStatus == map_status_t::OK );
-    CHECK( loaded.nChunkFiles == 1u );
+    CHECK( reopened.problems.nCount == 0u );
     CHECK( MapDocument_FindObject( &reopened, id, nullptr ) != nullptr );
 }
 
-TEST_CASE( "A chunk file that cannot be read is kept byte for byte", "[map][files]" )
-{
-    scratch_dir_t scratch( "damaged" );
-    const fs::path root = CopyExample( scratch );
-    const fs::path damaged = scratch.path / "facility/detail/x7_y7.cymapchunk";
-    const std::string garbage = "@cykv 1\n{ this is not a chunk";
-    WriteFile( damaged, garbage );
-
-    map_document_t map{};
-    const map_files_result_t loaded = MapFiles_Load( &map, Allocator_GetSystem(), root.string().c_str() );
-    REQUIRE( loaded.status == map_files_status_t::OK );
-    CHECK( loaded.nChunkFiles == 14u );
-    CHECK( CountProblems( map, map_problem_code_t::CHUNK_UNREADABLE ) == 1u );
-
-    REQUIRE( MapFiles_Save( &map, root.string().c_str() ).status == map_files_status_t::OK );
-    CHECK( ReadFile( damaged ) == garbage );
-}
-
-TEST_CASE( "A failed save leaves every file on disk as it was", "[map][files]" )
+TEST_CASE( "A failed save leaves the map on disk as it was", "[map][files]" )
 {
     scratch_dir_t scratch( "failed" );
     map_document_t map{};
@@ -252,21 +228,36 @@ TEST_CASE( "A failed save leaves every file on disk as it was", "[map][files]" )
     ( void )AddLight( &map, 16.0 );
     const fs::path root = scratch.path / "failed.cymap";
     REQUIRE( MapFiles_Save( &map, root.string().c_str() ).status == map_files_status_t::OK );
+    // The staging file's name is taken by a folder, so it cannot be written.
+    fs::create_directories( scratch.path / "failed.cymap.tmp" );
+    WriteFile( scratch.path / "failed.cymap.tmp" / "keep", "x" );
     const std::map<std::string, std::string> before = Snapshot( scratch.path );
-
-    // A new layer whose folder cannot be created: a file already has its name.
-    REQUIRE( MapDocument_AddLayer( &map, StringView_FromCString( "blocked" ), StringView_FromCString( "Blocked" ) ) == map_status_t::OK );
-    WriteFile( scratch.path / "failed/blocked", "not a folder" );
-    const std::map<std::string, std::string> withBlocker = Snapshot( scratch.path );
-    u64 id = 0u;
-    REQUIRE( MapDocument_AddEntity( &map, StringView_FromCString( "blocked" ), StringView_FromCString( "light" ), { 0.0, 0.0, 0.0 }, &id ) ==
-             map_status_t::OK );
-    ( void )AddLight( &map, 20000.0 ); // Another chunk that would be staged too.
-
+    ( void )AddLight( &map, 20000.0 );
+    map.bIdsAssigned = CY_TRUE;
     const map_files_result_t saved = MapFiles_Save( &map, root.string().c_str() );
     CHECK( saved.status == map_files_status_t::WRITE_FAILED );
-    CHECK( saved.documentStatus == map_status_t::SINK_FAILED );
-    CHECK( Snapshot( scratch.path ) == withBlocker );
-    CHECK_FALSE( AnyStagingFiles( scratch.path ) );
-    CHECK( before.size() + 1u == withBlocker.size() );
+    CHECK( saved.documentStatus == map_status_t::OK );
+    CHECK( Snapshot( scratch.path ) == before );
+    CHECK( map.bIdsAssigned ); // The IDs loading assigned still need writing.
+}
+
+// A maintenance tool, not a contract: re-saves the maps listed in
+// CYPHER_RESAVE_MAPS (separated by ';') in the current canonical layout,
+// the way Mason would, after a change to the writer's layout.
+TEST_CASE( "Re-save maps in the canonical layout", "[.resave-maps]" )
+{
+    const char *pList = std::getenv( "CYPHER_RESAVE_MAPS" );
+    REQUIRE( pList != nullptr );
+    const std::string list = pList;
+    for ( usize start = 0u; start < list.size(); ) {
+        usize end = list.find( ';', start );
+        if ( end == std::string::npos ) { end = list.size(); }
+        const std::string path = list.substr( start, end - start );
+        start = end + 1u;
+        INFO( path );
+        map_document_t map{};
+        REQUIRE( MapFiles_Load( &map, Allocator_GetSystem(), path.c_str() ).status == map_files_status_t::OK );
+        CHECK( map.problems.nCount == 0u );
+        REQUIRE( MapFiles_Save( &map, path.c_str() ).status == map_files_status_t::OK );
+    }
 }

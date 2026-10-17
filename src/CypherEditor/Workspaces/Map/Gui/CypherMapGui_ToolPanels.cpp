@@ -17,8 +17,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+#include "CypherMapGui_EntityLook.h"
 #include "CypherMapGui_ToolPanels.h"
+#include "CypherMapGui_FaceEdit.h"
 #include "CypherMapGui_Input.h"
+#include "CypherMapGui_ToolGestures.h"
+#include "CypherMapGui_GeometryCommands.h"
+#include "CypherMapGui_Falloff.h"
+#include "CypherMapGui_Game.h"
+#include "CypherMap_SelectionSets.h"
 
 #include "CypherEditorGui_Section.h"
 #include "CypherEditorGui_SettingControl.h"
@@ -38,6 +45,7 @@
 #include <QClipboard>
 #include <QButtonGroup>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QLineEdit>
 #include <QLocale>
 #include <QInputDialog>
@@ -48,9 +56,13 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QGridLayout>
+#include <QHash>
 #include <QSignalBlocker>
+#include <QSpinBox>
 #include <QLabel>
+#include <QCheckBox>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPixmap>
 #include <QPushButton>
 #include <QPointer>
@@ -58,7 +70,10 @@
 #include <QTabWidget>
 #include <QToolButton>
 #include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
+
+#include <cstring>
 
 #include <initializer_list>
 #include <array>
@@ -79,6 +94,94 @@ QString FromView( string_view_t view )
 {
     return QString::fromUtf8( view.pData != nullptr ? view.pData : "", static_cast<qsizetype>( view.cchLength ) );
 }
+
+// A creation draft is independent of the selected terrain. Existing sources
+// are never resized or overwritten by these fields. Publication uses Edit.
+class terrain_controls_t final : public QWidget {
+public:
+    terrain_controls_t( QWidget *parent, map_workspace_t *workspace ) : QWidget( parent ), m_workspace( workspace ) {
+        setObjectName( QStringLiteral( "MapTerrainCreation" ) );
+        auto *layout = new QVBoxLayout( this ); layout->setContentsMargins( 6, 6, 6, 6 ); layout->setSpacing( 5 );
+        auto *form = new QFormLayout(); form->setFieldGrowthPolicy( QFormLayout::AllNonFixedFieldsGrow );
+        const f64 coordinates[]{ workspace->cursor.x, workspace->cursor.y, workspace->cursor.z };
+        const char *axes[]{ "X", "Y", "Z" };
+        for ( int axis = 0; axis < 3; ++axis ) {
+            m_origin[axis] = new QDoubleSpinBox( this );
+            m_origin[axis]->setObjectName( QStringLiteral( "MapTerrainOrigin%1" ).arg( axis ) );
+            m_origin[axis]->setRange( -1048576.0, 1048576.0 ); m_origin[axis]->setDecimals( 3 );
+            m_origin[axis]->setSingleStep( workspace->gridSize ); m_origin[axis]->setValue( coordinates[axis] );
+            form->addRow( QStringLiteral( "Origin %1" ).arg( QString::fromLatin1( axes[axis] ) ), m_origin[axis] );
+        }
+        for ( int axis = 0; axis < 2; ++axis ) {
+            m_cells[axis] = new QSpinBox( this ); m_cells[axis]->setObjectName( QStringLiteral( "MapTerrainCells%1" ).arg( axis ) );
+            m_cells[axis]->setRange( MAP_TERRAIN_TILE_CELLS, MAP_TERRAIN_MAX_CELLS );
+            m_cells[axis]->setSingleStep( MAP_TERRAIN_TILE_CELLS ); m_cells[axis]->setValue( MAP_TERRAIN_TILE_CELLS );
+            form->addRow( QStringLiteral( "Cells %1" ).arg( QString::fromLatin1( axes[axis] ) ), m_cells[axis] );
+        }
+        m_spacing = new QDoubleSpinBox( this ); m_spacing->setObjectName( QStringLiteral( "MapTerrainSpacing" ) );
+        m_spacing->setDecimals( 3 ); m_spacing->setRange( 1.0, 8192.0 ); m_spacing->setSingleStep( 8.0 ); m_spacing->setValue( 64.0 );
+        m_spacing->setToolTip( QStringLiteral( "World units per cell. This controls terrain resolution independently of the editor snap grid." ) );
+        form->addRow( QStringLiteral( "Cell spacing" ), m_spacing ); layout->addLayout( form );
+        auto *cursor = new QPushButton( QStringLiteral( "Use map cursor" ), this ); cursor->setObjectName( QStringLiteral( "MapTerrainUseCursor" ) );
+        layout->addWidget( cursor );
+        m_footprint = new QLabel( this ); m_footprint->setObjectName( QStringLiteral( "MapTerrainFootprint" ) ); m_footprint->setWordWrap( true );
+        layout->addWidget( m_footprint );
+        m_create = new QPushButton( QStringLiteral( "Create Terrain" ), this ); m_create->setObjectName( QStringLiteral( "MapTerrainCreate" ) );
+        m_create->setIcon( gui::EditorStyle_Icon( workspace->pGui->style, "tool-terrain" ) ); layout->addWidget( m_create );
+        m_feedback = new QLabel( this ); m_feedback->setObjectName( QStringLiteral( "MapTerrainFeedback" ) ); m_feedback->setWordWrap( true );
+        layout->addWidget( m_feedback );
+        auto *note = new QLabel( QStringLiteral( "Flat surface, 8–128 cells per axis in steps of 8. Then drag on it to sculpt (Sculpt, below); material painting is planned." ), this );
+        note->setProperty( "muted", true ); note->setWordWrap( true ); layout->addWidget( note );
+        for ( auto *field : m_origin ) { QObject::connect( field, &QDoubleSpinBox::valueChanged, this, [this]() { DraftChanged(); } ); }
+        for ( auto *field : m_cells ) { QObject::connect( field, &QSpinBox::valueChanged, this, [this]() { DraftChanged(); } ); }
+        QObject::connect( m_spacing, &QDoubleSpinBox::valueChanged, this, [this]() { DraftChanged(); } );
+        QObject::connect( cursor, &QPushButton::clicked, this, [this]() {
+            const f64 values[]{ m_workspace->cursor.x, m_workspace->cursor.y, m_workspace->cursor.z };
+            for ( int axis = 0; axis < 3; ++axis ) { m_origin[axis]->setValue( values[axis] ); }
+        } );
+        QObject::connect( m_create, &QPushButton::clicked, this, [this]() {
+            const bool changed = MapWorkspace_CreateTerrain( m_workspace, Descriptor() );
+            m_feedback->setText( changed ? QStringLiteral( "Terrain created. Undo restores the previous map." ) :
+                QStringLiteral( "Terrain could not be created. The map is unchanged." ) ); RefreshState();
+        } );
+        RefreshState();
+    }
+    void RefreshState() {
+        const auto desc = Descriptor();
+        const QLocale locale;
+        m_footprint->setText( QStringLiteral( "%1 × %2 units · %3 × %4 cells" )
+            .arg( locale.toString( desc.cellsX * desc.cellSize, 'g', 10 ), locale.toString( desc.cellsY * desc.cellSize, 'g', 10 ) )
+            .arg( desc.cellsX ).arg( desc.cellsY ) );
+        const bool allowed = MapWorkspace_CanCreateTerrain( m_workspace, desc ); m_create->setEnabled( allowed );
+        QString reason;
+        if ( !allowed ) {
+            if ( desc.cellsX % MAP_TERRAIN_TILE_CELLS != 0u || desc.cellsY % MAP_TERRAIN_TILE_CELLS != 0u ) {
+                reason = QStringLiteral( "Cell counts must be multiples of 8." );
+            } else if ( m_workspace->pDocument != nullptr && m_workspace->pDocument->bReadOnly ) {
+                reason = QStringLiteral( "This map is read-only." );
+            } else if ( m_workspace->editPreview.bActive || EditorHistory_IsTransactionOpen( &m_workspace->history ) ) {
+                reason = QStringLiteral( "Finish or cancel the current edit before creating terrain." );
+            } else {
+                reason = QStringLiteral( "The footprint must fit within ±1,048,576 units in a writable map with available object IDs." );
+            }
+            m_feedback->setText( reason );
+        } else if ( m_blocked ) { m_feedback->clear(); }
+        m_blocked = !allowed;
+        m_create->setToolTip( allowed ? QStringLiteral( "Create a new flat surface in one undo step." ) : reason );
+    }
+private:
+    map_terrain_create_desc_t Descriptor() const {
+        return { { m_origin[0]->value(), m_origin[1]->value(), m_origin[2]->value() }, m_spacing->value(),
+                 static_cast<u32>( m_cells[0]->value() ), static_cast<u32>( m_cells[1]->value() ) };
+    }
+    void DraftChanged() { m_feedback->clear(); RefreshState(); }
+    map_workspace_t *m_workspace{};
+    QDoubleSpinBox *m_origin[3]{}, *m_spacing{};
+    QSpinBox *m_cells[2]{};
+    QLabel *m_footprint{}, *m_feedback{};
+    QPushButton *m_create{};
+    bool m_blocked{};
+};
 
 // Cutter identity is an explicit edit parameter, never inferred from order
 // in the selection. The original cutter remains available for further cuts.
@@ -164,6 +267,377 @@ map_bounds_t SelectedBounds( const map_workspace_t &workspace ) noexcept
     return bounds;
 }
 
+// The brush profile across its diameter, and the editor of the Custom
+// falloff: drag a point (the curve is mirrored, so either half works),
+// click to add one, double-click or right-click to remove one; the ends stay
+// at the centre and the edge. Dragging a preset's curve starts a Custom
+// curve from its shape. The curve is written when the drag ends.
+class falloff_curve_t final : public QWidget {
+public:
+    falloff_curve_t( QWidget *parent, map_workspace_t *ws ) : QWidget( parent ), m_ws( ws ) {
+        setObjectName( QStringLiteral( "MapDisplaceCurve" ) );
+        setFixedHeight( 64 ); setMouseTracking( true );
+        setToolTip( QStringLiteral( "Brush falloff: strength from the centre (middle) to the edge.\nDrag the curve to draw a Custom falloff; click to add a point, double-click to remove one." ) );
+    }
+    void SetFalloff( const QString &name, const QString &curve ) {
+        if ( m_drag >= 0 ) { return; } // The drag owns the points until it ends.
+        m_name = name;
+        const QByteArray utf8 = curve.toUtf8();
+        m_points = MapFalloff_ParseCurve( { utf8.constData(), static_cast<usize>( utf8.size() ) } );
+        update();
+    }
+    bool IsCustom() const { return m_name == QStringLiteral( "custom" ); }
+    const std::vector<map_curve_point_t> &Points() const { return m_points; }
+    QRectF Area() const { return QRectF( rect() ).adjusted( 6, 6, -6, -5 ); }
+    // A distance (0 centre .. 1 edge) and strength as a point on the right half.
+    QPointF At( f64 x, f64 y ) const { const QRectF a = Area(); return { a.center().x() + a.width() * 0.5 * x, a.bottom() - a.height() * y }; }
+protected:
+    void paintEvent( QPaintEvent * ) override {
+        QPainter p( this ); p.setRenderHint( QPainter::Antialiasing );
+        const QRectF a = Area();
+        p.setPen( QPen( QColor( 255, 255, 255, 40 ), 1.0 ) ); p.drawLine( a.bottomLeft(), a.bottomRight() );
+        p.drawLine( QPointF( a.center().x(), a.top() ), QPointF( a.center().x(), a.bottom() ) );
+        const QByteArray name = m_name.toUtf8();
+        const QByteArray curve = QByteArray::fromStdString( MapFalloff_FormatCurve( m_points ) );
+        const map_falloff_t falloff = MapFalloff_Make( { name.constData(), static_cast<usize>( name.size() ) }, { curve.constData(), static_cast<usize>( curve.size() ) } );
+        QPainterPath path, fill;
+        for ( int i = 0; i <= 96; ++i ) {
+            const f64 x = -1.0 + 2.0 * i / 96.0;
+            const QPointF at( a.left() + a.width() * ( x + 1.0 ) / 2.0, a.bottom() - a.height() * MapFalloff_At( falloff, std::fabs( x ) ) );
+            if ( i == 0 ) { path.moveTo( at ); fill.moveTo( a.bottomLeft() ); fill.lineTo( at ); } else { path.lineTo( at ); fill.lineTo( at ); }
+        }
+        fill.lineTo( a.bottomRight() ); fill.closeSubpath();
+        p.fillPath( fill, QColor( 90, 170, 230, 60 ) );
+        p.setPen( QPen( QColor( 120, 190, 240 ), 2.0 ) ); p.drawPath( path );
+        if ( !IsCustom() ) { return; }
+        for ( usize i = 0; i < m_points.size(); ++i ) {
+            const bool hot = static_cast<int>( i ) == ( m_drag >= 0 ? m_drag : m_hover );
+            p.setPen( QPen( QColor( 20, 22, 24 ), 1.0 ) ); p.setBrush( hot ? QColor( 240, 200, 80 ) : QColor( 220, 230, 240 ) );
+            p.drawEllipse( At( m_points[i].x, m_points[i].y ), hot ? 4.0 : 3.2, hot ? 4.0 : 3.2 );
+        }
+    }
+    void mousePressEvent( QMouseEvent *event ) override {
+        if ( !IsCustom() ) { StartCustom(); }
+        const int hit = Hit( event->position() );
+        if ( event->button() == Qt::RightButton ) { if ( Remove( hit ) ) { Commit(); } return; }
+        if ( event->button() != Qt::LeftButton ) { return; }
+        m_drag = hit >= 0 ? hit : Insert( event->position() );
+        Move( event->position() );
+    }
+    void mouseMoveEvent( QMouseEvent *event ) override {
+        if ( m_drag >= 0 ) { Move( event->position() ); return; }
+        const int hover = IsCustom() ? Hit( event->position() ) : -1;
+        if ( hover != m_hover ) { m_hover = hover; update(); }
+    }
+    void mouseReleaseEvent( QMouseEvent *event ) override {
+        if ( event->button() != Qt::LeftButton || m_drag < 0 ) { return; }
+        m_drag = -1;
+        Commit();
+    }
+    void mouseDoubleClickEvent( QMouseEvent *event ) override {
+        if ( IsCustom() && Remove( Hit( event->position() ) ) ) { m_drag = -1; Commit(); }
+    }
+private:
+    // Distance and strength under the mouse (either half).
+    map_curve_point_t Value( QPointF at ) const {
+        const QRectF a = Area();
+        return { std::clamp( std::fabs( at.x() - a.center().x() ) / ( a.width() * 0.5 ), 0.0, 1.0 ), std::clamp( ( a.bottom() - at.y() ) / a.height(), 0.0, 1.0 ) };
+    }
+    int Hit( QPointF at ) const {
+        const map_curve_point_t v = Value( at );
+        const QPointF mirrored = At( v.x, v.y );
+        int best = -1; f64 bestDistance = 7.0;
+        for ( usize i = 0; i < m_points.size(); ++i ) {
+            const QPointF d = At( m_points[i].x, m_points[i].y ) - mirrored;
+            const f64 distance = std::hypot( d.x(), d.y() );
+            if ( distance < bestDistance ) { best = static_cast<int>( i ); bestDistance = distance; }
+        }
+        return best;
+    }
+    int Insert( QPointF at ) {
+        const map_curve_point_t v = Value( at );
+        if ( m_points.size() >= MAP_FALLOFF_CURVE_MAX_POINTS || v.x <= 0.01 || v.x >= 0.99 ) { return -1; }
+        const auto it = std::upper_bound( m_points.begin(), m_points.end(), v.x, []( f64 x, const map_curve_point_t &p ) { return x < p.x; } );
+        return static_cast<int>( m_points.insert( it, v ) - m_points.begin() );
+    }
+    bool Remove( int i ) {
+        if ( i <= 0 || i + 1 >= static_cast<int>( m_points.size() ) ) { return false; } // The ends stay.
+        m_points.erase( m_points.begin() + i ); m_hover = -1;
+        return true;
+    }
+    // Inner points keep their order; the ends keep their distance.
+    void Move( QPointF at ) {
+        if ( m_drag < 0 ) { return; }
+        const map_curve_point_t v = Value( at );
+        auto &point = m_points[static_cast<usize>( m_drag )];
+        point.y = v.y;
+        if ( m_drag > 0 && m_drag + 1 < static_cast<int>( m_points.size() ) ) {
+            point.x = std::clamp( v.x, m_points[static_cast<usize>( m_drag - 1 )].x + 0.01, m_points[static_cast<usize>( m_drag + 1 )].x - 0.01 );
+        }
+        update();
+    }
+    // The preset's shape, sampled, as the start of a Custom curve.
+    void StartCustom() {
+        const QByteArray name = m_name.toUtf8();
+        const map_falloff_t preset = MapFalloff_Make( { name.constData(), static_cast<usize>( name.size() ) }, {} );
+        m_points.clear();
+        for ( f64 x : { 0.0, 0.25, 0.5, 0.75, 1.0 } ) { m_points.push_back( { x, MapFalloff_At( preset, x ) } ); }
+        // The curve first: the switch to Custom reloads the curve from settings.
+        const std::string text = MapFalloff_FormatCurve( m_points );
+        Write( "editor.map.displace_curve", setting_type_t::STRING, text.c_str() );
+        Write( "editor.map.displace_falloff", setting_type_t::ENUM, "custom" );
+        m_name = QStringLiteral( "custom" );
+    }
+    void Commit() {
+        const std::string text = MapFalloff_FormatCurve( m_points );
+        Write( "editor.map.displace_curve", setting_type_t::STRING, text.c_str() );
+        update();
+    }
+    void Write( const char *path, setting_type_t type, const char *text ) {
+        const auto *descriptor = EditorSettings_Find( &m_ws->pGui->settings, StringView_FromCString( path ) );
+        setting_value_t value{}; value.type = type; value.text = StringView_FromCString( text );
+        if ( descriptor != nullptr ) { ( void )EditorSettings_Write( &m_ws->pGui->settings, settings_scope_t::USER, *descriptor, value ); }
+    }
+    map_workspace_t *m_ws{};
+    QString m_name{ QStringLiteral( "smooth" ) };
+    std::vector<map_curve_point_t> m_points{};
+    int m_drag{ -1 }, m_hover{ -1 };
+};
+
+// Hammer 5's Paint Displacement brush: the operations as an icon row and the
+// falloff as curves, both drawn here (no image files), writing the same
+// settings the Sculpt section shows.
+class displace_controls_t final : public QWidget {
+public:
+    displace_controls_t( QWidget *parent, map_workspace_t *ws ) : QWidget( parent ), m_ws( ws ) {
+        setObjectName( QStringLiteral( "MapDisplaceBrush" ) );
+        auto *layout = new QVBoxLayout( this ); layout->setContentsMargins( 6, 5, 6, 6 ); layout->setSpacing( 6 );
+        const auto row = [&]( const auto &items, const char *path, std::vector<QToolButton *> &buttons, bool curve ) {
+            auto *line = new QHBoxLayout(); line->setSpacing( 3 ); line->setAlignment( Qt::AlignLeft );
+            auto *group = new QButtonGroup( this ); group->setExclusive( true );
+            for ( const auto &item : items ) {
+                auto *button = new QToolButton( this );
+                button->setObjectName( QStringLiteral( "MapDisplace.%1" ).arg( QString::fromLatin1( item.name ) ) );
+                button->setToolTip( QString::fromUtf8( item.help ) ); button->setAccessibleName( QString::fromLatin1( item.label ) );
+                button->setIcon( curve ? CurveIcon( item.name ) : ModeIcon( item.name ) ); button->setIconSize( QSize( 28, 28 ) ); button->setFixedSize( 36, 36 );
+                button->setCheckable( true ); button->setAutoRaise( true );
+                group->addButton( button ); line->addWidget( button ); buttons.push_back( button );
+                QObject::connect( button, &QToolButton::clicked, this, [this, path, name = item.name]() {
+                    const auto *descriptor = EditorSettings_Find( &m_ws->pGui->settings, StringView_FromCString( path ) );
+                    setting_value_t value{}; value.type = setting_type_t::ENUM; value.text = StringView_FromCString( name );
+                    if ( descriptor != nullptr ) { ( void )EditorSettings_Write( &m_ws->pGui->settings, settings_scope_t::USER, *descriptor, value ); }
+                    RefreshState();
+                } );
+            }
+            layout->addLayout( line );
+        };
+        row( kModes, "editor.map.displace_mode", m_modes, false );
+        m_curve = new falloff_curve_t( this, ws );
+        layout->addWidget( m_curve );
+        row( kFalloffs, "editor.map.displace_falloff", m_falloffs, true );
+        ( void )EditorSettings_AddListener( &ws->pGui->settings, &OnSettingsChanged, this );
+        RefreshState();
+    }
+    ~displace_controls_t() override { EditorSettings_RemoveListener( &m_ws->pGui->settings, &OnSettingsChanged, this ); }
+    void RefreshState() {
+        const auto mode = EditorSettings_Text( &m_ws->pGui->settings, "editor.map.displace_mode", StringView_FromCString( "push_pull" ) );
+        const auto falloff = EditorSettings_Text( &m_ws->pGui->settings, "editor.map.displace_falloff", StringView_FromCString( "smooth" ) );
+        const auto curve = EditorSettings_Text( &m_ws->pGui->settings, "editor.map.displace_curve", StringView_FromCString( MAP_FALLOFF_CURVE_DEFAULT ) );
+        for ( usize i = 0; i < m_modes.size(); ++i ) { const QSignalBlocker b( m_modes[i] ); m_modes[i]->setChecked( StringView_Equals( mode, StringView_FromCString( kModes[i].name ) ) ); }
+        for ( usize i = 0; i < m_falloffs.size(); ++i ) {
+            const bool on = StringView_Equals( falloff, StringView_FromCString( kFalloffs[i].name ) );
+            const QSignalBlocker b( m_falloffs[i] ); m_falloffs[i]->setChecked( on );
+        }
+        // The Custom button shows the curve as drawn.
+        if ( !m_falloffs.empty() ) { m_falloffs.back()->setIcon( QIcon( CurvePixmap( MapFalloff_Make( StringView_FromCString( "custom" ), curve ), QSize( 28, 28 ), false ) ) ); }
+        m_curve->SetFalloff( FromView( falloff ), FromView( curve ) );
+    }
+private:
+    struct item_t { const char *name; const char *label; const char *help; };
+    static constexpr item_t kModes[]{
+        { "push_pull", "Push/Pull", "Push/Pull: raise the surface (Ctrl/Command lowers it)" },
+        { "smooth", "Smooth", "Smooth: even out bumps under the brush" },
+        { "flatten", "Flatten", "Flatten: press the surface onto the plane under the brush" },
+        { "inflate", "Inflate", "Inflate: swell the surface along its normals" },
+        { "pinch", "Pinch", "Pinch: draw the surface toward the brush centre" },
+        { "noise", "Noise", "Noise: roughen the surface" } };
+    static constexpr item_t kFalloffs[]{
+        { "smooth", "Smooth", "Smooth falloff: full in the middle, easing out to the edge" },
+        { "linear", "Linear", "Linear falloff: fading evenly from the middle to the edge" },
+        { "sharp", "Sharp", "Sharp falloff: strong in the middle only" },
+        { "constant", "Constant", "Constant: the same strength across the whole brush" },
+        { "custom", "Custom", "Custom falloff: the curve drawn above (drag it to change it)" } };
+    // The brush profile across its diameter: strength against distance.
+    static QPixmap CurvePixmap( const map_falloff_t &falloff, QSize size, bool framed ) {
+        QPixmap pixmap( size * 2 ); pixmap.setDevicePixelRatio( 2.0 ); pixmap.fill( Qt::transparent );
+        QPainter p( &pixmap ); p.setRenderHint( QPainter::Antialiasing );
+        const QRectF area = QRectF( QPointF( 0, 0 ), QSizeF( size ) ).adjusted( 3, 4, -3, -3 );
+        if ( framed ) { p.setPen( QPen( QColor( 255, 255, 255, 40 ), 1.0 ) ); p.drawLine( area.bottomLeft(), area.bottomRight() ); p.drawLine( QPointF( area.center().x(), area.top() ), QPointF( area.center().x(), area.bottom() ) ); }
+        QPainterPath path; QPainterPath fill;
+        for ( int i = 0; i <= 64; ++i ) {
+            const f64 x = -1.0 + 2.0 * i / 64.0, y = MapFalloff_At( falloff, std::fabs( x ) );
+            const QPointF at( area.left() + area.width() * ( x + 1.0 ) / 2.0, area.bottom() - area.height() * y );
+            if ( i == 0 ) { path.moveTo( at ); fill.moveTo( area.bottomLeft() ); fill.lineTo( at ); } else { path.lineTo( at ); fill.lineTo( at ); }
+        }
+        fill.lineTo( area.bottomRight() ); fill.closeSubpath();
+        p.fillPath( fill, QColor( 90, 170, 230, 60 ) );
+        p.setPen( QPen( QColor( 120, 190, 240 ), framed ? 2.0 : 1.6 ) ); p.drawPath( path );
+        return pixmap;
+    }
+    static QIcon CurveIcon( const char *name ) { return QIcon( CurvePixmap( MapFalloff_Make( StringView_FromCString( name ), StringView_FromCString( MAP_FALLOFF_CURVE_DEFAULT ) ), QSize( 28, 28 ), false ) ); }
+    // A grey ground line and the operation drawn over it.
+    static QIcon ModeIcon( const char *name ) {
+        QPixmap pixmap( 56, 56 ); pixmap.setDevicePixelRatio( 2.0 ); pixmap.fill( Qt::transparent );
+        QPainter p( &pixmap ); p.setRenderHint( QPainter::Antialiasing );
+        const QColor ground( 150, 158, 166 ), mark( 230, 200, 80 );
+        p.setPen( QPen( ground, 1.8, Qt::SolidLine, Qt::RoundCap ) );
+        QPainterPath surface;
+        const auto wave = [&]( f64 amplitude, int ridges, f64 base ) {
+            surface = QPainterPath();
+            for ( int i = 0; i <= 24; ++i ) { const f64 x = 2 + 24.0 * i / 24; const f64 y = base - amplitude * std::sin( 3.14159265 * ridges * i / 24.0 ); if ( i == 0 ) { surface.moveTo( x, y ); } else { surface.lineTo( x, y ); } }
+        };
+        const auto arrow = [&]( QPointF from, QPointF to ) {
+            p.setPen( QPen( mark, 1.8, Qt::SolidLine, Qt::RoundCap ) ); p.drawLine( from, to );
+            const QPointF d = ( to - from ) / std::max( 1e-6, std::hypot( ( to - from ).x(), ( to - from ).y() ) );
+            const QPointF n( -d.y(), d.x() );
+            p.drawLine( to, to - d * 4 + n * 3 ); p.drawLine( to, to - d * 4 - n * 3 );
+        };
+        if ( std::strcmp( name, "push_pull" ) == 0 ) {
+            surface.moveTo( 2, 22 ); surface.cubicTo( 9, 22, 10, 12, 14, 12 ); surface.cubicTo( 18, 12, 19, 22, 26, 22 );
+            p.drawPath( surface ); arrow( QPointF( 14, 10 ), QPointF( 14, 3 ) );
+        } else if ( std::strcmp( name, "smooth" ) == 0 ) {
+            wave( 3.0, 4, 20 ); p.setPen( QPen( ground, 1.2, Qt::DashLine ) ); p.drawPath( surface );
+            p.setPen( QPen( mark, 1.8 ) ); p.drawLine( QPointF( 2, 13 ), QPointF( 26, 13 ) );
+        } else if ( std::strcmp( name, "flatten" ) == 0 ) {
+            wave( 4.0, 2, 19 ); p.drawPath( surface );
+            p.setPen( QPen( mark, 2.2 ) ); p.drawLine( QPointF( 4, 12 ), QPointF( 24, 12 ) ); arrow( QPointF( 14, 4 ), QPointF( 14, 10 ) );
+        } else if ( std::strcmp( name, "inflate" ) == 0 ) {
+            p.drawEllipse( QPointF( 14, 16 ), 5, 5 );
+            p.setPen( QPen( mark, 1.6, Qt::DashLine ) ); p.drawEllipse( QPointF( 14, 16 ), 9.5, 9.5 );
+        } else if ( std::strcmp( name, "pinch" ) == 0 ) {
+            p.drawLine( QPointF( 2, 22 ), QPointF( 26, 22 ) );
+            arrow( QPointF( 3, 12 ), QPointF( 11, 12 ) ); arrow( QPointF( 25, 12 ), QPointF( 17, 12 ) );
+        } else {
+            surface.moveTo( 2, 18 );
+            const f64 jag[]{ 14, 21, 12, 19, 10, 20, 13, 22, 15, 18, 12, 20 };
+            for ( int i = 0; i < 12; ++i ) { surface.lineTo( 4 + i * 2, jag[i] ); }
+            p.setPen( QPen( mark, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin ) ); p.drawPath( surface );
+        }
+        return QIcon( pixmap );
+    }
+    static void OnSettingsChanged( void *context, string_view_t path ) noexcept {
+        if ( path.cchLength == 0u || StringView_Equals( path, StringView_FromCString( "editor.map.displace_mode" ) ) ||
+             StringView_Equals( path, StringView_FromCString( "editor.map.displace_falloff" ) ) ||
+             StringView_Equals( path, StringView_FromCString( "editor.map.displace_curve" ) ) ) { static_cast<displace_controls_t *>( context )->RefreshState(); }
+    }
+    map_workspace_t *m_ws{};
+    std::vector<QToolButton *> m_modes{}, m_falloffs{};
+    falloff_curve_t *m_curve{};
+};
+
+// The game's point classes for the Entity tool (Hammer's class list,
+// TrenchBroom's entity browser): by category, filtered as you type; a click
+// makes a class the one the tool places. Without a game profile it says why.
+class entity_classes_t final : public QWidget {
+public:
+    entity_classes_t( QWidget *parent, map_workspace_t *ws ) : QWidget( parent ), m_ws( ws ) {
+        setObjectName( QStringLiteral( "MapEntityClassBrowser" ) );
+        auto *layout = new QVBoxLayout( this ); layout->setContentsMargins( 6, 5, 6, 6 ); layout->setSpacing( 4 );
+        auto *row = new QHBoxLayout(); row->setSpacing( 3 );
+        m_filter = new QLineEdit( this ); m_filter->setObjectName( QStringLiteral( "MapEntityClassFilter" ) );
+        m_filter->setPlaceholderText( QStringLiteral( "Filter classes" ) ); m_filter->setClearButtonEnabled( true );
+        auto *reload = new QToolButton( this ); reload->setObjectName( QStringLiteral( "MapEntityClassReload" ) );
+        reload->setIcon( EditorStyle_Icon( ws->pGui->style, "file-open" ) ); reload->setAutoRaise( true );
+        reload->setToolTip( QStringLiteral( "Reload the game profile (game/<game>.cygame)" ) );
+        row->addWidget( m_filter, 1 ); row->addWidget( reload );
+        m_tree = new QTreeWidget( this ); m_tree->setObjectName( QStringLiteral( "MapEntityClasses" ) );
+        m_tree->setHeaderHidden( true ); m_tree->setIndentation( 12 ); m_tree->setMinimumHeight( 160 );
+        m_status = new QLabel( this ); m_status->setObjectName( QStringLiteral( "MapEntityClassesStatus" ) );
+        m_status->setWordWrap( true ); m_status->setProperty( "muted", true );
+        layout->addLayout( row ); layout->addWidget( m_tree ); layout->addWidget( m_status );
+        QObject::connect( m_filter, &QLineEdit::textChanged, this, [this]() { Filter(); } );
+        QObject::connect( reload, &QToolButton::clicked, this, [this]() {
+            ( void )EditorCommands_Execute( &m_ws->pGui->commands, StringView_FromCString( "map.game.reload" ), command_args_t{} );
+            Rebuild();
+        } );
+        QObject::connect( m_tree, &QTreeWidget::itemClicked, this, [this]( QTreeWidgetItem *item, int ) { Choose( item ); } );
+        ( void )MapWorkspace_AddListener( ws, &OnChanged, this );
+        ( void )EditorSettings_AddListener( &ws->pGui->settings, &OnSettingsChanged, this );
+        Rebuild();
+    }
+    ~entity_classes_t() override {
+        EditorSettings_RemoveListener( &m_ws->pGui->settings, &OnSettingsChanged, this );
+        MapWorkspace_RemoveListener( m_ws, &OnChanged, this );
+    }
+private:
+    static constexpr int kClassRole = Qt::UserRole;
+    // A different map can name a different game: rebuild when the profile changes.
+    static void OnChanged( void *context, u32 ) noexcept {
+        auto *self = static_cast<entity_classes_t *>( context );
+        if ( MapGame_Profile( self->m_ws ) != self->m_profile ) { self->Rebuild(); }
+    }
+    static void OnSettingsChanged( void *context, string_view_t path ) noexcept {
+        if ( path.cchLength == 0u || StringView_Equals( path, StringView_FromCString( "editor.map.default_point_class" ) ) ) { static_cast<entity_classes_t *>( context )->MarkCurrent(); }
+    }
+    void Rebuild() {
+        m_profile = MapGame_Profile( m_ws );
+        const QSignalBlocker blocker( m_tree );
+        m_tree->clear();
+        QHash<QString, QTreeWidgetItem *> categories;
+        for ( const map_game_class_t *cls : MapGame_Placeable( m_ws, map_game_kind_t::POINT ) ) {
+            const QString category = cls->category.empty() ? QStringLiteral( "Other" ) : QString::fromStdString( cls->category );
+            QTreeWidgetItem *&parent = categories[category];
+            if ( parent == nullptr ) {
+                parent = new QTreeWidgetItem( m_tree, { category } );
+                parent->setFlags( Qt::ItemIsEnabled ); parent->setExpanded( true );
+                QFont font = parent->font( 0 ); font.setBold( true ); parent->setFont( 0, font );
+            }
+            const QString name = QString::fromStdString( cls->name );
+            auto *item = new QTreeWidgetItem( parent, { cls->label.empty() ? name : QStringLiteral( "%1  (%2)" ).arg( QString::fromStdString( cls->label ), name ) } );
+            item->setData( 0, kClassRole, name );
+            item->setToolTip( 0, cls->description.empty() ? name : QStringLiteral( "%1\n%2" ).arg( name, QString::fromStdString( cls->description ) ) );
+        }
+        const QString status = MapGame_Status( m_ws );
+        m_status->setText( m_profile != nullptr ? status : QStringLiteral( "%1. The tool places the class set in Default point class." ).arg( status ) );
+        m_tree->setVisible( m_profile != nullptr );
+        Filter();
+        MarkCurrent();
+    }
+    void Filter() {
+        const QString text = m_filter->text().trimmed();
+        for ( int c = 0; c < m_tree->topLevelItemCount(); ++c ) {
+            QTreeWidgetItem *category = m_tree->topLevelItem( c );
+            bool any = false;
+            for ( int i = 0; i < category->childCount(); ++i ) {
+                QTreeWidgetItem *item = category->child( i );
+                const bool show = text.isEmpty() || item->text( 0 ).contains( text, Qt::CaseInsensitive ) || category->text( 0 ).contains( text, Qt::CaseInsensitive );
+                item->setHidden( !show ); any = any || show;
+            }
+            category->setHidden( !any );
+        }
+    }
+    void MarkCurrent() {
+        const QString current = FromView( EditorSettings_Text( &m_ws->pGui->settings, "editor.map.default_point_class", StringView_FromCString( "info_player_start" ) ) );
+        const QSignalBlocker blocker( m_tree );
+        for ( QTreeWidgetItemIterator it( m_tree ); *it != nullptr; ++it ) {
+            if ( ( *it )->data( 0, kClassRole ).toString() == current ) { m_tree->setCurrentItem( *it ); return; }
+        }
+        m_tree->setCurrentItem( nullptr );
+    }
+    void Choose( QTreeWidgetItem *item ) {
+        const QByteArray name = item != nullptr ? item->data( 0, kClassRole ).toString().toUtf8() : QByteArray();
+        if ( name.isEmpty() ) { return; }
+        const auto *descriptor = EditorSettings_Find( &m_ws->pGui->settings, StringView_FromCString( "editor.map.default_point_class" ) );
+        setting_value_t value{}; value.type = setting_type_t::STRING; value.text = { name.constData(), static_cast<usize>( name.size() ) };
+        if ( descriptor != nullptr ) { ( void )EditorSettings_Write( &m_ws->pGui->settings, settings_scope_t::USER, *descriptor, value ); }
+    }
+    map_workspace_t *m_ws{};
+    const map_game_profile_t *m_profile{};
+    QLineEdit *m_filter{};
+    QTreeWidget *m_tree{};
+    QLabel *m_status{};
+};
+
 // Shape defaults share the registry with Settings, while the viewport stage
 // keeps its captured descriptor. Switching icons never rewrites a staged mesh.
 class primitive_controls_t final : public QWidget {
@@ -194,7 +668,7 @@ public:
         layout->addLayout( icons );
         m_identity = new QLabel( this ); m_identity->setObjectName( QStringLiteral( "MapPrimitiveIdentity" ) ); layout->addWidget( m_identity );
         m_form = new QFormLayout(); m_form->setContentsMargins( 0, 0, 0, 0 ); m_form->setSpacing( 4 );
-        for ( const char *path : { "editor.map.primitive_axis", "editor.map.cylinder_sides", "editor.map.cone_top_radius", "editor.map.sphere_subdivisions" } ) {
+        for ( const char *path : kParameters ) {
             auto *control = gui::EditorSettingControl_Create( this, &ws->pGui->settings, path );
             m_form->addRow( gui::EditorSettingControl_Label( &ws->pGui->settings, path ), control );
         }
@@ -214,9 +688,15 @@ public:
         const bool quad = StringView_Equals( shape, StringView_FromCString( "quad" ) );
         const bool cylinder = StringView_Equals( shape, StringView_FromCString( "cylinder" ) );
         const bool spike = StringView_Equals( shape, StringView_FromCString( "spike" ) );
-        m_form->setRowVisible( 0, quad || cylinder || spike || StringView_Equals( shape, StringView_FromCString( "wedge" ) ) );
-        m_form->setRowVisible( 1, cylinder || spike ); m_form->setRowVisible( 2, spike );
-        m_form->setRowVisible( 3, StringView_Equals( shape, StringView_FromCString( "sphere" ) ) );
+        const auto is = [&]( const char *name ) { return StringView_Equals( shape, StringView_FromCString( name ) ); };
+        const bool arch = is( "arch" ), stairs = is( "stairs" ), spiral = is( "spiral_stairs" ), pipe = is( "pipe" ), torus = is( "torus" );
+        const bool round = arch || spiral || pipe || torus;
+        m_form->setRowVisible( 0, quad || cylinder || spike || is( "wedge" ) || round );
+        m_form->setRowVisible( 1, cylinder || spike || arch || pipe || torus ); m_form->setRowVisible( 2, spike );
+        m_form->setRowVisible( 3, is( "sphere" ) );
+        m_form->setRowVisible( 4, arch || pipe ); m_form->setRowVisible( 5, arch ); m_form->setRowVisible( 6, arch ); // Wall, arc, start.
+        m_form->setRowVisible( 7, stairs || spiral ); m_form->setRowVisible( 8, stairs );                          // Steps, rise.
+        m_form->setRowVisible( 9, spiral ); m_form->setRowVisible( 10, spiral ); m_form->setRowVisible( 11, torus ); // Turn, inner, tube.
         if ( auto *label = qobject_cast<QLabel *>( m_form->itemAt( 0, QFormLayout::LabelRole )->widget() ) ) {
             label->setText( quad ? QStringLiteral( "Plane normal" ) : QStringLiteral( "Primitive axis" ) );
         }
@@ -241,8 +721,16 @@ private:
         { "wedge", "Wedge", "shape-wedge", "Wedge · solid ramp brush" },
         { "cylinder", "Cylinder", "shape-cylinder", "Cylinder · solid brush with adjustable sides" },
         { "spike", "Spike", "shape-spike", "Spike · solid cone or tapered brush" },
-        { "sphere", "Sphere", "shape-sphere", "Sphere · solid brush with adjustable subdivisions" }
+        { "sphere", "Sphere", "shape-sphere", "Sphere · round latitude bands with adjustable detail" },
+        { "arch", "Arch", "shape-arch", "Arch · a curved wall round the primitive axis (Hammer 5); set the axis to X or Y for a doorway arch" },
+        { "stairs", "Stairs", "shape-stairs", "Stairs · a staircase mesh filling the box, rising toward the chosen direction" },
+        { "spiral_stairs", "Spiral Stairs", "shape-spiral-stairs", "Spiral stairs · wedge treads turning round the primitive axis, each one step higher" },
+        { "pipe", "Pipe", "shape-pipe", "Pipe · a hollow tube with the chosen wall width" },
+        { "torus", "Torus", "shape-torus", "Torus · a ring mesh round the primitive axis" }
     };
+    static constexpr const char *kParameters[]{ "editor.map.primitive_axis", "editor.map.cylinder_sides", "editor.map.cone_top_radius", "editor.map.sphere_subdivisions",
+                                                "editor.map.arch_thickness", "editor.map.arch_angle", "editor.map.arch_start", "editor.map.stairs_steps",
+                                                "editor.map.stairs_direction", "editor.map.spiral_turn", "editor.map.spiral_inner", "editor.map.torus_tube" };
     map_workspace_t *m_ws{};
     QFormLayout *m_form{};
     QLabel *m_identity{};
@@ -311,7 +799,8 @@ public:
         if ( kind == numeric_edit_t::ROTATE || kind == numeric_edit_t::SCALE ) {
             m_pPivot = new QComboBox( this );
             m_pPivot->setObjectName( QStringLiteral( "MapTransformPivot" ) );
-            m_pPivot->addItems( { QStringLiteral( "Selection center" ), QStringLiteral( "World origin" ) } );
+            m_pPivot->addItems( { QStringLiteral( "Selection center" ), QStringLiteral( "World origin" ), QStringLiteral( "Pivot point" ) } );
+            m_pPivot->setItemData( 2, QStringLiteral( "The point placed with the Pivot tool, or with Set Pivot Here in a view's right-click menu." ), Qt::ToolTipRole );
             auto *pPivotRow = new QHBoxLayout();
             pPivotRow->addWidget( new QLabel( QStringLiteral( "Pivot" ), this ) );
             pPivotRow->addWidget( m_pPivot, 1 );
@@ -363,13 +852,21 @@ private:
                m_pWorkspace->elementMode == map_element_mode_t::FACES;
     }
 
+    map_component_transform_t ComponentKind() const noexcept
+    {
+        return m_kind == numeric_edit_t::TRANSLATE ? map_component_transform_t::TRANSLATE :
+               m_kind == numeric_edit_t::ROTATE ? map_component_transform_t::ROTATE : map_component_transform_t::SCALE;
+    }
+
     void Refresh()
     {
         const bool staged = m_kind == numeric_edit_t::BOX && MapWorkspace_HasBlockPreview( m_pWorkspace );
         const auto primitive = staged ? m_pWorkspace->editPreview.primitive : MapWorkspace_PrimitiveDefaults( m_pWorkspace, {} );
         const bool quad = m_kind == numeric_edit_t::BOX && primitive.kind == map_primitive_kind_t::QUAD;
+        const bool components = m_kind != numeric_edit_t::BOX && ComponentMode();
         const bool enabled = m_kind == numeric_edit_t::BOX ? m_pWorkspace->pDocument != nullptr && !m_pWorkspace->pDocument->bReadOnly :
-                             !ComponentMode() && ( m_kind == numeric_edit_t::TRANSLATE ? MapWorkspace_CanMoveSelection( m_pWorkspace ) : MapWorkspace_CanEditSelection( m_pWorkspace ) );
+                             components ? MapToolGestures_CanTransformComponents( m_pWorkspace, ComponentKind() ) :
+                             m_kind == numeric_edit_t::TRANSLATE ? MapWorkspace_CanMoveSelection( m_pWorkspace ) : MapWorkspace_CanTurnSelection( m_pWorkspace );
         const f64 step = m_kind == numeric_edit_t::SCALE ? 0.1 : m_kind == numeric_edit_t::ROTATE ? std::max( m_pWorkspace->angleSnap, 1.0 ) : m_pWorkspace->gridSize;
         for ( int axis = 0; axis < 3; ++axis ) {
             if ( m_kind == numeric_edit_t::BOX ) {
@@ -393,11 +890,18 @@ private:
             }
         }
         if ( m_kind == numeric_edit_t::BOX ) { m_pApply->setText( staged ? QStringLiteral( "Create Staged Primitive" ) : quad ? QStringLiteral( "Create Quad" ) : QStringLiteral( "Create Brush" ) ); }
+        if ( m_kind != numeric_edit_t::BOX ) {
+            const QString what = components ? QStringLiteral( "Components" ) : QStringLiteral( "Selection" );
+            m_pApply->setText( ( m_kind == numeric_edit_t::TRANSLATE ? QStringLiteral( "Move " ) : m_kind == numeric_edit_t::ROTATE ? QStringLiteral( "Rotate " ) : QStringLiteral( "Scale " ) ) + what );
+        }
         m_pApply->setEnabled( enabled );
-        if ( m_pClone != nullptr ) { m_pClone->setEnabled( enabled ); }
-        m_pFeedback->setText( enabled ? QStringLiteral( "One edit = one undo step." ) :
+        if ( m_pClone != nullptr ) { m_pClone->setEnabled( enabled && !components ); } // Components are moved, never cloned.
+        m_pFeedback->setText( enabled ? components ? QStringLiteral( "Moves the selected components; the rest of the object stays. One edit = one undo step." ) :
+                                                     QStringLiteral( "One edit = one undo step." ) :
                              m_kind == numeric_edit_t::BOX ? QStringLiteral( "The map is read-only." ) :
-                             ComponentMode() ? QStringLiteral( "Switch to Objects or Meshes for whole-object transforms. Component transforms are not available here yet." ) :
+                             components ? ( m_kind != numeric_edit_t::TRANSLATE && m_pWorkspace->elementMode == map_element_mode_t::FACES && MapWorkspace_HasBrushFace( m_pWorkspace ) ?
+                                 QStringLiteral( "A brush face only moves. Convert the brush to a mesh to rotate or scale its faces." ) :
+                                 QStringLiteral( "Select mesh vertices, edges or a face to transform them. Objects and Meshes modes transform whole objects." ) ) :
                              QStringLiteral( "Select supported objects to edit. Mixed or unsupported selections are left intact." ) );
         if ( staged ) {
             m_pFeedback->setText( m_pWorkspace->editPreview.status == map_status_t::OK ?
@@ -432,10 +936,16 @@ private:
 
     void Apply( bool clone )
     {
-        // Component selections share their parent's object selection. Until a
-        // component adapter exists, never interpret those IDs as a root edit.
-        if ( m_kind != numeric_edit_t::BOX && ComponentMode() ) { Refresh(); return; }
         const math::vec3d_t values{ m_values[0]->value(), m_values[1]->value(), m_values[2]->value() };
+        // Component selections share their parent's object selection: they
+        // go through the component transform, never a root edit.
+        if ( m_kind != numeric_edit_t::BOX && ComponentMode() ) {
+            const auto where = m_pPivot == nullptr ? map_component_pivot_t::CENTER : static_cast<map_component_pivot_t>( m_pPivot->currentIndex() );
+            const bool moved = !clone && MapToolGestures_TransformComponents( m_pWorkspace, ComponentKind(), values, where );
+            Refresh();
+            if ( moved ) { m_pFeedback->setText( QStringLiteral( "Applied. Undo restores the previous geometry." ) ); }
+            return;
+        }
         bool success = false;
         if ( m_kind == numeric_edit_t::BOX ) {
             success = MapWorkspace_HasBlockPreview( m_pWorkspace ) ? MapWorkspace_CommitBlockPreview( m_pWorkspace ) :
@@ -444,7 +954,8 @@ private:
             success = MapWorkspace_TranslateSelection( m_pWorkspace, values, clone );
         } else {
             const map_bounds_t bounds = SelectedBounds( *m_pWorkspace );
-            const math::vec3d_t pivot = m_pPivot->currentIndex() == 0 ? MapBounds_Center( bounds ) : math::vec3d_t{};
+            math::vec3d_t pivot = m_pPivot->currentIndex() == 0 ? MapBounds_Center( bounds ) : math::vec3d_t{};
+            if ( m_pPivot->currentIndex() == 2 && !MapToolGestures_Pivot( m_pWorkspace, &pivot ) ) { pivot = MapBounds_Center( bounds ); }
             success = m_kind == numeric_edit_t::ROTATE ? MapWorkspace_RotateSelection( m_pWorkspace, values, pivot ) : MapWorkspace_ScaleSelection( m_pWorkspace, values, pivot );
         }
         if ( !success && m_kind == numeric_edit_t::BOX && MapWorkspace_HasBlockPreview( m_pWorkspace ) ) { Refresh(); }
@@ -462,7 +973,7 @@ private:
     QLabel *m_pFeedback{};
 };
 
-// Single authored mesh face operations. The selector holds persistent IDs;
+// Authored mesh face operations. The selector holds persistent IDs;
 // settings controls and command buttons share the registry with menus/keys.
 class mesh_face_controls_t final : public QWidget {
 public:
@@ -472,7 +983,7 @@ public:
         auto *layout = new QVBoxLayout( this ); layout->setContentsMargins( 6, 5, 6, 6 ); layout->setSpacing( 5 );
         m_identity = new QLabel( this ); m_identity->setObjectName( QStringLiteral( "MapMeshFaceIdentity" ) ); m_identity->setWordWrap( true ); layout->addWidget( m_identity );
         m_faces = new QComboBox( this ); m_faces->setObjectName( QStringLiteral( "MapMeshFaceSelector" ) );
-        m_faces->setToolTip( QStringLiteral( "Pick one authored mesh face in a view, or choose its persistent ID here." ) );
+        m_faces->setToolTip( QStringLiteral( "Choose one authored face here, or Shift-click faces in a view to select a region." ) );
         QObject::connect( m_faces, &QComboBox::currentIndexChanged, this, [this]( int index ) {
             const u64 id = m_faces->itemData( index ).toULongLong();
             if ( m_root != 0 && id != 0 ) { MapWorkspace_SelectMeshFace( m_ws, m_root, id ); }
@@ -481,18 +992,18 @@ public:
         layout->addWidget( m_faces );
         auto *form = new QFormLayout();
         for ( const auto &[path, label] : { std::pair{ "editor.map.mesh_extrude_distance", "Extrude distance" }, std::pair{ "editor.map.mesh_inset_distance", "Corner inset distance" },
-                                            std::pair{ "editor.map.mesh_slice_u", "Quad Slice U cells" }, std::pair{ "editor.map.mesh_slice_v", "Quad Slice V cells" } } ) {
+                                            std::pair{ "editor.map.mesh_inset_width", "Inset width" }, std::pair{ "editor.map.mesh_slice_u", "Quad Slice U cells" }, std::pair{ "editor.map.mesh_slice_v", "Quad Slice V cells" } } ) {
             if ( auto *control = gui::EditorSettingControl_Create( this, &ws->pGui->settings, path ) ) { form->addRow( QString::fromLatin1( label ), control ); }
         }
         layout->addLayout( form );
-        for ( const auto &[id, button] : { std::pair{ "map.mesh.extrude", &m_extrude }, std::pair{ "map.mesh.inset", &m_inset }, std::pair{ "map.mesh.quad_slice", &m_slice } } ) {
+        for ( const auto &[id, button] : { std::pair{ "map.mesh.extrude", &m_extrude }, std::pair{ "map.mesh.inset", &m_inset }, std::pair{ "map.mesh.inset_width", &m_insetWidth }, std::pair{ "map.mesh.quad_slice", &m_slice } } ) {
             const auto *command = EditorCommands_Find( &ws->pGui->commands, StringView_FromCString( id ) );
             *button = new QPushButton( command != nullptr ? QString::fromUtf8( command->pLabel ) : QString::fromLatin1( id ), this );
             ( *button )->setObjectName( QString::fromLatin1( id ) );
             if ( command != nullptr ) { ( *button )->setIcon( gui::EditorStyle_Icon( ws->pGui->style, command->pIcon ) ); ( *button )->setToolTip( QString::fromUtf8( command->pDescription ) ); }
             QObject::connect( *button, &QPushButton::clicked, this, [this, id]() {
                 const auto result = EditorCommands_Execute( &m_ws->pGui->commands, StringView_FromCString( id ), {} );
-                m_feedback->setText( result == command_result_t::OK ? QStringLiteral( "Applied. The retained source face stays selected; Undo restores the previous geometry." ) :
+                m_feedback->setText( result == command_result_t::OK ? QStringLiteral( "Applied. Retained source faces stay selected; Undo restores the previous geometry." ) :
                     QStringLiteral( "Face unchanged. Check the selection and distance; the result must remain valid geometry." ) );
             } );
             layout->addWidget( *button );
@@ -519,17 +1030,19 @@ public:
             }
         }
         m_faces->setEnabled( m_root != 0 );
-        m_identity->setText( active ? QStringLiteral( "Mesh #%1 · Face #%2" ).arg( m_ws->selectedMeshFaceObject ).arg( m_ws->selectedMeshFaceId ) : QStringLiteral( "Select one mesh face in Faces mode." ) );
-        m_extrude->setEnabled( MapWorkspace_CanEditMeshFace( m_ws ) ); m_inset->setEnabled( MapWorkspace_CanEditMeshFace( m_ws ) );
+        m_identity->setText( active ? QStringLiteral( "Mesh #%1 · %2 selected · Active face #%3" ).arg( m_ws->selectedMeshFaceObject ).arg( MapWorkspace_MeshFaces( m_ws ).nCount ).arg( m_ws->selectedMeshFaceId ) : QStringLiteral( "Select mesh faces in Faces mode." ) );
+        m_extrude->setEnabled( ( EditorCommands_State( &m_ws->pGui->commands, StringView_FromCString( "map.mesh.extrude" ) ) & COMMAND_STATE_ENABLED ) != 0 );
+        m_inset->setEnabled( ( EditorCommands_State( &m_ws->pGui->commands, StringView_FromCString( "map.mesh.inset" ) ) & COMMAND_STATE_ENABLED ) != 0 );
+        m_insetWidth->setEnabled( ( EditorCommands_State( &m_ws->pGui->commands, StringView_FromCString( "map.mesh.inset_width" ) ) & COMMAND_STATE_ENABLED ) != 0 );
         m_slice->setEnabled( ( EditorCommands_State( &m_ws->pGui->commands, StringView_FromCString( "map.mesh.quad_slice" ) ) & COMMAND_STATE_ENABLED ) != 0 );
-        m_feedback->setText( QStringLiteral( "Extrude creates side walls. Inset moves corners toward the center. Quad Slice creates a U/V grid in a four-corner face; U follows corners 0–1 and V follows 0–3. Shared boundary vertices connect neighboring faces. Mesh face dragging and multi-face editing are not available yet." ) );
+        m_feedback->setText( QStringLiteral( "Extrude raises one face or an edge-connected coplanar region, adding walls only around its perimeter. Corner Inset moves corners radially. Inset Face (Width) makes a measured border on one planar convex face. Both require exactly one face. Quad Slice operates on the active four-corner face; U follows corners 0–1 and V follows 0–3. Shared boundary vertices connect neighboring faces." ) );
     }
 private:
     map_workspace_t *m_ws{};
     u64 m_root{};
     QLabel *m_identity{}, *m_feedback{};
     QComboBox *m_faces{};
-    QPushButton *m_extrude{}, *m_inset{}, *m_slice{};
+    QPushButton *m_extrude{}, *m_inset{}, *m_insetWidth{}, *m_slice{};
 };
 
 // Read the authored surface on each notification. No geometry pointer survives
@@ -568,7 +1081,7 @@ public:
         m_basis = new QLabel( this ); m_basis->setObjectName( QStringLiteral( "MapFaceTextureBasis" ) );
         m_basis->setWordWrap( true ); m_basis->setTextInteractionFlags( Qt::TextSelectableByMouse );
         m_basisSection = gui::EditorSection_Create( this, QStringLiteral( "Projection basis" ), m_basis, false ); layout->addWidget( m_basisSection );
-        m_note = new QLabel( QStringLiteral( "UV state is read only; UV editing is not available yet." ), this );
+        m_note = new QLabel( QStringLiteral( "This state is read only; change scale, shift, rotation and alignment in the Texture section below." ), this );
         m_note->setObjectName( QStringLiteral( "MapFaceTextureStateNote" ) ); m_note->setWordWrap( true ); m_note->setProperty( "muted", true );
         layout->addWidget( m_note ); RefreshState();
     }
@@ -689,7 +1202,7 @@ public:
         pLayout->addLayout( pDistance );
         m_pPushPull = new QToolButton( this );
         m_pPushPull->setAccessibleName( QStringLiteral( "Push / Pull Face" ) );
-        m_pPushPull->setToolTip( QStringLiteral( "Push / Pull Face\nApply the distance along this face's outward normal. In Faces mode, pick a brush face outline in 2D or a face in 3D, then drag its normal handle for the same grid-snapped operation. If the normal points into the 2D view, use another pane or this distance. In-plane face scaling and mesh face dragging are planned. One Undo restores the brush." ) );
+        m_pPushPull->setToolTip( QStringLiteral( "Push / Pull Face\nApply the distance along this face's outward normal. In Faces mode, pick a brush face outline in 2D or a face in 3D, then drag its normal handle for the same grid-snapped operation. If the normal points into the 2D view, use another pane or this distance. The Translate tool also drags a picked face with a gizmo. One Undo restores the brush." ) );
         m_pPushPull->setIconSize( QSize( 20, 20 ) ); m_pPushPull->setFixedSize( 30, 30 );
         m_pPushPull->setToolButtonStyle( Qt::ToolButtonIconOnly ); m_pPushPull->setProperty( "compactIcon", true );
         m_pPushPull->setObjectName( QStringLiteral( "MapBrushFacePushPull" ) );
@@ -822,6 +1335,40 @@ public:
         auto *pLayout = new QVBoxLayout( this );
         pLayout->setContentsMargins( 6, 5, 6, 6 );
         pLayout->setSpacing( 5 );
+        // Hammer 5's Keep Mode: which side stays, one click each (the plane's
+        // back, its front, or both halves), and whether mesh cuts are closed.
+        auto *pKeep = new QHBoxLayout();
+        pKeep->setSpacing( 4 );
+        pKeep->addWidget( new QLabel( QStringLiteral( "Keep" ), this ) );
+        static constexpr const char *kModes[]{ "back", "front", "both" };
+        // A staged cut switches side live; nothing is cut until Enter.
+        static constexpr const char *kTips[]{ "Keep the back side (−): the part behind the plane's normal. Switch any time before Enter (Shift+X cycles).",
+                                              "Keep the front side (+): the part the normal points to. Switch any time before Enter (Shift+X cycles).",
+                                              "Keep both: split into two pieces. Switch any time before Enter (Shift+X cycles)." };
+        for ( int i = 0; i < 3; ++i ) {
+            auto *pButton = new QToolButton( this );
+            pButton->setObjectName( QStringLiteral( "MapClipKeep_%1" ).arg( QLatin1String( kModes[i] ) ) );
+            pButton->setCheckable( true );
+            pButton->setAutoRaise( true );
+            pButton->setIcon( KeepIcon( i ) );
+            pButton->setIconSize( QSize( 30, 20 ) );
+            pButton->setToolTip( QString::fromUtf8( kTips[i] ) );
+            QObject::connect( pButton, &QToolButton::clicked, this, [this, i]() { WriteChoice( "editor.map.clip_mode", kModes[i] ); RefreshState(); } );
+            pKeep->addWidget( pButton );
+            m_keep[i] = pButton;
+        }
+        pKeep->addStretch( 1 );
+        pLayout->addLayout( pKeep );
+        m_pCap = new QCheckBox( QStringLiteral( "Cap new surfaces" ), this );
+        m_pCap->setObjectName( QStringLiteral( "MapClipCap" ) );
+        m_pCap->setToolTip( QStringLiteral( "Close the cut of a clipped mesh with new faces. Brushes are always closed." ) );
+        QObject::connect( m_pCap, &QCheckBox::toggled, this, [this]( bool checked ) {
+            const auto *pSetting = EditorSettings_Find( &m_pWorkspace->pGui->settings, StringView_FromCString( "editor.map.clip_cap" ) );
+            if ( pSetting == nullptr ) { return; }
+            setting_value_t value{}; value.type = pSetting->type; value.bValue = checked ? CY_TRUE : CY_FALSE;
+            ( void )EditorSettings_Write( &m_pWorkspace->pGui->settings, settings_scope_t::USER, *pSetting, value );
+        } );
+        pLayout->addWidget( m_pCap );
         m_pRule = new QLabel( this );
         m_pRule->setObjectName( QStringLiteral( "MapClipRetainRule" ) );
         m_pRule->setToolTip( QStringLiteral( "The normal points toward Front. For normal X=1, Y=0, Z=0 and d=-64, Back keeps X ≤ 64 and Front keeps X ≥ 64. Both retains the two halves." ) );
@@ -864,10 +1411,10 @@ public:
         m_pDistance->setValue( bounds.bHas ? -MapBounds_Center( bounds ).x : 0.0 );
         pDistance->addWidget( m_pDistance, 1 );
         pLayout->addLayout( pDistance );
-        m_pApply = new QPushButton( QStringLiteral( "Clip Brushes" ), this );
+        m_pApply = new QPushButton( QStringLiteral( "Clip Selection" ), this );
         m_pApply->setObjectName( QStringLiteral( "MapClipApply" ) );
         m_pApply->setIcon( gui::EditorStyle_Icon( pWorkspace->pGui->style, "tool-clip" ) );
-        m_pApply->setToolTip( QStringLiteral( "Cut selected brushes with this plane. New cut faces use the active material. One undo restores the original brushes." ) );
+        m_pApply->setToolTip( QStringLiteral( "Cut the selected brushes and meshes with this plane. New cut faces use the active material (meshes: the material of the faces they close). One undo restores the originals." ) );
         QObject::connect( m_pApply, &QPushButton::clicked, this, [this]() {
             const math::planed_t input{ { m_normals[0]->value(), m_normals[1]->value(), m_normals[2]->value() }, m_pDistance->value() };
             const auto mode = MapWorkspace_ClipMode( m_pWorkspace );
@@ -877,7 +1424,7 @@ public:
                 return;
             }
             const bool success = MapWorkspace_ClipSelection( m_pWorkspace, normalized, mode );
-            m_pFeedback->setText( success ? QStringLiteral( "Brushes clipped. Undo restores the originals." ) : QStringLiteral( "Nothing changed. Check that the plane intersects the selected brushes." ) );
+            m_pFeedback->setText( success ? QStringLiteral( "Clipped. Undo restores the originals." ) : QStringLiteral( "Nothing changed. Check that the plane crosses the selection." ) );
         } );
         pLayout->addWidget( m_pApply );
         m_pFeedback = new QLabel( this );
@@ -889,7 +1436,7 @@ public:
 
     void RefreshState()
     {
-        const bool active = MapWorkspace_CanEditBrushSelection( m_pWorkspace );
+        const bool active = MapWorkspace_CanClipSelection( m_pWorkspace );
         m_pApply->setEnabled( active );
         m_pDistance->setSingleStep( m_pWorkspace->gridSize );
         const auto &preview = m_pWorkspace->editPreview;
@@ -921,11 +1468,46 @@ public:
             }
         } else { m_bHasDisplayedPlane = false; }
         const auto mode = MapWorkspace_ClipMode( m_pWorkspace );
+        for ( int i = 0; i < 3; ++i ) {
+            const QSignalBlocker blocker( m_keep[i] );
+            m_keep[i]->setChecked( ( i == 0 && mode == map_brush_clip_mode_t::BACK ) || ( i == 1 && mode == map_brush_clip_mode_t::FRONT ) ||
+                                   ( i == 2 && mode == map_brush_clip_mode_t::BOTH ) );
+        }
+        {
+            const QSignalBlocker blocker( m_pCap );
+            m_pCap->setChecked( EditorSettings_Bool( &m_pWorkspace->pGui->settings, "editor.map.clip_cap", CY_TRUE ) );
+        }
         m_pRule->setText( mode == map_brush_clip_mode_t::BACK ? QStringLiteral( "Back: keep n · p + d ≤ 0" ) :
                          mode == map_brush_clip_mode_t::FRONT ? QStringLiteral( "Front: keep n · p + d ≥ 0" ) : QStringLiteral( "Both: retain both sides of the plane" ) );
-        m_pFeedback->setText( active ? QStringLiteral( "Numeric plane clipping affects every selected brush." ) : QStringLiteral( "Select editable brushes only." ) );
+        m_pFeedback->setText( active ? QStringLiteral( "Numeric plane clipping affects every selected brush and mesh." ) : QStringLiteral( "Select brushes or meshes to clip." ) );
     }
 private:
+    // A box split down the middle, the kept half (or both) filled green.
+    static QIcon KeepIcon( int which )
+    {
+        QPixmap pixmap( 60, 40 );
+        pixmap.fill( Qt::transparent );
+        QPainter painter( &pixmap );
+        painter.setRenderHint( QPainter::Antialiasing, true );
+        const QRectF box( 6, 6, 48, 28 );
+        const QColor kept( 63, 185, 80 );
+        if ( which == 0 || which == 2 ) { painter.fillRect( QRectF( box.left(), box.top(), box.width() * 0.5, box.height() ), kept ); }
+        if ( which == 1 || which == 2 ) { painter.fillRect( QRectF( box.center().x(), box.top(), box.width() * 0.5, box.height() ), kept ); }
+        painter.setPen( QPen( QColor( 220, 220, 220 ), 2.5 ) );
+        painter.drawRect( box );
+        painter.setPen( QPen( QColor( 255, 210, 60 ), 3.0 ) );
+        painter.drawLine( QPointF( box.center().x(), 2 ), QPointF( box.center().x(), 38 ) );
+        return QIcon( pixmap );
+    }
+    void WriteChoice( const char *pPath, const char *pValue )
+    {
+        const auto *pSetting = EditorSettings_Find( &m_pWorkspace->pGui->settings, StringView_FromCString( pPath ) );
+        if ( pSetting == nullptr ) { return; }
+        setting_value_t value{}; value.type = pSetting->type; value.text = StringView_FromCString( pValue );
+        ( void )EditorSettings_Write( &m_pWorkspace->pGui->settings, settings_scope_t::USER, *pSetting, value );
+    }
+    QToolButton *m_keep[3]{};
+    QCheckBox *m_pCap{};
     map_workspace_t *m_pWorkspace{};
     QDoubleSpinBox *m_normals[3]{};
     QDoubleSpinBox *m_pDistance{};
@@ -975,31 +1557,70 @@ struct tool_panel_t {
     std::initializer_list<tool_group_t> groups;
 };
 
+// Keep the edge workflow available while changing transform tools.
+constexpr tool_group_t kEdgeDragGroup{
+    "Edge dragging", { "editor.map.edge_drag_action" },
+    { "map.tool.translate", "map.tool.rotate", "map.tool.scale", "map.tool.pivot", "map.pivot.clear" },
+    kEdgeMode, false, "MapEdgeDragSection",
+    "Move deforms the picked edges. Extend grows connected faces with move, rotate and scale gizmos. "
+    "Place a Pivot away from the edge, then use Rotate to grow a curve in successive angle-snapped steps. "
+    "Select also shows move arrows; grabbing the edge itself keeps direct dragging. "
+    "Direct 3D edge drags stay horizontal; hold Alt after starting to raise or lower."
+};
+
 constexpr tool_panel_t kToolPanels[]{
     // SELECT
     { "Click in any view to select; Ctrl/Command+click toggles and Shift+click adds. In Objects or Groups mode, drag a selected object or an RGB move handle to move the selection. Drag a 2D resize control on the real boundary or a 3D RGB bounds handle to resize with the opposite side fixed. Zoom in or use another pane if handles are too close to distinguish. With multiple objects, Each applies the same grid-distance change to every object; Group scales their combined bounds. Hold Shift when grabbing a resize handle to widen both sides around the center. The anchor is captured at press. Ctrl/Command bypasses snapping. A dashed red source outline and travel guide mark the starting position during movement. Dimensions update in every view. Double-click an object to inspect it, or empty space for view options.",
       { { keymap_section_t::MOUSE, "map.viewport" }, { keymap_section_t::BINDINGS, "map.viewport" }, { keymap_section_t::MOUSE, "map.viewport.2d" } },
-      { { "Vertex Editing", {}, { "map.mesh.merge", "map.mesh.collapse", "map.mesh.bevel", "map.mesh.dissolve", "map.mesh.fill_hole", "map.select.grow", "map.select.shrink", "map.pivot.clear" },
-          kVertexMode, true, "MapToolModeVertices", "Pick mesh vertices. Convert brushes to meshes first. Vertex transforms and topology edits are planned." },
+      { kEdgeDragGroup,
+        { "Vertex Editing", {}, { "map.mesh.merge", "map.mesh.collapse", "map.mesh.bevel", "map.mesh.dissolve", "map.mesh.fill_hole", "map.mesh.connect_edges", "map.texture.weld_uvs",
+                                  "map.mesh.radial_align", "map.mesh.offset", "map.mesh.flatten", "map.mesh.flatten_x", "map.mesh.flatten_y", "map.mesh.flatten_z",
+                                  "map.select.grow", "map.select.shrink", "map.select.connected", "map.select.path", "map.select.invert_components", "map.select.to_edges", "map.pivot.clear", "map.mesh.project" },
+          kVertexMode, true, "MapToolModeVertices", "Pick mesh vertices. Convert brushes to meshes first. Merge, Collapse, Connect, Bevel, Dissolve, Fill Hole, Weld UVs, Radial Align, Offset, Flatten and Snap act on the picked vertices; the Translate, Rotate and Scale tools drag them with a gizmo." },
         { "Vertex snapping", { "editor.grid.size", "editor.grid.snap" }, { "map.brush.snap_to_grid" }, kVertexMode },
-        { "Edge Editing", {}, { "map.select.loop", "map.select.ring", "map.mesh.dissolve", "map.mesh.collapse", "map.mesh.bevel", "map.mesh.extrude_edges", "map.mesh.connect_edges", "map.mesh.extend_edges", "map.mesh.merge", "map.mesh.split_edges", "map.mesh.snap_edge_to_edge", "map.mesh.fill_hole", "map.mesh.bridge", "map.mesh.normals_hard", "map.mesh.normals_soft", "map.mesh.normals_default", "map.texture.weld_uvs", "map.select.ribs", "map.pivot.clear", "map.tool.edge_cut", "map.tool.edge_arc", "map.mesh.radial_align" },
-          kEdgeMode, true, "MapToolModeEdges", "Pick mesh edges; use Select Loop or Select Ring. Convert brushes to meshes first. Other topology edits are planned." },
-        { "Face Editing", {}, { "map.mesh.bevel", "map.mesh.solidify", "map.mesh.bridge", "map.mesh.fill_hole", "map.mesh.split", "map.mesh.subdivide", "map.mesh.smooth", "map.select.same_material" },
-          kFaceMode, true, "MapToolModeFaces", "Brush faces: normal Push / Pull and material assignment. In 2D, pick a face outline; a head-on normal needs another pane or Distance. Mesh faces: Extrude, Inset and Quad Slice. In-plane face scaling, mesh face dragging and other topology operations are planned." },
+        { "Edge Editing", {}, { "map.select.loop", "map.select.ring", "map.mesh.dissolve", "map.mesh.collapse", "map.mesh.bevel", "map.mesh.extrude_edges", "map.mesh.connect_edges", "map.mesh.extend_edges", "map.mesh.merge", "map.mesh.split_edges", "map.mesh.snap_edge_to_edge", "map.mesh.fill_hole", "map.mesh.bridge", "map.mesh.normals_hard", "map.mesh.normals_soft", "map.mesh.normals_default", "map.texture.weld_uvs", "map.select.ribs", "map.pivot.clear", "map.tool.edge_cut", "map.tool.edge_arc", "map.mesh.radial_align", "map.mesh.seam_mark", "map.mesh.seam_clear",
+                                "map.mesh.slide_loop", "map.mesh.offset", "map.mesh.flatten", "map.select.connected", "map.select.invert_components", "map.select.boundary_edges", "map.select.sharp_edges", "map.select.to_vertices" },
+          kEdgeMode, true, "MapToolModeEdges", "Pick mesh edges; use Select Loop or Select Ring. Convert brushes to meshes first. Open edges extrude, extend, bridge and fill. Snap Edge to Edge welds the other edge onto the one picked last; Slide Edge Loop moves a loop between its neighbours. Edge Cut and Edge Arc are tools; the Translate, Rotate and Scale tools drag edges with a gizmo." },
+        // Hammer 5's Faces operations, in its order, then the rest.
+        { "Face Editing", {}, { "map.tool.apply_material", "map.texture.fast", "map.texture.hotspot", "map.texture.replace", "map.mesh.merge", "map.mesh.extract_faces", "map.mesh.split", "map.mesh.bridge", "map.mesh.bevel",
+                                "map.mesh.thicken_faces", "map.mesh.radial_align", "map.mesh.combine_faces", "map.mesh.collapse", "map.mesh.remove_bad_faces", "map.mesh.repair", "map.select.uv_island", "map.pivot.clear", "map.tool.edge_cut",
+                                "map.mesh.extrude", "map.mesh.inset", "map.mesh.inset_width", "map.mesh.solidify", "map.mesh.fill_hole", "map.mesh.offset", "map.mesh.flatten", "map.mesh.delete_face", "map.brush.extrude_new",
+                                "map.select.same_material", "map.select.grow", "map.select.shrink", "map.select.connected", "map.select.invert_components", "map.select.coplanar",
+                                "map.select.faces_facing", "map.select.same_corners", "map.select.faces_material", "map.select.face_path", "map.mesh.project" },
+          kFaceMode, true, "MapToolModeFaces", "Brush faces: normal Push / Pull, Extrude to New Brush and material assignment. In 2D, pick a face outline; a head-on normal needs another pane or Distance. Mesh faces: Shift+click picks several; numeric Extrude raises a connected coplanar region. Corner Inset requires one face; Quad Slice acts on the active face. Split, Offset, Flatten, Delete Face and Bridge (two faces) use the face set. Translate, Rotate and Scale transform picked faces with a gizmo." },
+        { "Brush face tools", { "editor.map.sweep_path", "editor.map.sweep_distance", "editor.map.sweep_sideways", "editor.map.sweep_angle", "editor.map.sweep_segments",
+                                "editor.map.sweep_iterations" }, { "map.brush.sweep", "map.patch.from_face", "map.brush.extrude_new", "map.texture.wrap_coplanar" }, kFaceMode },
+        { "Mapping and smoothing", { "editor.map.projection_axis", "editor.map.smoothing_group", "editor.map.sharp_edge_angle" },
+          { "map.texture.project_box", "map.texture.project_cylinder", "map.texture.project_planar", "map.mesh.smoothing_set", "map.mesh.smoothing_clear", "map.mesh.auto_hard_edges" },
+          kFaceMode | kRootModes },
+        { "Quad Slice", { "editor.map.mesh_slice_u", "editor.map.mesh_slice_v" }, { "map.mesh.quad_slice" }, kFaceMode },
+        { "Project onto World", { "editor.map.project_direction", "editor.map.project_offset" }, { "map.mesh.project" }, kVertexMode | kRootModes },
+        { "Displacement", { "editor.map.displacement_power", "editor.map.displacement_elevation", "editor.map.displacement_noise", "editor.map.displacement_noise_scale",
+                            "editor.map.displacement_octaves", "editor.map.displacement_seed" }, { "map.mesh.create_displacement", "map.tool.displace" }, kFaceMode },
+        { "Thicken", { "editor.map.thicken_distance" }, {}, kFaceMode },
+        { "Subdivision", {}, { "map.mesh.subdivision_increase", "map.mesh.subdivision_decrease", "map.mesh.subdivision_bake", "map.mesh.subdivision_level_0", "map.mesh.subdivision_level_1",
+                               "map.mesh.subdivision_level_2", "map.mesh.subdivision_level_3", "map.mesh.subdivision_level_4", "map.mesh.subdivision_level_5", "map.mesh.subdivide", "map.mesh.smooth" },
+          kFaceMode | kRootModes },
+        { "Modifiers", { "editor.map.array_axis", "editor.map.array_count", "editor.map.array_distance", "editor.map.radial_count", "editor.map.bend_angle", "editor.map.taper_factor" },
+          { "map.mesh.modifier_mirror_x", "map.mesh.modifier_mirror_y", "map.mesh.modifier_mirror_z", "map.mesh.modifier_array", "map.mesh.modifier_radial", "map.mesh.modifier_bend",
+            "map.mesh.modifier_taper", "map.mesh.modifiers_apply", "map.mesh.modifier_remove_last", "map.mesh.modifiers_clear" },
+          kFaceMode | kRootModes },
         { "Modify Texture", {}, { "map.texture.align_world", "map.texture.align_face", "map.texture.fit", "map.texture.shift", "map.texture.scale", "map.texture.rotate", "map.texture.justify_left", "map.texture.justify_center", "map.texture.justify_right", "map.texture.justify_top", "map.texture.justify_bottom", "map.texture.unwrap" }, kFaceMode },
-        { "Mesh Editing", {}, { "map.transform.dialog", "edit.duplicate", "edit.delete", "map.mesh.subdivide", "map.mesh.smooth", "map.mesh.solidify", "map.mesh.boolean_union", "map.mesh.boolean_subtract", "map.mesh.boolean_intersect", "map.mesh.to_brush" },
-          kMeshMode, true, "MapToolModeMeshes", "Select whole brushes and meshes. Root transforms and supported brush/mesh operations act on those objects; topology operations below remain planned." },
-        { "Object Editing", {}, { "map.transform.dialog", "edit.duplicate", "edit.delete" }, kObjectMode, true, "MapToolModeObjects" },
+        { "Mesh Editing", {}, { "map.transform.dialog", "edit.duplicate", "edit.delete", "map.mesh.subdivide", "map.mesh.smooth", "map.mesh.solidify", "map.mesh.boolean_union", "map.mesh.boolean_subtract", "map.mesh.boolean_intersect", "map.mesh.boolean_exclusive", "map.mesh.boolean_split", "map.mesh.to_brush",
+                                "map.mesh.weld", "map.mesh.merge_by_distance" },
+          kMeshMode, true, "MapToolModeMeshes", "Select whole brushes and meshes. Root transforms, Smooth, Solidify, Subdivide, the booleans and Convert to Brush act on those objects; Weld and Merge by Distance close seams." },
+        { "Object Editing", {}, { "map.transform.dialog", "edit.duplicate", "edit.delete", "map.entity.io" }, kObjectMode, true, "MapToolModeObjects" },
         { "Group Editing", {}, { "map.transform.dialog", "edit.duplicate", "edit.delete" }, kGroupMode, true, "MapToolModeGroups" },
-        { "Selection", { "editor.map.select_created" }, { "edit.select_all", "edit.invert_selection", "map.select.same_class", "map.select.same_material", "map.select.touching" }, kRootModes },
+        { "Selection", { "editor.map.select_created" }, { "edit.select_all", "edit.invert_selection", "map.select.same_class", "map.select.same_material", "map.select.touching", "map.select.inside", "map.select.tall" }, kRootModes },
+        { "Patch Matrix", { "editor.map.patch_thickness", "editor.map.patch_thicken_seams" }, { "map.patch.insert_row", "map.patch.insert_column", "map.patch.remove_row", "map.patch.remove_column", "map.patch.transpose", "map.patch.invert", "map.patch.thicken", "map.patch.cap" }, kRootModes },
         { "Movement snapping", { "editor.grid.size", "editor.grid.snap", "editor.grid.geometry_snap", "editor.grid.geometry_snap_pixels" }, {}, kRootModes },
         { "Bounds resizing", { "editor.map.resize_mode", "editor.map.resize_from_center" }, {}, kRootModes },
-        { "2D display", { "editor.viewport.show_selection_dimensions", "editor.viewport.show_selection_vertices", "editor.viewport.entity_names" },
+        { "2D display", { "editor.viewport.show_selection_dimensions", "editor.viewport.entity_names" },
           { "map.view.center_selection_2d" } },
-        { "3D display", { "editor.viewport.perspective.show_selection_bounds", "editor.viewport.perspective.show_selection_dimensions", "editor.viewport.perspective.show_selection_vertices", "editor.viewport.perspective.entity_names" },
+        { "3D display", { "editor.viewport.perspective.show_selection_bounds", "editor.viewport.perspective.show_selection_dimensions", "editor.viewport.perspective.entity_names" },
           { "map.view.center_selection_3d" } },
         { "Clipboard", { "editor.map.paste_offset" }, { "edit.copy", "edit.cut", "edit.paste", "edit.paste_special" }, kRootModes },
-        { "Brush operations", { "editor.map.hollow_thickness" }, { "map.brush.hollow", "map.brush.merge", "map.brush.to_mesh" }, kRootModes },
+        { "Brush operations", { "editor.map.hollow_thickness" }, { "map.brush.hollow", "map.brush.merge", "map.brush.to_mesh", "map.brush.make_room" }, kRootModes },
         { "Mesh objects", {}, { "map.mesh.flip_normals", "map.mesh.triangulate" }, kRootModes },
         { "Inspect and isolate", {}, { "view.properties.open", "map.hide.selected", "map.hide.unselected", "map.hide.show_all" }, kRootModes } } },
     // CAMERA
@@ -1012,14 +1633,16 @@ constexpr tool_panel_t kToolPanels[]{
         { "Navigation", { "editor.camera.fov", "editor.camera.zoom_to_cursor", "editor.camera.zoom_sensitivity", "editor.camera.invert_wheel" },
           { "map.go_to", "map.view.frame_all", "map.view.center_selection_3d", "map.view.center_selection_2d" } } } },
     // ENTITY
-    { "Choose the default class for point and brush entities.", { { keymap_section_t::BINDINGS, "map.tool.entity" } },
+    { "Click in a 2D view (on the grid) or on a surface in 3D to place the default point class there; it is selected. Ctrl/Command bypasses snapping.", { { keymap_section_t::BINDINGS, "map.tool.entity" } },
       { { "Entity defaults", { "editor.map.default_point_class", "editor.map.default_solid_class", "editor.map.write_all_properties", "editor.map.select_created" }, {} },
         { "Entity display", { "editor.viewport.entity_names", "editor.viewport.io_lines" }, { "map.select.same_class" } } } },
     // BLOCK
-    { "Draw a box, quad, wedge, cylinder, spike, or sphere in a map view, or create it from exact dimensions below. Shift + wheel adjusts depth during a drag. Refine the staged primitive using bounds handles; hold Shift at handle press to resize around its center, then confirm to create it.", { { keymap_section_t::BINDINGS, "map.tool.block" } },
-      { { "Creation defaults", { "editor.map.block_depth", "editor.map.select_created" }, {} },
+    { "Draw a box, quad, wedge, cylinder, spike, or sphere in a map view (in 3D it stands on the surface under the cursor, or the ground), or create it from exact dimensions below. Shift + wheel adjusts depth during a drag. Refine the staged primitive using bounds handles; hold Shift at handle press to resize around its center, then press Enter to create it (or turn on Create blocks on release; picking another tool also creates it).", { { keymap_section_t::BINDINGS, "map.tool.block" } },
+      { { "Creation defaults", { "editor.map.block_output", "editor.map.block_depth", "editor.map.block_create_on_release", "editor.map.select_created" }, {} },
         { "Bounds resizing", { "editor.map.resize_from_center" }, {} },
-        { "Primitive", { "editor.map.new_brush_shape", "editor.map.primitive_axis", "editor.map.cylinder_sides", "editor.map.cone_top_radius", "editor.map.sphere_subdivisions" }, {} },
+        { "Primitive", { "editor.map.new_brush_shape", "editor.map.primitive_axis", "editor.map.cylinder_sides", "editor.map.cone_top_radius", "editor.map.sphere_subdivisions",
+                         "editor.map.arch_thickness", "editor.map.arch_angle", "editor.map.arch_start", "editor.map.stairs_steps", "editor.map.stairs_direction",
+                         "editor.map.spiral_turn", "editor.map.spiral_inner", "editor.map.torus_tube" }, {} },
         { "New faces", { "editor.map.default_material", "editor.map.default_texture_scale" }, {} },
         { "Brush operations", { "editor.map.hollow_thickness", "editor.map.carve_mode" }, { "map.brush.hollow", "map.brush.carve", "map.brush.merge", "map.brush.to_mesh" } },
         { "Construction grid", { "editor.grid.size", "editor.grid.snap" }, {} } } },
@@ -1031,76 +1654,102 @@ constexpr tool_panel_t kToolPanels[]{
         { "Modify Texture", {}, { "map.texture.align_world", "map.texture.align_face", "map.texture.fit", "map.texture.shift", "map.texture.scale", "map.texture.rotate",
                                     "map.texture.justify_left", "map.texture.justify_center", "map.texture.justify_right", "map.texture.justify_top", "map.texture.justify_bottom", "map.texture.unwrap" } } } },
     // DECAL
-    { "Surface decal placement uses the active material.", { { keymap_section_t::BINDINGS, "map.tool.decal" } },
+    { "Click a surface to place an infodecal there with the active material.", { { keymap_section_t::BINDINGS, "map.tool.decal" } },
       { { "Material", { "editor.map.default_material" }, { "assets.browse_materials" } } } },
     // OVERLAY
-    { "Surface overlays use the active material.", { { keymap_section_t::BINDINGS, "map.tool.overlay" } },
+    { "Click a surface to place an info_overlay there with the active material, facing out of the surface.", { { keymap_section_t::BINDINGS, "map.tool.overlay" } },
       { { "Material", { "editor.map.default_material" }, { "assets.browse_materials" } } } },
     // CLIP
-    { "Drag a cutting line in a 2D view, or in 3D on the plane through the selection center perpendicular to the 3D plane axis. The line extrudes along that axis to define the Clip plane. Drag staged endpoints to adjust them. Confirm applies it; Cancel discards it. Repeat this tool to cycle Back, Front, and Both. Exact plane controls are also available.", { { keymap_section_t::BINDINGS, "map.tool.clip" } },
+    { "3D (Hammer 5): draw the cut across any face, or click point 1 and point 2; points lock onto vertices (Ctrl/Command places them freely), so you can cut from vertex to vertex. The cut stands straight through the face; a third click tilts it through all three points (Backspace takes point 3 back). With nothing selected, the first click picks what to cut. 2D: drag a cutting line; it extrudes along the view's depth. Drag staged points to adjust them. Confirm applies the cut; Cancel discards it. Keep Front, Back or Both below; repeat this tool to cycle them.", { { keymap_section_t::BINDINGS, "map.tool.clip" } },
       { { "Construction grid", { "editor.grid.size", "editor.grid.snap" }, {} },
-        { "Plane placement", { "editor.map.clip_axis" }, {} },
+        { "Plane placement", { "editor.map.clip_3d_placement", "editor.map.clip_axis" }, {} },
         { "Retained half-space", { "editor.map.clip_mode" }, {} },
         { "Mesh cutting", {}, { "map.mesh.slice" } } } },
     // VERTEX
-    { "Inspect vertex and edge topology operations.", { { keymap_section_t::BINDINGS, "map.tool.vertex" } },
-      { { "Snapping", { "editor.grid.size", "editor.grid.snap", "editor.viewport.show_selection_vertices" }, { "map.brush.snap_to_grid" } },
+    { "Drag the corners of the selected brushes and meshes. A brush rebuilds as a convex solid, as in TrenchBroom; a mesh vertex in the component selection moves the whole selection. Ctrl/Command bypasses snapping; click elsewhere to select.", { { keymap_section_t::BINDINGS, "map.tool.vertex" } },
+      { { "Snapping", { "editor.grid.size", "editor.grid.snap" }, { "map.brush.snap_to_grid" } },
         { "Topology", {}, { "map.mesh.merge", "map.mesh.collapse", "map.mesh.split", "map.mesh.dissolve", "map.mesh.triangulate", "map.mesh.fill_hole" } } } },
     // PATH
-    { "Path authoring uses the construction grid.", { { keymap_section_t::BINDINGS, "map.tool.path" } },
+    { "Click to place path_corner entities; each new corner becomes the previous corner's target. Confirm or Cancel starts a new path.", { { keymap_section_t::BINDINGS, "map.tool.path" } },
       { { "Construction grid", { "editor.grid.size", "editor.grid.snap" }, {} } } },
     // MEASURE
-    { "Read dimensions and coordinates in the map views.", { { keymap_section_t::BINDINGS, "map.tool.measure" } },
+    { "Drag to measure: on the grid plane in 2D, between surface points in 3D. Length and per-axis distances stay until the next drag or Cancel.", { { keymap_section_t::BINDINGS, "map.tool.measure" } },
       { { "Measurement display", { "editor.viewport.show_rulers", "editor.viewport.show_selection_dimensions", "editor.grid.size" }, {} } } },
     // TERRAIN
-    { "Terrain operations are grouped by the change they make to the surface.", { { keymap_section_t::BINDINGS, "map.tool.terrain" } },
-      { { "Surface", {}, { "map.terrain.raise", "map.terrain.lower", "map.terrain.smooth", "map.terrain.flatten", "map.terrain.paint" } },
-        { "Material", { "editor.map.default_material" }, { "assets.browse_materials" } } } },
+    { "Drag on a terrain to sculpt it: Raise (Ctrl/Command lowers), Lower, Smooth, or Flatten to the height the stroke started at. One stroke is one undo step; Escape cancels it. Create Terrain below makes a flat one. Material painting is not connected yet.", { { keymap_section_t::BINDINGS, "map.tool.terrain" } },
+      { { "Sculpt", { "editor.map.terrain_mode", "editor.map.terrain_radius", "editor.map.terrain_strength" }, { "map.terrain.raise", "map.terrain.lower", "map.terrain.smooth", "map.terrain.flatten" } },
+        { "Painting (planned)", {}, { "map.terrain.paint" } } } },
     // PATCH
-    { "Curved patch authoring uses the construction grid.", { { keymap_section_t::BINDINGS, "map.tool.patch" } },
+    { "Drag a box in a 2D view, or on a surface or the ground in 3D, to create a patch of the chosen shape. Cylinders, cones and discs run along the pane's depth by the block depth.", { { keymap_section_t::BINDINGS, "map.tool.patch" } },
       { { "Construction grid", { "editor.grid.size", "editor.grid.snap" }, {} },
+        { "Shape", { "editor.map.patch_shape", "editor.map.cylinder_sides", "editor.map.block_depth" }, {} },
         { "Material", { "editor.map.default_material" }, { "assets.browse_materials" } } } },
     // TRANSLATE
     { "Move the selection along an axis or plane. Enable Snap to geometry to align nearby brush, mesh, or patch bounds even when they were made on another grid. Edges meet edges and centers match centers; RGB Snap labels identify the target coordinate. The selection keeps its spacing. This works in 2D and with 3D axis or world-plane handles; free camera-plane movement keeps grid steps. Ctrl/Command temporarily bypasses both snap types.", { { keymap_section_t::BINDINGS, "map.tool.translate" } },
-      { { "Move steps", { "editor.grid.size", "editor.grid.snap", "editor.grid.geometry_snap", "editor.grid.geometry_snap_pixels", "editor.map.paste_offset", "editor.map.texture_lock" }, { "map.brush.snap_to_grid" } },
+      { kEdgeDragGroup,
+        { "Move steps", { "editor.grid.size", "editor.grid.snap", "editor.grid.geometry_snap", "editor.grid.geometry_snap_pixels", "editor.map.paste_offset", "editor.map.texture_lock" }, { "map.brush.snap_to_grid" } },
         { "Alignment", {}, { "map.align.left", "map.align.right", "map.align.top", "map.align.bottom" } } } },
     // ROTATE
     { "Rotate the selection about its pivot.", { { keymap_section_t::BINDINGS, "map.tool.rotate" } },
-      { { "Rotation", { "editor.grid.angle_snap", "editor.map.texture_lock" }, { "map.grid.angle_snap", "map.transform.rotate_cw", "map.transform.rotate_ccw" } } } },
+      { kEdgeDragGroup,
+        { "Rotation", { "editor.grid.angle_snap", "editor.map.texture_lock" }, { "map.grid.angle_snap", "map.transform.rotate_cw", "map.transform.rotate_ccw" } } } },
     // SCALE
     { "Scale the selection about its pivot.", { { keymap_section_t::BINDINGS, "map.tool.scale" } },
-      { { "Scale", { "editor.grid.scale_snap", "editor.map.texture_scale_lock" }, { "map.grid.scale_snap" } } } },
+      { kEdgeDragGroup,
+        { "Scale", { "editor.grid.scale_snap", "editor.map.texture_scale_lock" }, { "map.grid.scale_snap" } } } },
     // PIVOT
-    { "A pivot defines the center used by rotation and scaling.", { { keymap_section_t::BINDINGS, "map.tool.pivot" } },
-      { { "Construction grid", { "editor.grid.size", "editor.grid.snap" }, {} } } },
+    { "Click or drag in any view to place the pivot (2D: on the grid; 3D: on the surface). The Rotate and Scale tools, their numeric panels, Rotate 90 and the flips then turn and scale about it. Without one, the dashed marker shows the selection centre they use. Cancel or Clear Pivot removes it; right-click > Set Pivot Here places it too.", { { keymap_section_t::BINDINGS, "map.tool.pivot" } },
+      { { "Construction grid", { "editor.grid.size", "editor.grid.snap" }, { "map.pivot.clear", "map.tool.rotate", "map.tool.scale", "map.transform.rotate_cw", "map.transform.rotate_ccw", "map.transform.flip_horizontal", "map.transform.flip_vertical" } } } },
     // POLYGON
-    { "Polygon authoring uses the construction grid and active material.", { { keymap_section_t::BINDINGS, "map.tool.polygon" } },
-      { { "Construction", { "editor.grid.size", "editor.grid.snap", "editor.map.default_material", "editor.map.select_created" }, {} } } },
+    { "Click points in a 2D view, or on a surface in 3D (on the workplane when one is set). Click the first point or Confirm to extrude the polygon into a mesh by the block depth; Backspace removes the last point.", { { keymap_section_t::BINDINGS, "map.tool.polygon" } },
+      { { "Construction", { "editor.grid.size", "editor.grid.snap", "editor.map.block_depth", "editor.map.default_material", "editor.map.select_created" }, {} } } },
     // MIRROR
-    { "Reflect the selection across the view axes.", { { keymap_section_t::BINDINGS, "map.tool.mirror" } },
+    { "Drag a line in a 2D view to mirror the selection across it; hold Shift on release to mirror a copy and keep the original.", { { keymap_section_t::BINDINGS, "map.tool.mirror" } },
       { { "Reflection", { "editor.grid.snap", "editor.map.texture_lock" }, { "map.transform.flip_horizontal", "map.transform.flip_vertical" } } } },
     // PAINT
-    { "Material painting uses the active material.", { { keymap_section_t::BINDINGS, "map.tool.paint" } },
-      { { "Material", { "editor.map.default_material" }, { "assets.browse_materials", "map.terrain.paint" } } } },
+    { "Drag over a mesh to paint its vertex colours with the paint colour (or one channel); the shaded 3D view shows the result. Ctrl/Command paints back toward white. Convert brushes to meshes first.", { { keymap_section_t::BINDINGS, "map.tool.paint" } },
+      { { "Brush", { "editor.map.paint_channel", "editor.map.paint_color", "editor.map.paint_radius", "editor.map.paint_strength" }, {} },
+        { "Material", { "editor.map.default_material" }, { "assets.browse_materials", "map.terrain.paint" } } } },
     // EXTRUDE
-    { "Pick a brush face outline in 2D or a face in 3D, then drag its normal handle to push or pull its convex solid. If the normal points into the 2D view, use another pane or the Distance control. For an authored mesh, select one face and use Extrude or Corner inset below. In-plane face scaling and mesh face dragging are planned.", { { keymap_section_t::BINDINGS, "map.tool.extrude" } },
+    { "Pick a brush face outline in 2D or a face in 3D, then drag its normal handle to push or pull its convex solid. If the normal points into the 2D view, use another pane or the Distance control. For an authored mesh, numeric Extrude supports one face or a connected coplanar region. Corner Inset requires one face. Translate, Rotate and Scale transform picked faces with a gizmo.", { { keymap_section_t::BINDINGS, "map.tool.extrude" } },
       { { "Construction grid", { "editor.grid.size", "editor.grid.snap" }, {} },
-        { "Face operations", {}, { "map.mesh.extrude", "map.mesh.inset", "map.mesh.bevel", "map.mesh.solidify", "map.mesh.bridge", "map.mesh.fill_hole" } } } },
+        { "Face operations", {}, { "map.mesh.extrude", "map.mesh.inset", "map.mesh.inset_width", "map.mesh.bevel", "map.mesh.solidify", "map.mesh.bridge", "map.mesh.fill_hole" } } } },
     // KNIFE
-    { "Cut and separate mesh topology.", { { keymap_section_t::BINDINGS, "map.tool.knife" } },
+    { "Click points across a mesh: corners, edges and face interiors snap. Confirm cuts, Backspace removes the last point, Cancel discards the path.", { { keymap_section_t::BINDINGS, "map.tool.knife" } },
       { { "Cutting", { "editor.grid.snap" }, { "map.mesh.slice", "map.mesh.split", "map.mesh.dissolve" } } } },
     // LOOP_CUT
-    { "Work with edge loops, rings, and surface subdivision.", { { keymap_section_t::BINDINGS, "map.tool.loop_cut" } },
+    { "Hover a mesh edge and click to cut a loop across its ring at that position; Ctrl/Command cuts at the middle.", { { keymap_section_t::BINDINGS, "map.tool.loop_cut" } },
       { { "Loops and surfaces", {}, { "map.select.loop", "map.select.ring", "map.mesh.subdivide", "map.mesh.smooth" } } } },
     // EYEDROPPER
-    { "Inspect and choose the active surface material.", { { keymap_section_t::BINDINGS, "map.tool.eyedropper" } },
+    { "Click a face to make its material the active material.", { { keymap_section_t::BINDINGS, "map.tool.eyedropper" } },
       { { "Material", { "editor.map.default_material" }, { "assets.browse_materials", "map.select.same_material", "map.texture.replace" } } } },
     // WORKPLANE
-    { "A workplane defines the construction orientation for drawing tools.", { { keymap_section_t::BINDINGS, "map.tool.workplane" } },
+    { "Click a face in the 3D view to make its plane the workplane: in 3D the Entity, Polygon, Patch, Path and Curve tools then place on it, and its grid stays visible until Cancel in this tool clears it.", { { keymap_section_t::BINDINGS, "map.tool.workplane" } },
       { { "Construction grid", { "editor.grid.size", "editor.grid.snap", "editor.grid.show_3d" }, {} } } },
     // CURVE
-    { "Curve authoring uses the construction grid.", { { keymap_section_t::BINDINGS, "map.tool.curve" } },
-      { { "Construction grid", { "editor.grid.size", "editor.grid.snap" }, {} } } },
+    { "Click path points, then Confirm. Straight and Smooth make solid strips or cables; Hollow Pipe makes inner and outer walls with open bores and annular end rims. Hollow Pipe supports open Mesh paths only. The viewport previews the path; geometry is built on Confirm. Backspace removes the last point, Cancel discards the path.", { { keymap_section_t::BINDINGS, "map.tool.curve" } },
+      { { "Construction grid", { "editor.grid.size", "editor.grid.snap" }, {} },
+        { "Shape", { "editor.map.curve_shape", "editor.map.curve_output", "editor.map.curve_profile", "editor.map.curve_closed", "editor.map.wall_join", "editor.map.lathe_angle", "editor.map.cylinder_sides" }, {} },
+        { "Dimensions", { "editor.map.curve_width", "editor.map.curve_height", "editor.map.curve_outer_radius", "editor.map.curve_wall_thickness", "editor.map.default_material" }, {} } } },
+    // EDGE_CUT
+    { "Click points on mesh edges or corners; consecutive points that share a face are cut across it. Ctrl/Command snaps to the edge's middle. Confirm cuts, Backspace removes the last point, Cancel discards the path.",
+      { { keymap_section_t::BINDINGS, "map.tool.knife" } },
+      { { "Cutting", {}, { "map.mesh.connect_edges", "map.mesh.split_edges", "map.mesh.dissolve" } } } },
+    // EDGE_ARC
+    { "Select a chain of mesh edges in Edges mode, then drag in a view: the chain bends into a circular arc between its two ends, as high as the drag. Release applies; Escape cancels.",
+      { { keymap_section_t::BINDINGS, "map.tool.knife" } },
+      { { "Arc", { "editor.grid.snap" }, { "map.select.loop", "map.mesh.radial_align" } } } },
+    // DISPLACE
+    { "Paint over a mesh to sculpt it (Hammer 5's Paint Displacement): Push/Pull raises the surface and Ctrl/Command lowers it; the other brushes smooth, flatten, inflate, pinch or roughen. [ and ] resize the brush. The surface moves as you paint; each stroke is one undo step, Escape during a stroke puts it back. A mesh needs vertices to move: Quad Slice or Subdivide a flat face first.",
+      { { keymap_section_t::BINDINGS, "map.tool.displace" } },
+      // The brush and falloff are the icon row and curves above these.
+      { { "Sculpt", { "editor.map.displace_radius", "editor.map.displace_strength", "editor.map.displace_smooth", "editor.map.displace_normal", "editor.map.displace_auto_tessellate" }, {} },
+        { "Apply displacement to", { "editor.map.displace_target" }, {} },
+        { "Resolution", { "editor.map.mesh_slice_u", "editor.map.mesh_slice_v" }, { "map.mesh.quad_slice", "map.mesh.subdivide", "map.mesh.smooth" } } } },
+    // SHEAR
+    { "Drag a side of the selection's bounds to slide it along itself; the opposite side stays put and everything between leans (TrenchBroom's Shear tool). In 3D, Alt slides a wall side up or down; the top and bottom slide across. Textures stay on brushes with Texture Lock.",
+      { { keymap_section_t::BINDINGS, "map.tool.shear" } },
+      { { "Shear", { "editor.grid.snap", "editor.map.texture_lock" }, { "map.tool.scale", "map.tool.rotate" } } } },
     // NONE — navigation only; preserved selection remains inspectable.
     { "No editing tool is active. Pan a 2D view or navigate the 3D camera while keeping the selection for inspection. Select an editing tool to resume; Cancel again clears the preserved selection.",
       { { keymap_section_t::BINDINGS, "map.viewport" }, { keymap_section_t::BINDINGS, "map.viewport.3d" },
@@ -1114,9 +1763,9 @@ struct selection_profile_t {
     const char *pSummary;
 };
 constexpr selection_profile_t kSelectionProfiles[]{
-    { "Vertex Editing", "select-vertices", "Pick authored mesh vertices in a 2D or 3D view. Shift+click adds and Ctrl/Command+click toggles vertices on the same mesh. Convert brushes to meshes before selecting their vertices. Vertex transforms and topology edits are planned; dragging does not move the parent mesh." },
-    { "Edge Editing", "select-edges", "Pick authored mesh edges in a 2D or 3D view. Shift+click adds and Ctrl/Command+click toggles edges on the same mesh. Select Loop and Select Ring extend the selection from the last picked edge. Convert brushes to meshes before selecting their edges. Topology edits and component transforms are planned." },
-    { "Face Editing", "select-faces", "In 2D, pick a brush face outline and drag its projected normal handle for grid-snapped Push / Pull. If the normal points into the view, use another pane or the Distance control. In 3D, pick a face and drag its normal handle. Mesh faces use the exact Extrude, Inset and Quad Slice controls below; in-plane face scaling and mesh face dragging are planned." },
+    { "Vertex Editing", "select-vertices", "Pick authored mesh vertices in a 2D or 3D view. Shift+click adds and Ctrl/Command+click toggles vertices on the same mesh. Convert brushes to meshes before selecting their vertices. Merge, Collapse, Connect, Weld UVs, Radial Align, Offset, Flatten and Snap edit the picked vertices. The Translate, Rotate and Scale tools drag them with a gizmo; dragging does not move the parent mesh." },
+    { "Edge Editing", "select-edges", "Pick authored mesh edges in a 2D or 3D view. Shift+click adds and Ctrl/Command+click toggles edges on the same mesh. Select Loop and Select Ring extend the selection from the last picked edge. Convert brushes to meshes before selecting their edges. Bevel, Split, Connect, Dissolve, Collapse, normals and Weld UVs edit the picked edges; open edges also Extrude, Extend, Bridge and Fill Hole. The Translate, Rotate and Scale tools drag the picked edges with a gizmo." },
+    { "Face Editing", "select-faces", "In 2D, pick a brush face outline and drag its projected normal handle for grid-snapped Push / Pull. If the normal points into the view, use another pane or the Distance control. In 3D, pick a face and drag its normal handle. Mesh faces: Shift+click adds faces of the same mesh and Ctrl/Command+click toggles one. Numeric Extrude raises a connected coplanar region; Corner Inset requires one face; Quad Slice acts on the active face. Offset, Flatten, Detach, Delete and face queries use the face set. Translate, Rotate and Scale transform picked faces with a gizmo." },
     { "Mesh Editing", "select-meshes", "Select whole brushes and meshes. Move or resize their bounds; use supported brush and mesh operations below." },
     { "Selection Tool", "select-objects", kToolPanels[static_cast<usize>( map_tool_t::SELECT )].pSummary },
     { "Selection Tool", "select-groups", kToolPanels[static_cast<usize>( map_tool_t::SELECT )].pSummary },
@@ -1246,7 +1895,16 @@ public:
 
     QString Title() const { return m_title; }
     QStringList KeyRows() const { return m_keyRows; }
-    QStringList Options() const { return VisibleInventory( m_optionInventory, ModeMask( m_mode ) ); }
+    QStringList Options() const
+    {
+        QStringList result = VisibleInventory( m_optionInventory, ModeMask( m_mode ) );
+        if ( m_tool == map_tool_t::CURVE ) {
+            for ( const auto &control : m_curveControls ) {
+                if ( !CurveOptionVisible( control.first->objectName() ) ) { result.removeAll( control.first->objectName() ); }
+            }
+        }
+        return result;
+    }
     QStringList Operations() const { return VisibleInventory( m_operationInventory, ModeMask( m_mode ) ); }
     void SetCancelHandler( map_tool_cancel_event_fn handler, void *context )
     {
@@ -1275,7 +1933,10 @@ private:
     {
         if ( path.cchLength == 0u || StringView_Equals( path, StringView_FromCString( "editor.camera.move_speed" ) ) ||
              StringView_Equals( path, StringView_FromCString( "editor.map.mesh_slice_u" ) ) ||
-             StringView_Equals( path, StringView_FromCString( "editor.map.mesh_slice_v" ) ) ) {
+             StringView_Equals( path, StringView_FromCString( "editor.map.mesh_slice_v" ) ) ||
+             StringView_Equals( path, StringView_FromCString( "editor.map.curve_shape" ) ) ||
+             StringView_Equals( path, StringView_FromCString( "editor.map.curve_output" ) ) ||
+             StringView_Equals( path, StringView_FromCString( "editor.map.curve_closed" ) ) ) {
             static_cast<tool_properties_t *>( context )->RefreshButtons();
         }
     }
@@ -1361,9 +2022,9 @@ private:
             const QString id = QString::fromUtf8( command );
             if ( m_tool == map_tool_t::SELECT ) {
                 if ( !rootMode && ( id == "map.brush.to_mesh" || id == "map.mesh.flip_normals" || id == "map.mesh.triangulate" ) ) { return; }
-                if ( m_mode != map_element_mode_t::FACES && ( id == "map.mesh.extrude" || id == "map.mesh.inset" || id == "map.mesh.quad_slice" ) ) { return; }
+                if ( m_mode != map_element_mode_t::FACES && ( id == "map.mesh.extrude" || id == "map.mesh.inset" || id == "map.mesh.inset_width" || id == "map.mesh.quad_slice" ) ) { return; }
             }
-            if ( brushFace && ( id == QStringLiteral( "map.mesh.extrude" ) || id == QStringLiteral( "map.mesh.inset" ) ||
+            if ( brushFace && ( id == QStringLiteral( "map.mesh.extrude" ) || id == QStringLiteral( "map.mesh.inset" ) || id == QStringLiteral( "map.mesh.inset_width" ) ||
                                 id == QStringLiteral( "map.mesh.quad_slice" ) ) ) { return; }
             if ( listedCommands.contains( id ) ||
                  EditorCommands_Find( &gui.commands, StringView_FromCString( command ) ) == nullptr ) { return; }
@@ -1393,8 +2054,9 @@ private:
                       std::pair{ "map.brush.to_mesh", "Brush objects: convert actual faces to authored meshes" },
                       std::pair{ "map.mesh.flip_normals", "Mesh objects: reverse all faces (Objects/Groups/Meshes)" },
                       std::pair{ "map.mesh.triangulate", "Mesh objects: triangulate all polygons (Objects/Groups/Meshes)" },
-                      std::pair{ "map.mesh.extrude", "Mesh face: extrude along its normal (Faces)" },
-                      std::pair{ "map.mesh.inset", "Mesh face: inset corners toward its center (Faces)" },
+                      std::pair{ "map.mesh.extrude", "Mesh faces: extrude a connected coplanar region (Faces)" },
+                      std::pair{ "map.mesh.inset", "One mesh face: inset corners toward its center (Faces)" },
+                      std::pair{ "map.mesh.inset_width", "One planar convex face: measured border width (Faces)" },
                       std::pair{ "map.mesh.quad_slice", "Mesh face: slice a quad into U/V cells (Faces)" } } ) {
                 addCommand( command, QString::fromLatin1( label ) );
             }
@@ -1402,16 +2064,14 @@ private:
         if ( m_tool == map_tool_t::SELECT ) {
             // A mode profile exists independently of the selected geometry.
             // Show its configured shortcuts with the same effective lookup
-            // as the views. Planned component operations stay identified as
-            // planned rather than promising an enabled edit gesture.
+            // as the views. Placeholder operations stay identified as planned
+            // rather than promising an enabled edit gesture.
             for ( const tool_group_t &group : info.groups ) {
                 if ( ( group.modes & ModeMask( m_mode ) ) == 0u || !group.namedOperations ) { continue; }
                 for ( const char *id : group.commands ) {
                     QString label = ActionLabel( gui, QString::fromUtf8( id ) );
-                    const bool edgeSelection = m_mode == map_element_mode_t::EDGES &&
-                        ( QLatin1StringView( id ) == QLatin1StringView( "map.select.loop" ) ||
-                          QLatin1StringView( id ) == QLatin1StringView( "map.select.ring" ) );
-                    if ( m_mode == map_element_mode_t::VERTICES || ( m_mode == map_element_mode_t::EDGES && !edgeSelection ) ) {
+                    if ( ( m_mode == map_element_mode_t::VERTICES || m_mode == map_element_mode_t::EDGES ) &&
+                         MapWorkspace_IsPlannedCommand( &gui.commands, StringView_FromCString( id ) ) ) {
                         label += QStringLiteral( " (planned)" );
                     }
                     addCommand( id, label );
@@ -1445,8 +2105,14 @@ private:
             }
             if ( m_mode == map_element_mode_t::EDGES ) {
                 addRow( QStringLiteral( "[LeftClick]" ), QStringLiteral( "Pick an authored mesh edge" ) );
+                addRow( QStringLiteral( "[LeftDrag]" ), QStringLiteral( "Edge drag action: Move deforms; Extend grows a connected face" ) );
+                addRow( QStringLiteral( "[Alt during drag]" ), QStringLiteral( "3D direct edge drag: raise / lower instead of sliding across the horizontal plane" ) );
                 addRow( QStringLiteral( "[Shift+LeftClick]" ), QStringLiteral( "Add an edge on the same mesh" ) );
                 addRow( QStringLiteral( "[Ctrl/Command+LeftClick]" ), QStringLiteral( "Toggle an edge on the same mesh" ) );
+            }
+            if ( m_mode == map_element_mode_t::FACES ) {
+                addRow( QStringLiteral( "[Shift+LeftClick]" ), QStringLiteral( "Add a face of the same mesh; it becomes the active face" ) );
+                addRow( QStringLiteral( "[Ctrl/Command+LeftClick]" ), QStringLiteral( "Remove a selected mesh face" ) );
             }
             addRow( QStringLiteral( "[Double LeftClick]" ), QStringLiteral( "Object: inspect properties" ) );
             addRow( QStringLiteral( "[Double LeftClick]" ), QStringLiteral( "Empty space: view options" ) );
@@ -1528,15 +2194,32 @@ private:
         }
         if ( m_tool == map_tool_t::CLIP ) {
             addRow( QStringLiteral( "[LeftDrag]" ), QStringLiteral( "2D: stage clipping plane; release to preview" ) );
-            addRow( QStringLiteral( "[LeftDrag]" ), QStringLiteral( "3D: draw on the plane perpendicular to the 3D plane axis" ) );
+            addRow( QStringLiteral( "[LeftDrag]" ), QStringLiteral( "3D on any face (Surface placement): draw the cut across it" ) );
+            addRow( QStringLiteral( "[LeftClick] ×2" ), QStringLiteral( "3D: point 1, then point 2; near a vertex they lock onto it" ) );
+            addRow( QStringLiteral( "[LeftClick]" ), QStringLiteral( "3D, cut staged: point 3 tilts the cut through all three" ) );
+            addRow( QStringLiteral( "[Backspace]" ), QStringLiteral( "3D: take point 3 back" ) );
+            addRow( QStringLiteral( "[Ctrl+LeftClick]" ), QStringLiteral( "3D: place a point freely (no vertex or grid snap)" ) );
+            addRow( QStringLiteral( "[LeftDrag]" ), QStringLiteral( "3D off every surface: draw on the plane perpendicular to the 3D plane axis" ) );
             addRow( QStringLiteral( "[LeftDrag]" ), QStringLiteral( "Staged endpoint: move it; release to preview" ) );
         }
         if ( m_tool == map_tool_t::TRANSLATE || m_tool == map_tool_t::ROTATE || m_tool == map_tool_t::SCALE ) {
             addRow( QStringLiteral( "[LeftDrag]" ), m_tool == map_tool_t::TRANSLATE ? QStringLiteral( "Move selection" ) :
                     m_tool == map_tool_t::ROTATE ? QStringLiteral( "Rotate selection" ) : QStringLiteral( "Scale selection" ) );
             if ( m_tool == map_tool_t::TRANSLATE ) {
-                addRow( QStringLiteral( "[LeftDrag]" ), QStringLiteral( "RGB axis, plane square, or center: constrain movement" ) );
-                addRow( QStringLiteral( "[Shift+LeftDrag]" ), QStringLiteral( "Clone and move" ) );
+                addRow( QStringLiteral( "[LeftDrag]" ), rootMode ? QStringLiteral( "RGB axis, plane square, or center: constrain movement" ) :
+                    QStringLiteral( "RGB arrow: move along that axis; center: free movement" ) );
+                if ( m_pWorkspace->elementMode == map_element_mode_t::FACES ) {
+                    addRow( QStringLiteral( "[Shift+LeftDrag]" ), QStringLiteral( "Mesh face: extrude a new section" ) );
+                } else if ( m_pWorkspace->elementMode == map_element_mode_t::OBJECTS || m_pWorkspace->elementMode == map_element_mode_t::MESHES ) {
+                    addRow( QStringLiteral( "[Shift+LeftDrag]" ), QStringLiteral( "Clone and move" ) );
+                }
+            }
+            if ( m_pWorkspace->elementMode == map_element_mode_t::EDGES ) {
+                addRow( QStringLiteral( "[Shift+LeftDrag]" ), QStringLiteral( "Open edge: extend new faces; the new edge stays selected" ) );
+                addRow( QStringLiteral( "[LeftDrag]" ), QStringLiteral( "Edge drag action: Move deforms; Extend grows connected faces" ) );
+            }
+            if ( m_tool == map_tool_t::ROTATE ) {
+                addRow( QStringLiteral( "[LeftDrag]" ), QStringLiteral( "RGB ring: rotate about that axis; Pivot tool sets the centre" ) );
             }
             addRow( QStringLiteral( "[Ctrl+LeftDrag]" ), QStringLiteral( "Temporarily bypass snapping" ) );
         }
@@ -1639,15 +2322,16 @@ private:
         m_buttons.clear();
         m_sections.clear();
         m_optionInventory.clear(); m_operationInventory.clear();
-        m_geometryControls.clear();
-        m_pTextureState = nullptr; m_pTextureStateSection = nullptr;
+        m_geometryControls.clear(); m_curveControls.clear();
+        m_pTerrainControls = nullptr;
+        m_pTextureState = nullptr; m_pTextureStateSection = nullptr; m_pFaceEditSection = nullptr; m_pFaceEdit = nullptr;
         m_pFaceControls = nullptr;
         m_pBrushFaceSection = nullptr; m_lastBrushFace = 0;
         m_pMeshFaceControls = nullptr; m_pMeshFaceSection = nullptr; m_lastMeshFace = 0;
         m_pClipControls = nullptr;
         m_pSubtractControls = nullptr;
         m_pToolIcon = nullptr;
-        m_pSelection = nullptr;
+        m_pSelection = nullptr; m_pStartHint = nullptr;
         m_keyRows.clear();
         m_pPrimitiveControls = nullptr;
         m_pBlockDepthControl = nullptr; m_pBlockDepthForm = nullptr;
@@ -1695,6 +2379,13 @@ private:
         m_pSelection->setProperty( "muted", true );
         m_pSelection->setWordWrap( true );
         pSummaryLayout->addWidget( m_pSelection );
+        // How to start when a component mode has nothing picked yet: the
+        // buttons below wait for a selection, and this says how to make one.
+        m_pStartHint = new QLabel( pSummaryBody );
+        m_pStartHint->setObjectName( QStringLiteral( "MapToolStartHint" ) );
+        m_pStartHint->setWordWrap( true );
+        m_pStartHint->setStyleSheet( QStringLiteral( "color: #e3b341;" ) );
+        pSummaryLayout->addWidget( m_pStartHint );
         if ( m_tool == map_tool_t::NONE ) {
             auto *pNote = new QLabel( QStringLiteral( "No editing tool active. Selection is retained for inspection." ), pSummaryBody );
             pNote->setObjectName( QStringLiteral( "MapToolNavigationStatus" ) );
@@ -1715,9 +2406,26 @@ private:
             m_pPrimitiveControls = new primitive_controls_t( pContent, m_pWorkspace );
             auto *section = gui::EditorSection_Create( pContent, QStringLiteral( "Primitive" ), m_pPrimitiveControls );
             pLayout->addWidget( section );
-            for ( const char *path : { "editor.map.new_brush_shape", "editor.map.primitive_axis", "editor.map.cylinder_sides", "editor.map.cone_top_radius", "editor.map.sphere_subdivisions" } ) {
+            for ( const char *path : { "editor.map.new_brush_shape", "editor.map.primitive_axis", "editor.map.cylinder_sides", "editor.map.cone_top_radius", "editor.map.sphere_subdivisions",
+                                       "editor.map.arch_thickness", "editor.map.arch_angle", "editor.map.arch_start", "editor.map.stairs_steps", "editor.map.stairs_direction",
+                                       "editor.map.spiral_turn", "editor.map.spiral_inner", "editor.map.torus_tube" } ) {
                 m_optionInventory.push_back( { QString::fromLatin1( path ), kAllModes } );
             }
+        }
+
+        if ( m_tool == map_tool_t::DISPLACE ) {
+            pLayout->addWidget( gui::EditorSection_Create( pContent, QStringLiteral( "Brush and falloff" ), new displace_controls_t( pContent, m_pWorkspace ) ) );
+        }
+
+        if ( m_tool == map_tool_t::ENTITY ) {
+            pLayout->addWidget( gui::EditorSection_Create( pContent, QStringLiteral( "Entity Classes" ), new entity_classes_t( pContent, m_pWorkspace ) ) );
+            m_operationInventory.push_back( { QStringLiteral( "map.game.reload" ), kAllModes } );
+        }
+
+        if ( m_tool == map_tool_t::TERRAIN ) {
+            m_pTerrainControls = new terrain_controls_t( pContent, m_pWorkspace );
+            pLayout->addWidget( gui::EditorSection_Create( pContent, QStringLiteral( "Create Terrain" ), m_pTerrainControls ) );
+            m_operationInventory.push_back( { QStringLiteral( "map.terrain.create" ), kAllModes } );
         }
 
         // Faces show the selected authored surface first; geometry defaults
@@ -1727,6 +2435,12 @@ private:
             m_pTextureState = new face_texture_state_t( pContent, m_pWorkspace );
             m_pTextureStateSection = gui::EditorSection_Create( pContent, QStringLiteral( "Texture State" ), m_pTextureState );
             m_pTextureStateSection->setObjectName( QStringLiteral( "MapFaceTextureSection" ) ); pLayout->addWidget( m_pTextureStateSection );
+            // Hammer's Modify Texture: scale, shift, rotate, justify, align.
+            if ( QWidget *pFaceEdit = MapFaceEdit_Create( pContent, m_pWorkspace ) ) {
+                m_pFaceEdit = pFaceEdit;
+                m_pFaceEditSection = gui::EditorSection_Create( pContent, QStringLiteral( "Texture" ), pFaceEdit );
+                m_pFaceEditSection->setObjectName( QStringLiteral( "MapFaceEditSection" ) ); pLayout->addWidget( m_pFaceEditSection );
+            }
         }
 
         // Keys: Hammer lists every key the tool answers to, with the key first.
@@ -1776,10 +2490,10 @@ private:
             m_pMeshFaceControls = new mesh_face_controls_t( pContent, m_pWorkspace );
             m_pMeshFaceSection = gui::EditorSection_Create( pContent, QStringLiteral( "Mesh face" ), m_pMeshFaceControls, m_tool == map_tool_t::EXTRUDE || MapWorkspace_HasMeshFace( m_pWorkspace ) );
             pLayout->addWidget( m_pMeshFaceSection );
-            for ( const char *path : { "editor.map.mesh_extrude_distance", "editor.map.mesh_inset_distance", "editor.map.mesh_slice_u", "editor.map.mesh_slice_v" } ) {
+            for ( const char *path : { "editor.map.mesh_extrude_distance", "editor.map.mesh_inset_distance", "editor.map.mesh_inset_width", "editor.map.mesh_slice_u", "editor.map.mesh_slice_v" } ) {
                 m_optionInventory.push_back( { QString::fromLatin1( path ), m_tool == map_tool_t::SELECT ? kFaceMode : kAllModes } );
             }
-            for ( const char *id : { "map.mesh.extrude", "map.mesh.inset", "map.mesh.quad_slice" } ) {
+            for ( const char *id : { "map.mesh.extrude", "map.mesh.inset", "map.mesh.inset_width", "map.mesh.quad_slice" } ) {
                 m_operationInventory.push_back( { QString::fromLatin1( id ), m_tool == map_tool_t::SELECT ? kFaceMode : kAllModes } );
             }
         }
@@ -1814,6 +2528,7 @@ private:
                 if ( QWidget *pControl = gui::EditorSettingControl_Create( pBody, &gui.settings, pPath ) ) {
                     pControl->setMinimumWidth( 52 );
                     pForm->addRow( gui::EditorSettingControl_Label( &gui.settings, pPath ), pControl );
+                    if ( m_tool == map_tool_t::CURVE ) { m_curveControls.push_back( { pControl, pForm } ); }
                     if ( m_tool == map_tool_t::BLOCK && QLatin1StringView( pPath ) == QLatin1StringView( "editor.map.block_depth" ) ) {
                         m_pBlockDepthControl = pControl; m_pBlockDepthForm = pForm;
                     }
@@ -1890,14 +2605,18 @@ private:
                     note->setObjectName( QStringLiteral( "MapToolModeAvailability" ) ); note->setProperty( "muted", true ); note->setWordWrap( true );
                     pGroupLayout->insertWidget( 0, note );
                 }
-                const bool plannedUv = ( m_tool == map_tool_t::TEXTURE || m_tool == map_tool_t::SELECT ) && QLatin1StringView( group.pTitle ) == QLatin1StringView( "Modify Texture" );
+                const bool textureGroup = ( m_tool == map_tool_t::TEXTURE || m_tool == map_tool_t::SELECT ) && QLatin1StringView( group.pTitle ) == QLatin1StringView( "Modify Texture" );
+                const bool plannedUv = textureGroup && MapWorkspace_IsPlannedCommand( &m_pWorkspace->pGui->commands, StringView_FromCString( "map.texture.fit" ) );
                 auto *section = gui::EditorSection_Create( pContent, plannedUv ? QStringLiteral( "Modify Texture · planned" ) : QString::fromUtf8( group.pTitle ), pBody, !plannedUv );
                 if ( group.pObjectName != nullptr ) { section->setObjectName( QString::fromUtf8( group.pObjectName ) ); }
                 if ( plannedUv ) { section->setObjectName( QStringLiteral( "MapTexturePlannedOperations" ) ); section->setToolTip( QStringLiteral( "These UV operations are not connected to authored face edits yet." ) ); }
+                else if ( textureGroup ) { section->setObjectName( QStringLiteral( "MapTextureOperations" ) ); }
                 m_sections.push_back( { section, group.modes } );
                 for ( const auto &path : groupOptions ) { m_optionInventory.push_back( { path, group.modes } ); }
                 for ( const auto &id : groupOperations ) { m_operationInventory.push_back( { id, group.modes } ); }
-                pLayout->addWidget( section );
+                if ( group.pObjectName != nullptr && QLatin1StringView( group.pObjectName ) == QLatin1StringView( "MapEdgeDragSection" ) ) {
+                    pLayout->insertWidget( 1, section );
+                } else { pLayout->addWidget( section ); }
             } else { delete pBody; }
         }
         pLayout->addStretch( 1 );
@@ -1911,6 +2630,8 @@ private:
 
     void RefreshSelectionProfile()
     {
+        const u32 mode = ModeMask( m_mode );
+        for ( const auto &section : m_sections ) { section.pSection->setVisible( ( section.modes & mode ) != 0u ); }
         if ( m_tool != map_tool_t::SELECT ) { return; }
         const selection_profile_t &profile = kSelectionProfiles[static_cast<usize>( m_mode )];
         m_title = QString::fromUtf8( profile.pTitle );
@@ -1921,8 +2642,6 @@ private:
             m_pToolIcon->setPixmap( gui::EditorStyle_Icon( m_pWorkspace->pGui->style, profile.pIcon ).pixmap( 24, 24 ) );
             m_pToolIcon->setToolTip( QString::fromUtf8( profile.pSummary ) );
         }
-        const u32 mode = ModeMask( m_mode );
-        for ( const auto &section : m_sections ) { section.pSection->setVisible( ( section.modes & mode ) != 0u ); }
         // Keep component selectors, numeric drafts and subscriptions alive.
         // Only the containing section changes visibility; no signal sender
         // is replaced when its face selection changes the current mode.
@@ -1931,19 +2650,34 @@ private:
         if ( m_pSubtractControls != nullptr ) { m_pSubtractControls->parentWidget()->setVisible( ( mode & kRootModes ) != 0u ); }
     }
 
+    bool CurveOptionVisible( const QString &path ) const
+    {
+        const bool pipe = StringView_Equals( EditorSettings_Text( &m_pWorkspace->pGui->settings,
+            "editor.map.curve_shape", {} ), StringView_FromCString( "hollow_pipe" ) );
+        if ( path == QLatin1StringView( "editor.map.curve_outer_radius" ) || path == QLatin1StringView( "editor.map.curve_wall_thickness" ) ) { return pipe; }
+        if ( !pipe ) { return true; }
+        return path != QLatin1StringView( "editor.map.curve_profile" ) && path != QLatin1StringView( "editor.map.curve_width" ) &&
+               path != QLatin1StringView( "editor.map.curve_height" ) && path != QLatin1StringView( "editor.map.wall_join" ) &&
+               path != QLatin1StringView( "editor.map.lathe_angle" );
+    }
+
     void RefreshButtons( bool documentChanged = false )
     {
         RefreshSelectionProfile();
+        for ( const auto &control : m_curveControls ) { control.second->setRowVisible( control.first, CurveOptionVisible( control.first->objectName() ) ); }
         if ( m_pPrimitiveControls != nullptr ) { m_pPrimitiveControls->RefreshState(); }
+        if ( m_pFaceEdit != nullptr ) { MapFaceEdit_Refresh( m_pFaceEdit ); }
         if ( m_pTextureState != nullptr ) {
             m_pTextureState->RefreshState();
             m_pTextureStateSection->setVisible( m_mode == map_element_mode_t::FACES || m_tool == map_tool_t::TEXTURE );
+            if ( m_pFaceEditSection != nullptr ) { m_pFaceEditSection->setVisible( m_mode == map_element_mode_t::FACES || m_tool == map_tool_t::TEXTURE ); }
         }
         if ( m_pBlockDepthForm != nullptr ) {
             const bool solid = MapWorkspace_PrimitiveDefaults( m_pWorkspace, {} ).kind != map_primitive_kind_t::QUAD;
             m_pBlockDepthForm->setRowVisible( m_pBlockDepthControl, solid );
         }
         for ( auto *pControl : m_geometryControls ) { pControl->RefreshState(); }
+        if ( m_pTerrainControls != nullptr ) { m_pTerrainControls->RefreshState(); }
         if ( m_pFaceControls != nullptr ) {
             m_pFaceControls->RefreshState();
             const u64 side = MapWorkspace_HasBrushFace( m_pWorkspace ) ? m_pWorkspace->selectedBrushFaceSide : 0;
@@ -1978,6 +2712,32 @@ private:
                                           .arg( QString::fromUtf8( MapWorkspace_ElementModeName( m_pWorkspace->elementMode ) ) ) );
             }
         }
+        if ( m_pStartHint != nullptr ) {
+            const auto *ws = m_pWorkspace;
+            const bool vertices = ws->elementMode == map_element_mode_t::VERTICES && !MapWorkspace_HasMeshVertices( ws );
+            const bool edges = ws->elementMode == map_element_mode_t::EDGES && !MapWorkspace_HasMeshEdges( ws );
+            const bool faces = ws->elementMode == map_element_mode_t::FACES && !MapWorkspace_HasMeshFace( ws ) && !MapWorkspace_HasBrushFace( ws );
+            const bool picking = ws->tool == map_tool_t::SELECT;
+            const bool componentPicking = picking || ws->tool == map_tool_t::TRANSLATE || ws->tool == map_tool_t::ROTATE || ws->tool == map_tool_t::SCALE;
+            QString hint;
+            if ( vertices ) { hint = componentPicking ? QStringLiteral( "Click a vertex to select it. Shift-click adds; Ctrl/Command-click toggles. Transform gizmos move the selected vertices." )
+                                                       : QStringLiteral( "Choose Vertices above to pick vertices, then use a transform tool." ); }
+            if ( edges ) { hint = componentPicking ? QStringLiteral( "Click an edge to select it. Shift-click adds; Ctrl/Command-click toggles. Choose Extend under Edge dragging for ordinary drags, or Shift-drag a transform gizmo to extend an open boundary." )
+                                                    : QStringLiteral( "Choose Edges above to pick edges, then use a transform tool." ); }
+            if ( faces ) { hint = picking ? QStringLiteral( "Click a face in any view to start. On meshes Shift adds faces and Ctrl removes one; brush faces push and pull. The operations below light up for what you pick." )
+                                          : QStringLiteral( "Pick faces with the Select tool (Q); this tool then moves what is picked." ); }
+            if ( m_tool == map_tool_t::CURVE ) {
+                const bool pipe = StringView_Equals( EditorSettings_Text( &ws->pGui->settings, "editor.map.curve_shape", {} ), StringView_FromCString( "hollow_pipe" ) );
+                if ( pipe ) {
+                    const bool compatible = EditorSettings_Bool( &ws->pGui->settings, "editor.map.curve_closed", CY_FALSE ) == CY_FALSE &&
+                        StringView_Equals( EditorSettings_Text( &ws->pGui->settings, "editor.map.curve_output", {} ), StringView_FromCString( "mesh" ) );
+                    hint = compatible ? QStringLiteral( "Hollow Pipe: click an open path, then Confirm. Outer radius includes the wall; thickness must be smaller. Preview shows the path only. Tight intersections and meshes above 2048 faces are refused. Backspace edits points; Cancel discards them." ) :
+                        QStringLiteral( "Hollow Pipe needs Mesh output and Closed loop turned off. Change those controls before confirming; the path stays available." );
+                } else { hint = QStringLiteral( "Click path points, Confirm to build, Backspace to remove the last point, or Cancel to discard. Round profile makes a solid cable; choose Hollow Pipe for an open bore." ); }
+            }
+            m_pStartHint->setText( hint );
+            m_pStartHint->setVisible( !hint.isEmpty() );
+        }
         for ( QToolButton *pButton : m_buttons ) {
             const QByteArray id = pButton->objectName().toUtf8();
             const u32 state = EditorCommands_State( &m_pWorkspace->pGui->commands, { id.constData(), static_cast<usize>( id.size() ) } );
@@ -1986,7 +2746,11 @@ private:
             pButton->setEnabled( enabled );
             pButton->setChecked( ( state & COMMAND_STATE_CHECKED ) != 0u );
             QString help = pButton->property( "commandHelp" ).toString();
-            if ( !enabled ) { help += QStringLiteral( "\nUnavailable for the current tool or selection." ); }
+            if ( !enabled ) {
+                const char *needs = MapGeometryCommands_Requirement( id.constData() );
+                help += needs != nullptr ? QStringLiteral( "\nUnavailable: needs %1." ).arg( QString::fromUtf8( needs ) )
+                                         : QStringLiteral( "\nUnavailable for the current tool or selection." );
+            }
             pButton->setToolTip( help );
         }
     }
@@ -1995,6 +2759,7 @@ private:
     QScrollArea *m_pScroll{ nullptr };
     QLabel *m_pToolIcon{ nullptr };
     QLabel *m_pSelection{ nullptr };
+    QLabel *m_pStartHint{ nullptr };
     map_tool_cancel_event_fn m_pfnCancelHandler{};
     void *m_pCancelContext{};
     map_tool_t m_tool{ map_tool_t::COUNT };
@@ -2006,11 +2771,14 @@ private:
     std::vector<tool_inventory_entry_t> m_operationInventory{};
     std::vector<QToolButton *> m_buttons{};
     std::vector<geometry_controls_t *> m_geometryControls{};
+    std::vector<std::pair<QWidget *, QFormLayout *>> m_curveControls{};
     primitive_controls_t *m_pPrimitiveControls{};
+    terrain_controls_t *m_pTerrainControls{};
     QWidget *m_pBlockDepthControl{};
     QFormLayout *m_pBlockDepthForm{};
     face_texture_state_t *m_pTextureState{};
     QWidget *m_pTextureStateSection{};
+    QWidget *m_pFaceEditSection{}, *m_pFaceEdit{};
     face_controls_t *m_pFaceControls{};
     QWidget *m_pBrushFaceSection{};
     u64 m_lastBrushFace{};
@@ -2223,6 +2991,15 @@ public:
         pLayout->addWidget( m_pTree );
         BuildTree();
         QObject::connect( m_pTree, &QTreeWidget::itemChanged, this, [this]( QTreeWidgetItem *pItem, int column ) {
+            if ( !m_bSyncing && column == 0 && pItem->data( 0, kClassRole ).isValid() ) {
+                const QString className = pItem->data( 0, kClassRole ).toString();
+                if ( !className.isEmpty() ) { MapEntityLook_SetClassHidden( m_pWorkspace, className, pItem->checkState( 0 ) == Qt::Unchecked ); }
+                return;
+            }
+            if ( !m_bSyncing && column == 0 && pItem->data( 0, kUserVisgroupRole ).isValid() ) {
+                SetUserVisgroupHidden( pItem->data( 0, kUserVisgroupRole ).toULongLong(), pItem->checkState( 0 ) == Qt::Unchecked );
+                return;
+            }
             if ( m_bSyncing || column != 0 || !pItem->data( 0, kGroupRole ).isValid() ) { return; }
             MapWorkspace_SetVisgroupHidden( m_pWorkspace, static_cast<map_visgroup_t>( pItem->data( 0, kGroupRole ).toInt() ),
                                             pItem->checkState( 0 ) == Qt::Unchecked );
@@ -2357,7 +3134,8 @@ private:
             const char *pName;
             map_visgroup_t first;
             map_visgroup_t last;
-        } parents[]{ { "World", map_visgroup_t::BRUSHES, map_visgroup_t::TIED }, { "Entities", map_visgroup_t::LIGHTS, map_visgroup_t::OTHER_ENTITIES } };
+        } parents[]{ { "World", map_visgroup_t::BRUSHES, map_visgroup_t::TIED }, { "Entities", map_visgroup_t::LIGHTS, map_visgroup_t::OTHER_ENTITIES },
+                     { "Prefabs", map_visgroup_t::PREFABS, map_visgroup_t::PREFABS } };
         for ( const auto &parent : parents ) {
             auto *pParent = new QTreeWidgetItem( m_pTree, { QString::fromUtf8( parent.pName ) } );
             pParent->setFlags( Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsAutoTristate );
@@ -2392,6 +3170,8 @@ private:
             ( *it )->setText( 1, QString::number( counts[static_cast<usize>( visgroup )] ) );
             ( *it )->setCheckState( 0, MapWorkspace_IsVisgroupHidden( m_pWorkspace, visgroup ) ? Qt::Unchecked : Qt::Checked );
         }
+        RefreshUserVisgroups();
+        RefreshClasses();
         for ( int p = 0; p < m_pTree->topLevelItemCount(); ++p ) {
             QTreeWidgetItem *pParent = m_pTree->topLevelItem( p );
             u32 total = 0u;
@@ -2399,6 +3179,86 @@ private:
             pParent->setText( 1, QString::number( total ) );
         }
         m_bSyncing = false;
+    }
+
+    // Authored visgroups (map.visgroup.create): one row each under
+    // "Visgroups", unchecked while all their members are hidden for the
+    // session (the same hiding as Hide Selected).
+    static constexpr int kUserVisgroupRole = Qt::UserRole + 1;
+    void RefreshUserVisgroups()
+    {
+        QTreeWidgetItem *pParent = nullptr;
+        for ( int p = 0; p < m_pTree->topLevelItemCount(); ++p ) {
+            if ( m_pTree->topLevelItem( p )->data( 0, kUserVisgroupRole ).isValid() ) { pParent = m_pTree->topLevelItem( p ); }
+        }
+        const key_value_t *pList = m_pWorkspace->pDocument != nullptr
+            ? KeyValue_Find( SettingsDocument_Root( &m_pWorkspace->pDocument->root ), StringView_FromCString( "visgroups" ) ) : nullptr;
+        if ( KeyValue_ChildCount( pList ) == 0u ) { delete pParent; return; }
+        if ( pParent == nullptr ) {
+            pParent = new QTreeWidgetItem( m_pTree, { QStringLiteral( "Visgroups" ) } );
+            pParent->setFlags( Qt::ItemIsEnabled );
+            pParent->setData( 0, kUserVisgroupRole, QVariant::fromValue( qulonglong{ 0u } ) );
+            pParent->setExpanded( true );
+        }
+        qDeleteAll( pParent->takeChildren() );
+        vector_t<u64> members{};
+        if ( !Vector_Init( &members, m_pWorkspace->pGui->pAllocator ) ) { return; }
+        for ( usize i = 0u; i < KeyValue_ChildCount( pList ); ++i ) {
+            const key_value_t *pVisgroup = KeyValue_ChildAt( pList, i );
+            u64 id = 0u; string_view_t name{};
+            if ( !KeyValue_GetU64( KeyValue_Find( pVisgroup, StringView_FromCString( "id" ) ), &id ) ) { continue; }
+            ( void )KeyValue_GetString( KeyValue_Find( pVisgroup, StringView_FromCString( "name" ) ), &name );
+            if ( MapDocument_VisgroupMembers( m_pWorkspace->pDocument, id, &members ) != map_status_t::OK ) { continue; }
+            bool hidden = members.nCount != 0u;
+            for ( usize m = 0u; m < members.nCount; ++m ) { hidden &= EditorSelection_Contains( &m_pWorkspace->hidden, members.pData[m] ) != CY_FALSE; }
+            auto *pItem = new QTreeWidgetItem( pParent, { FromView( name ), QString::number( members.nCount ) } );
+            pItem->setFlags( Qt::ItemIsEnabled | Qt::ItemIsUserCheckable );
+            pItem->setData( 0, kUserVisgroupRole, QVariant::fromValue( static_cast<qulonglong>( id ) ) );
+            pItem->setCheckState( 0, hidden ? Qt::Unchecked : Qt::Checked );
+        }
+        Vector_Shutdown( &members );
+    }
+
+    // TrenchBroom's entity definition visibility: one row per class the map
+    // uses, unchecked while that class is hidden.
+    static constexpr int kClassRole = Qt::UserRole + 2;
+    void RefreshClasses()
+    {
+        QTreeWidgetItem *pParent = nullptr;
+        for ( int p = 0; p < m_pTree->topLevelItemCount(); ++p ) {
+            if ( m_pTree->topLevelItem( p )->data( 0, kClassRole ).isValid() ) { pParent = m_pTree->topLevelItem( p ); }
+        }
+        QMap<QString, u32> classes;
+        for ( usize i = 0u; i < m_pWorkspace->wire.entities.nCount; ++i ) { ++classes[QString::fromUtf8( m_pWorkspace->wire.entities.pData[i].className )]; }
+        if ( classes.isEmpty() ) { delete pParent; return; }
+        if ( pParent == nullptr ) {
+            pParent = new QTreeWidgetItem( m_pTree, { QStringLiteral( "Classes" ) } );
+            pParent->setFlags( Qt::ItemIsEnabled );
+            pParent->setData( 0, kClassRole, QString() );
+            pParent->setExpanded( false );
+            pParent->setToolTip( 0, QStringLiteral( "Show or hide entities by class; a hidden class takes its entities' brushes with it" ) );
+        }
+        qDeleteAll( pParent->takeChildren() );
+        for ( auto it = classes.cbegin(); it != classes.cend(); ++it ) {
+            auto *pItem = new QTreeWidgetItem( pParent, { it.key(), QString::number( it.value() ) } );
+            pItem->setFlags( Qt::ItemIsEnabled | Qt::ItemIsUserCheckable );
+            pItem->setData( 0, kClassRole, it.key() );
+            pItem->setCheckState( 0, MapEntityLook_IsClassHidden( m_pWorkspace, it.key().toUtf8().constData() ) ? Qt::Unchecked : Qt::Checked );
+        }
+    }
+
+    void SetUserVisgroupHidden( u64 visgroup, bool hide )
+    {
+        vector_t<u64> members{};
+        if ( visgroup == 0u || !Vector_Init( &members, m_pWorkspace->pGui->pAllocator ) ) { return; }
+        if ( MapDocument_VisgroupMembers( m_pWorkspace->pDocument, visgroup, &members ) == map_status_t::OK ) {
+            for ( usize m = 0u; m < members.nCount; ++m ) {
+                ( void )EditorSelection_Apply( &m_pWorkspace->hidden, members.pData[m], hide ? EDITOR_SELECT_ADD : EDITOR_SELECT_REMOVE );
+                if ( hide ) { ( void )EditorSelection_Apply( &m_pWorkspace->selection, members.pData[m], EDITOR_SELECT_REMOVE ); }
+            }
+        }
+        Vector_Shutdown( &members );
+        MapWorkspace_Notify( m_pWorkspace, MAP_CHANGE_SELECTION | MAP_CHANGE_VIEW );
     }
 
     map_workspace_t *m_pWorkspace{ nullptr };
@@ -2413,7 +3273,11 @@ private:
 // ---------------------------------------------------------------------------
 
 constexpr int kMembersRole = Qt::UserRole;
+constexpr int kSetIdRole = Qt::UserRole + 1;
 
+// Hammer 5's Selection Sets: named object lists kept with the map. The
+// buttons run the map.selection_set.* commands with the current set, so
+// every edit is one undo step; double-click selects, F2 renames.
 class selection_sets_t final : public QWidget {
 public:
     selection_sets_t( QWidget *pParent, map_workspace_t *pWorkspace ) : QWidget( pParent ), m_pWorkspace( pWorkspace )
@@ -2424,24 +3288,45 @@ public:
         pLayout->setSpacing( 2 );
         auto *pRow = new QHBoxLayout();
         pRow->setContentsMargins( 4, 2, 4, 0 );
-        m_pSelect = new QPushButton( QStringLiteral( "Select" ), this );
-        m_pSelect->setToolTip( QStringLiteral( "Select the set's objects (double-click a set does the same)" ) );
-        pRow->addWidget( m_pSelect );
+        pRow->setSpacing( 2 );
+        const auto button = [&]( const char *pName, const char *pIcon, const QString &tip ) {
+            auto *pButton = new QToolButton( this );
+            pButton->setObjectName( QString::fromLatin1( pName ) );
+            pButton->setIcon( EditorStyle_Icon( pWorkspace->pGui->style, pIcon ) );
+            pButton->setToolTip( tip );
+            pButton->setAutoRaise( true );
+            pRow->addWidget( pButton );
+            return pButton;
+        };
+        m_pNew = button( "MapSelectionSetNew", "selection-set-new", QStringLiteral( "New set from the selection" ) );
+        m_pAdd = button( "MapSelectionSetAdd", "selection-set-add", QStringLiteral( "Add the selection to the set" ) );
+        m_pRemove = button( "MapSelectionSetRemove", "selection-set-remove", QStringLiteral( "Remove the selection from the set" ) );
+        m_pDelete = button( "MapSelectionSetDelete", "edit-delete", QStringLiteral( "Delete the set (its objects stay)" ) );
+        pRow->addSpacing( 6 );
+        m_pHide = button( "MapSelectionSetHide", "hide-selected", QStringLiteral( "Hide the set's objects" ) );
+        m_pShow = button( "MapSelectionSetShow", "show-all", QStringLiteral( "Show the set's objects" ) );
+        m_pSelect = button( "MapSelectionSetSelect", "select-objects", QStringLiteral( "Select the set's objects (double-click a set does the same)" ) );
         pRow->addStretch( 1 );
         m_pTree = new QTreeWidget( this );
         m_pTree->setColumnCount( 2 );
         m_pTree->setHeaderLabels( { QStringLiteral( "Selection Set" ), QStringLiteral( "Num" ) } );
         m_pTree->setRootIsDecorated( false );
+        m_pTree->setEditTriggers( QAbstractItemView::EditKeyPressed );
         m_pTree->header()->setStretchLastSection( false );
         m_pTree->header()->setSectionResizeMode( 0, QHeaderView::Stretch );
         m_pTree->header()->setSectionResizeMode( 1, QHeaderView::ResizeToContents );
         pLayout->addLayout( pRow );
         pLayout->addWidget( m_pTree );
-        QObject::connect( m_pSelect, &QPushButton::clicked, this, [this]() { SelectCurrent(); } );
-        QObject::connect( m_pTree, &QTreeWidget::itemDoubleClicked, this, [this]( QTreeWidgetItem *, int ) { SelectCurrent(); } );
-        QObject::connect( m_pTree, &QTreeWidget::currentItemChanged, this, [this]( QTreeWidgetItem *pItem, QTreeWidgetItem * ) {
-            m_pSelect->setEnabled( pItem != nullptr );
-        } );
+        QObject::connect( m_pNew, &QToolButton::clicked, this, [this]() { ( void )Run( "map.selection_set.create", false ); } );
+        QObject::connect( m_pAdd, &QToolButton::clicked, this, [this]() { ( void )Run( "map.selection_set.add", true ); } );
+        QObject::connect( m_pRemove, &QToolButton::clicked, this, [this]() { ( void )Run( "map.selection_set.remove", true ); } );
+        QObject::connect( m_pDelete, &QToolButton::clicked, this, [this]() { ( void )Run( "map.selection_set.delete", true ); } );
+        QObject::connect( m_pHide, &QToolButton::clicked, this, [this]() { ( void )Run( "map.selection_set.hide", true ); } );
+        QObject::connect( m_pShow, &QToolButton::clicked, this, [this]() { ( void )Run( "map.selection_set.show", true ); } );
+        QObject::connect( m_pSelect, &QToolButton::clicked, this, [this]() { ( void )Run( "map.selection_set.select", true ); } );
+        QObject::connect( m_pTree, &QTreeWidget::itemDoubleClicked, this, [this]( QTreeWidgetItem *, int ) { ( void )Run( "map.selection_set.select", true ); } );
+        QObject::connect( m_pTree, &QTreeWidget::currentItemChanged, this, [this]( QTreeWidgetItem *, QTreeWidgetItem * ) { UpdateButtons(); } );
+        QObject::connect( m_pTree, &QTreeWidget::itemChanged, this, [this]( QTreeWidgetItem *pItem, int column ) { Rename( pItem, column ); } );
         ( void )MapWorkspace_AddListener( pWorkspace, &selection_sets_t::OnChanged, this );
         Rebuild();
     }
@@ -2451,48 +3336,84 @@ public:
 private:
     static void OnChanged( void *pContext, u32 changes ) noexcept
     {
-        if ( ( changes & MAP_CHANGE_DOCUMENT ) != 0u ) { static_cast<selection_sets_t *>( pContext )->Rebuild(); }
+        auto *pSelf = static_cast<selection_sets_t *>( pContext );
+        if ( ( changes & MAP_CHANGE_DOCUMENT ) != 0u ) { pSelf->Rebuild(); }
+        else if ( ( changes & MAP_CHANGE_SELECTION ) != 0u ) { pSelf->UpdateButtons(); }
     }
 
+    // The current set survives a rebuild by ID; a set made since the last
+    // rebuild becomes current.
     void Rebuild()
     {
+        const u64 current = CurrentSet();
+        QSignalBlocker blocker( m_pTree );
         m_pTree->clear();
-        const key_value_t *pRoot = SettingsDocument_Root( &m_pWorkspace->pDocument->root );
-        const key_value_t *pSets = KeyValue_Find( pRoot, StringView_FromCString( "selection_sets" ) );
-        for ( usize i = 0u; i < KeyValue_ChildCount( pSets ); ++i ) {
-            const key_value_t *pSet = KeyValue_ChildAt( pSets, i );
-            string_view_t name{};
-            ( void )KeyValue_GetString( KeyValue_Find( pSet, StringView_FromCString( "name" ) ), &name );
-            const key_value_t *pMembers = KeyValue_Find( pSet, StringView_FromCString( "members" ) );
+        QTreeWidgetItem *pCurrent = nullptr, *pNewest = nullptr;
+        u64 newest = 0u;
+        for ( const auto &set : MapSelectionSets_All( m_pWorkspace->pDocument ) ) {
             QList<QVariant> members;
-            for ( usize m = 0u; m < KeyValue_ChildCount( pMembers ); ++m ) {
-                u64 id = 0u;
-                if ( KeyValue_GetU64( KeyValue_ChildAt( pMembers, m ), &id ) ) { members.append( QVariant::fromValue<qulonglong>( id ) ); }
-            }
-            auto *pItem = new QTreeWidgetItem( m_pTree, { FromView( name ), QString::number( members.size() ) } );
+            for ( u64 id : set.members ) { members.append( QVariant::fromValue<qulonglong>( id ) ); }
+            auto *pItem = new QTreeWidgetItem( m_pTree, { QString::fromStdString( set.name ), QString::number( members.size() ) } );
             pItem->setData( 0, kMembersRole, members );
+            pItem->setData( 0, kSetIdRole, QVariant::fromValue<qulonglong>( set.id ) );
+            pItem->setFlags( pItem->flags() | Qt::ItemIsEditable );
+            if ( set.id == current ) { pCurrent = pItem; }
+            if ( set.id > newest ) { newest = set.id; pNewest = pItem; }
         }
-        m_pSelect->setEnabled( false );
+        if ( m_bPrimed && newest > m_lastSeen ) { pCurrent = pNewest; }
+        m_lastSeen = std::max( m_lastSeen, newest );
+        m_bPrimed = true;
+        if ( pCurrent != nullptr ) { m_pTree->setCurrentItem( pCurrent ); }
+        UpdateButtons();
     }
 
-    // Members that no longer exist are skipped; the set keeps them.
-    void SelectCurrent()
+    u64 CurrentSet() const
     {
         const QTreeWidgetItem *pItem = m_pTree->currentItem();
-        if ( pItem == nullptr ) { return; }
-        std::vector<u64> ids;
-        for ( const QVariant &member : pItem->data( 0, kMembersRole ).toList() ) {
-            const u64 id = member.toULongLong();
-            if ( MapWireframe_FindObject( m_pWorkspace->wire, id ) != nullptr || MapWireframe_FindEntity( m_pWorkspace->wire, id ) != nullptr ) {
-                ids.push_back( id );
-            }
-        }
-        MapWorkspace_SetSelection( m_pWorkspace, ids.data(), ids.size() );
+        return pItem != nullptr ? pItem->data( 0, kSetIdRole ).toULongLong() : 0u;
+    }
+
+    void UpdateButtons()
+    {
+        const bool bSet = CurrentSet() != 0u;
+        const bool bSelection = m_pWorkspace->selection.ids.nCount != 0u;
+        const bool bWritable = m_pWorkspace->pDocument != nullptr && !m_pWorkspace->pDocument->bReadOnly;
+        m_pNew->setEnabled( bWritable && bSelection );
+        m_pAdd->setEnabled( bWritable && bSet && bSelection );
+        m_pRemove->setEnabled( bWritable && bSet && bSelection );
+        m_pDelete->setEnabled( bWritable && bSet );
+        m_pHide->setEnabled( bSet );
+        m_pShow->setEnabled( bSet );
+        m_pSelect->setEnabled( bSet );
+    }
+
+    command_result_t Run( const char *pCommand, bool bWithSet, u64 set = 0u, const QString &extra = {} )
+    {
+        if ( bWithSet && set == 0u ) { set = CurrentSet(); }
+        if ( bWithSet && set == 0u ) { return command_result_t::INVALID_ARGUMENTS; }
+        const QByteArray id = QByteArray::number( static_cast<qulonglong>( set ) ), text = extra.toUtf8();
+        const string_view_t args[2]{ { id.constData(), static_cast<usize>( id.size() ) }, { text.constData(), static_cast<usize>( text.size() ) } };
+        const usize nArgs = bWithSet ? ( extra.isEmpty() ? 1u : 2u ) : 0u;
+        return EditorCommands_Execute( &m_pWorkspace->pGui->commands, StringView_FromCString( pCommand ), command_args_t{ args, nArgs } );
+    }
+
+    // An edited name renames the set; an empty one puts the old name back.
+    // The command rebuilds the tree, so it runs after the item's signal.
+    void Rename( QTreeWidgetItem *pItem, int column )
+    {
+        if ( column != 0 || pItem == nullptr ) { return; }
+        const u64 set = pItem->data( 0, kSetIdRole ).toULongLong();
+        const QString name = pItem->text( 0 ).trimmed();
+        QMetaObject::invokeMethod( this, [this, set, name]() {
+            if ( name.isEmpty() || Run( "map.selection_set.rename", true, set, name ) != command_result_t::OK ) { Rebuild(); }
+        }, Qt::QueuedConnection );
     }
 
     map_workspace_t *m_pWorkspace{ nullptr };
     QTreeWidget *m_pTree{ nullptr };
-    QPushButton *m_pSelect{ nullptr };
+    QToolButton *m_pNew{ nullptr }, *m_pAdd{ nullptr }, *m_pRemove{ nullptr }, *m_pDelete{ nullptr }, *m_pHide{ nullptr }, *m_pShow{ nullptr }, *m_pSelect{ nullptr };
+    u64 m_lastSeen{ 0u };
+    bool m_bPrimed{ false };
 };
 
 template <typename T>

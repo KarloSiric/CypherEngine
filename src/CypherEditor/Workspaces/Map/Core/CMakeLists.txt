@@ -5,19 +5,17 @@
 #
 #  File: src/CypherEditor/Workspaces/Map/Core/CMakeLists.txt
 #  Purpose: Builds Cypher::EditorMapCore, the Qt-free half of the Map
-#           workspace: the `.cymap` / `.cymapchunk` document (ADR 0011).
+#           workspace: the `.cymap` document (ADR 0011, ADR 0012).
 #  Details: The Map workspace's Qt half (Workspaces/Map/Gui) builds on top.
-#           The document does no file I/O - it takes texts and hands texts to
-#           a sink - so the scene compiler and tests share it; CypherMap_Files
-#           is the one disk adapter (root plus chunk folder, staged saves).
+#           The document does no file I/O - it takes the file's text and
+#           produces it - so the scene compiler and tests share it;
+#           CypherMap_Files is the one disk adapter (one file, atomic save).
 #
 ##########################################################################
 
 add_library(CypherEditorMapCore STATIC
     CypherMap_BrushEdit.cpp
     CypherMap_BrushEdit.h
-    CypherMap_Cell.cpp
-    CypherMap_Cell.h
     CypherMap_Clipboard.cpp
     CypherMap_Clipboard.h
     CypherMap_Document.cpp
@@ -34,6 +32,34 @@ add_library(CypherEditorMapCore STATIC
     CypherMap_Geometry.h
     CypherMap_MeshEdit.cpp
     CypherMap_MeshEdit.h
+    CypherMap_ObjectCreate.cpp
+    CypherMap_ObjectCreate.h
+    CypherMap_Prefab.cpp
+    CypherMap_Prefab.h
+    CypherMap_TextureEdit.cpp
+    CypherMap_TextureEdit.h
+    CypherMap_TopologyEdit.cpp
+    CypherMap_TopologyEdit.h
+    CypherMap_PatchEdit.cpp
+    CypherMap_PatchEdit.h
+    CypherMap_EntityOutputs.cpp
+    CypherMap_EntityOutputs.h
+    CypherMap_Modifiers.cpp
+    CypherMap_Groups.cpp
+    CypherMap_Groups.h
+    CypherMap_Hierarchy.cpp
+    CypherMap_Hierarchy.h
+    CypherMap_GameProfile.cpp
+    CypherMap_GameProfile.h
+    CypherMap_SelectionSets.cpp
+    CypherMap_SelectionSets.h
+    CypherMap_Hotspots.cpp
+    CypherMap_Hotspots.h
+    CypherMap_Export.cpp
+    CypherMap_Export.h
+    CypherMap_Modifiers.h
+    CypherMap_Compile.cpp
+    CypherMap_Compile.h
     CypherMap_Wireframe.cpp
     CypherMap_Wireframe.h
 )
@@ -55,7 +81,6 @@ target_link_libraries(CypherEditorMapCore
 if (CYPHERENGINE_BUILD_TESTS)
     add_executable(cypher_editor_map_core_contract_tests
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_BrushEdit_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_Cell_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_Clipboard_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_Document_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_Edit_Tests.cpp"
@@ -63,6 +88,15 @@ if (CYPHERENGINE_BUILD_TESTS)
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_FaceEdit_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_Files_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_MeshEdit_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_ObjectCreate_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_TextureEdit_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_TopologyEdit_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_EntityOutputs_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_Modifiers_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_Groups_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_Hierarchy_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_SelectionSets_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_GameProfile_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Core/CypherMap_Wireframe_Tests.cpp"
     )
     target_link_libraries(cypher_editor_map_core_contract_tests
@@ -75,6 +109,7 @@ if (CYPHERENGINE_BUILD_TESTS)
     target_compile_definitions(cypher_editor_map_core_contract_tests
         PRIVATE
             CYPHER_MAP_EXAMPLE_DIR="${CYPHERENGINE_ROOT_DIR}/docs/formats/examples/cymap"
+            CYPHER_ASSETS_DIR="${CYPHERENGINE_ROOT_DIR}/assets"
     )
     add_test(
         NAME cypher_editor_map_core_contract_tests
@@ -82,6 +117,8 @@ if (CYPHERENGINE_BUILD_TESTS)
     )
     set_tests_properties(cypher_editor_map_core_contract_tests PROPERTIES
         LABELS "CypherEditor;Map;Contract"
-        TIMEOUT 120
+        # Persistence and exhaustive allocation-refusal checks take several
+        # minutes on the compact local/CI configuration. Keep a bounded limit.
+        TIMEOUT 600
     )
 endif()

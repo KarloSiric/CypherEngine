@@ -4,6 +4,8 @@
 //////////////////////////////////////////////////////////////////////////
 #include "CypherMapGui_Workspace.h"
 #include "CypherMap_Clipboard.h"
+#include "CypherMap_Edit.h"
+#include "CypherMap_Hierarchy.h"
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 #include "CypherEditor/Geometry/Document/CypherGeometry_DocumentMeshes.h"
 
@@ -15,6 +17,7 @@
 #include <QMimeData>
 #include <QTemporaryDir>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <map>
 #include <set>
@@ -31,8 +34,20 @@ namespace
 {
 string_view_t Text( const char *p ) { return StringView_FromCString( p ); }
 struct clipboard_scope_t {
-    clipboard_scope_t() { REQUIRE( QGuiApplication::platformName() == QStringLiteral( "offscreen" ) ); QApplication::clipboard()->clear(); }
-    ~clipboard_scope_t() { QApplication::clipboard()->clear(); }
+    std::map<QString, QByteArray> saved;
+    clipboard_scope_t()
+    {
+        if ( const auto *mime = QApplication::clipboard()->mimeData() ) {
+            for ( const auto &format : mime->formats() ) { saved[format] = mime->data( format ); }
+        }
+        QApplication::clipboard()->clear();
+    }
+    ~clipboard_scope_t()
+    {
+        auto *mime = new QMimeData();
+        for ( const auto &[format, bytes] : saved ) { mime->setData( format, bytes ); }
+        QApplication::clipboard()->setMimeData( mime );
+    }
 };
 struct session_t {
     gui::editor_gui_t gui{};
@@ -150,6 +165,73 @@ void CheckTrigger( map_document_t &document, u64 id )
     REQUIRE( KeyValue_GetString( KeyValue_Find( output, Text( "input" ) ), &value ) ); CHECK( StringView_Equals( value, Text( "start" ) ) );
     f64 delay = 0; REQUIRE( KeyValue_GetF64( KeyValue_Find( output, Text( "delay" ) ), &delay ) ); CHECK( delay == Catch::Approx( 0.5 ) );
 }
+
+constexpr const char *kHierarchyNames[]{ "clipboard_parent", "clipboard_child", "clipboard_grandchild" };
+struct hierarchy_t { std::array<u64, 3> entities{}, geometry{}; };
+math::vec3d_t HierarchyOrigin( usize i ) { return { 32.0 + 256.0 * i, 48.0 + 64.0 * i, 80.0 + 32.0 * i }; }
+map_bounds_t HierarchyBounds( usize i )
+{
+    const auto p = HierarchyOrigin( i );
+    return { { { p.x - 16, p.y - 24, p.z - 32 }, { p.x + 16, p.y + 24, p.z + 32 } }, CY_TRUE };
+}
+hierarchy_t AddHierarchy( map_workspace_t &ws )
+{
+    hierarchy_t ids;
+    for ( usize i = 0; i < ids.entities.size(); ++i ) {
+        REQUIRE( MapDocument_AddEntity( ws.pDocument, Text( "default" ), Text( "func_detail" ), HierarchyOrigin( i ), &ids.entities[i] ) == map_status_t::OK );
+        map_layer_store_t *chunk = nullptr;
+        auto *record = MapDocument_FindObject( ws.pDocument, ids.entities[i], &chunk ); REQUIRE( record ); REQUIRE( chunk );
+        auto *name = KeyValue_ObjectInsert( chunk->store.pDocument, record, Text( "name" ), key_value_type_t::STRING ); REQUIRE( name );
+        REQUIRE( KeyValue_SetString( chunk->store.pDocument, name, Text( kHierarchyNames[i] ) ) );
+        REQUIRE( MapEdit_CreateBox( ws.pDocument, HierarchyBounds( i ).box, Text( "materials/dev/grid" ), Text( "default" ), &ids.geometry[i] ) == map_status_t::OK );
+        REQUIRE( MapDocument_SetGeometryOwner( ws.pDocument, ids.geometry[i], ids.entities[i] ) == map_status_t::OK );
+        if ( i > 0 ) { REQUIRE( MapHierarchy_SetParent( ws.pDocument, { &ids.entities[i], 1 }, ids.entities[i - 1] ) == map_status_t::OK ); }
+    }
+    MapWorkspace_DocumentChanged( &ws );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS );
+    MapWorkspace_SetSelection( &ws, &ids.entities[0], 1 );
+    REQUIRE( Selection( ws ) == std::vector<u64>{ ids.entities[0] } );
+    return ids;
+}
+hierarchy_t FindHierarchy( map_document_t &map, const map_wireframe_t &wire )
+{
+    hierarchy_t ids;
+    for ( usize i = 0; i < ids.entities.size(); ++i ) {
+        for ( usize e = 0; e < wire.entities.nCount; ++e ) {
+            const auto id = wire.entities.pData[e].id;
+            const auto *record = MapDocument_FindObject( &map, id, nullptr ); REQUIRE( record );
+            string_view_t name{};
+            if ( KeyValue_GetString( KeyValue_Find( record, Text( "name" ) ), &name ) && StringView_Equals( name, Text( kHierarchyNames[i] ) ) ) {
+                REQUIRE( ids.entities[i] == 0 ); ids.entities[i] = id;
+            }
+        }
+        REQUIRE( ids.entities[i] != 0 );
+        for ( usize o = 0; o < wire.objects.nCount; ++o ) {
+            const auto &object = wire.objects.pData[o];
+            if ( object.owner == ids.entities[i] ) { REQUIRE( ids.geometry[i] == 0 ); ids.geometry[i] = object.id; }
+        }
+        REQUIRE( ids.geometry[i] != 0 );
+    }
+    return ids;
+}
+void CheckHierarchy( map_document_t &map, const map_wireframe_t &wire, const hierarchy_t &ids, math::vec3d_t offset = {} )
+{
+    for ( usize i = 0; i < ids.entities.size(); ++i ) {
+        CAPTURE( i, ids.entities[i], ids.geometry[i] );
+        const auto *entity = MapWireframe_FindEntity( wire, ids.entities[i] ); REQUIRE( entity );
+        CHECK( entity->nOwned == 1 );
+        const auto origin = HierarchyOrigin( i ); CheckPoint( entity->origin, { origin.x + offset.x, origin.y + offset.y, origin.z + offset.z } );
+        CHECK( MapHierarchy_Parent( &map, ids.entities[i] ) == ( i == 0 ? 0 : ids.entities[i - 1] ) );
+        const auto *object = MapWireframe_FindObject( wire, ids.geometry[i] ); REQUIRE( object );
+        CHECK( object->kind == map_wire_kind_t::BRUSH ); CHECK( object->owner == ids.entities[i] );
+        CheckBounds( object, HierarchyBounds( i ), offset );
+        const auto *record = MapDocument_FindObject( &map, ids.entities[i], nullptr ); REQUIRE( record );
+        string_view_t name{}; REQUIRE( KeyValue_GetString( KeyValue_Find( record, Text( "name" ) ), &name ) );
+        CHECK( StringView_Equals( name, Text( kHierarchyNames[i] ) ) );
+    }
+    CHECK( MapHierarchy_Orphans( &map ).empty() );
+    CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &map.geometry.sourceIds ) );
+}
 }
 
 TEST_CASE( "Clipboard snapshot transfers mixed authored roots to another map with new identities and persistent undo", "[map][gui][clipboard][persistence]" )
@@ -266,7 +348,7 @@ TEST_CASE( "Originless logic records copy cut and paste without manufacturing po
 {
     clipboard_scope_t clipboard; session_t s; auto &ws = s.workspace; u64 id = 0;
     REQUIRE( MapDocument_AddEntity( ws.pDocument, Text( "default" ), Text( "logic_script" ), {}, &id ) == map_status_t::OK );
-    map_chunk_t *chunk = nullptr; auto *record = MapDocument_FindObject( ws.pDocument, id, &chunk ); REQUIRE( record ); REQUIRE( chunk );
+    map_layer_store_t *chunk = nullptr; auto *record = MapDocument_FindObject( ws.pDocument, id, &chunk ); REQUIRE( record ); REQUIRE( chunk );
     auto *document = chunk->store.pDocument; auto *origin = KeyValue_Find( record, Text( "origin" ) ); REQUIRE( origin ); REQUIRE( KeyValue_Remove( document, record, origin ) );
     auto *properties = KeyValue_ObjectInsert( document, record, Text( "properties" ), key_value_type_t::OBJECT ); REQUIRE( properties );
     auto *script = KeyValue_ObjectInsert( document, properties, Text( "script" ), key_value_type_t::STRING ); REQUIRE( script );
@@ -374,6 +456,137 @@ TEST_CASE( "Clipboard allocation failures preserve map selection history source 
                 CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) ); CHECK( MimeSnapshot() == mime );
                 audit.calls = 0; REQUIRE( apply( ws ) ); CHECK( EditorHistory_StepCount( &ws.history ) == steps + ( action == 0 ? 0 : 1 ) );
                 if ( action != 0 ) { REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CHECK( Selection( ws ) == selected ); CheckBounds( MapWireframe_FindObject( ws.wire, selected[0] ), Box(), {} ); }
+            }
+            CHECK( audit.live == 0 );
+        }
+    }
+}
+
+TEST_CASE( "Copying only a hierarchy parent transfers descendants and their owned geometry after the source closes", "[map][gui][clipboard][hierarchy-clipboard]" )
+{
+    clipboard_scope_t clipboard; hierarchy_t original; QByteArray copied;
+    {
+        session_t source; auto &ws = source.workspace; original = AddHierarchy( ws );
+        const auto *document = ws.pDocument; const auto *points = ws.wire.points.pData;
+        const auto steps = EditorHistory_StepCount( &ws.history ); const auto token = UndoRedo_StateToken( ws.history.pUndo );
+        REQUIRE( MapWorkspace_CopySelection( &ws ) ); copied = Bundle();
+        CHECK( ws.pDocument == document ); CHECK( ws.wire.points.pData == points );
+        CHECK( Selection( ws ) == std::vector<u64>{ original.entities[0] } );
+        CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+        CheckHierarchy( *ws.pDocument, ws.wire, original );
+    }
+    session_t destination; auto &ws = destination.workspace;
+    settings_t settings( &destination.gui.settings ); settings.Placement( "grid" );
+    // Occupy the original numeric IDs in the destination. No new attachment
+    // may accidentally resolve to an unrelated pre-existing entity.
+    u64 unrelated = 0;
+    while ( ws.pDocument->nextId <= original.entities.back() ) {
+        REQUIRE( MapDocument_AddEntity( ws.pDocument, Text( "default" ), Text( "info_target" ), { -1024, -1024, -1024 }, &unrelated ) == map_status_t::OK );
+    }
+    MapWorkspace_DocumentChanged( &ws ); const auto beforeEntities = ws.wire.entities.nCount;
+    const auto firstNewId = ws.pDocument->nextId;
+    MapWorkspace_SetGridSize( &ws, 64 ); MapWorkspace_SetCursor( &ws, {}, 5 );
+    REQUIRE( MapWorkspace_Paste( &ws ) ); const auto pasted = FindHierarchy( *ws.pDocument, ws.wire );
+    CHECK( ws.wire.entities.nCount == beforeEntities + 3 ); CHECK( ws.pDocument->geometryRecords.nCount == 3 );
+    CHECK( Selection( ws ) == std::vector<u64>{ pasted.entities[0] } );
+    CheckHierarchy( *ws.pDocument, ws.wire, pasted, { 64, 0, 64 } );
+    for ( usize i = 0; i < pasted.entities.size(); ++i ) {
+        CHECK( pasted.entities[i] >= firstNewId ); CHECK( pasted.geometry[i] >= firstNewId );
+        CHECK( pasted.entities[i] != original.entities[i] ); CHECK( pasted.geometry[i] != original.geometry[i] );
+    }
+    const auto *existing = MapWireframe_FindEntity( ws.wire, unrelated ); REQUIRE( existing );
+    CheckPoint( existing->origin, { -1024, -1024, -1024 } ); CHECK( MapHierarchy_Parent( ws.pDocument, unrelated ) == 0 );
+    CHECK( Bundle() == copied ); CHECK( EditorHistory_StepCount( &ws.history ) == 1 );
+}
+
+TEST_CASE( "Cutting only a parent restores the complete remapped hierarchy through paste undo redo and saved reload", "[map][gui][clipboard][hierarchy-clipboard][persistence]" )
+{
+    clipboard_scope_t clipboard; session_t s; auto &ws = s.workspace; const auto original = AddHierarchy( ws );
+    Seed(); const auto previousMime = MimeSnapshot(); const auto steps = EditorHistory_StepCount( &ws.history );
+    REQUIRE( MapWorkspace_CutSelection( &ws ) ); const auto cut = Bundle(); CHECK( MimeSnapshot() != previousMime );
+    CHECK( ws.wire.entities.nCount == 0 ); CHECK( ws.wire.objects.nCount == 0 ); CHECK( ws.pDocument->geometryRecords.nCount == 0 );
+    CHECK( Selection( ws ).empty() ); CHECK( EditorHistory_StepCount( &ws.history ) == steps + 1 );
+    REQUIRE( MapWorkspace_Paste( &ws, true ) ); const auto pasted = FindHierarchy( *ws.pDocument, ws.wire );
+    CHECK( ws.wire.entities.nCount == 3 ); CHECK( ws.wire.objects.nCount == 6 ); CHECK( ws.pDocument->geometryRecords.nCount == 3 );
+    CHECK( Selection( ws ) == std::vector<u64>{ pasted.entities[0] } );
+    CheckHierarchy( *ws.pDocument, ws.wire, pasted );
+    for ( usize i = 0; i < original.entities.size(); ++i ) {
+        CHECK( pasted.entities[i] != original.entities[i] ); CHECK( pasted.geometry[i] != original.geometry[i] );
+        CHECK( MapWireframe_FindEntity( ws.wire, original.entities[i] ) == nullptr ); CHECK( MapWireframe_FindObject( ws.wire, original.geometry[i] ) == nullptr );
+    }
+    CHECK( EditorHistory_StepCount( &ws.history ) == steps + 2 ); CHECK( Bundle() == cut );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+    CHECK( ws.wire.entities.nCount == 0 ); CHECK( ws.wire.objects.nCount == 0 ); CHECK( Selection( ws ).empty() );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+    CheckHierarchy( *ws.pDocument, ws.wire, original ); CHECK( Selection( ws ) == std::vector<u64>{ original.entities[0] } );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( ws.wire.objects.nCount == 0 );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
+    CheckHierarchy( *ws.pDocument, ws.wire, pasted ); CHECK( Selection( ws ) == std::vector<u64>{ pasted.entities[0] } ); CHECK( Bundle() == cut );
+
+    QTemporaryDir folder; REQUIRE( folder.isValid() ); const auto path = folder.filePath( QStringLiteral( "hierarchy-cut-paste.cymap" ) );
+    REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK );
+    session_t reloaded; REQUIRE( MapWorkspace_Open( &reloaded.workspace, path ).status == map_files_status_t::OK );
+    auto &loaded = reloaded.workspace; CheckHierarchy( *loaded.pDocument, loaded.wire, pasted );
+    CHECK( loaded.wire.entities.nCount == 3 ); CHECK( loaded.pDocument->geometryRecords.nCount == 3 );
+    CHECK( loaded.pDocument->nextId == ws.pDocument->nextId );
+}
+
+TEST_CASE( "An unfinished hierarchy transform blocks clipboard publication until cancellation", "[map][gui][clipboard][hierarchy-clipboard][guards]" )
+{
+    clipboard_scope_t clipboard; session_t s; auto &ws = s.workspace; const auto original = AddHierarchy( ws );
+    REQUIRE( MapWorkspace_CopySelection( &ws ) ); const auto mime = MimeSnapshot();
+    const auto *document = ws.pDocument; const auto *points = ws.wire.points.pData;
+    const auto token = UndoRedo_StateToken( ws.history.pUndo ); const auto steps = EditorHistory_StepCount( &ws.history );
+    map_transform_preview_t preview{}; preview.kind = map_transform_preview_kind_t::TRANSLATE; preview.delta = { 64, 16, 0 };
+    MapWorkspace_SetTransformPreview( &ws, preview ); REQUIRE( ws.editPreview.bActive );
+    CHECK_FALSE( MapWorkspace_CopySelection( &ws ) ); CHECK_FALSE( MapWorkspace_CutSelection( &ws ) ); CHECK_FALSE( MapWorkspace_Paste( &ws, true ) );
+    CHECK( ws.pDocument == document ); CHECK( ws.wire.points.pData == points );
+    CHECK( Selection( ws ) == std::vector<u64>{ original.entities[0] } ); CHECK( MimeSnapshot() == mime );
+    CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+    MapWorkspace_ClearEditPreview( &ws ); CheckHierarchy( *ws.pDocument, ws.wire, original );
+    REQUIRE( MapWorkspace_CutSelection( &ws ) ); REQUIRE( MapWorkspace_Paste( &ws, true ) );
+    CheckHierarchy( *ws.pDocument, ws.wire, FindHierarchy( *ws.pDocument, ws.wire ) );
+    CHECK( EditorHistory_StepCount( &ws.history ) == steps + 2 );
+}
+
+TEST_CASE( "Hierarchy clipboard allocation failures preserve every descendant live pointer selection history and MIME byte", "[map][gui][clipboard][hierarchy-clipboard][allocation]" )
+{
+    clipboard_scope_t clipboard;
+    for ( int action = 0; action < 3; ++action ) {
+        CAPTURE( action ); allocation_failure_t audit{}; const allocator_t allocator{ &Allocate, nullptr, &Free, &audit };
+        const auto prepare = [&]( session_t &s ) {
+            const auto ids = AddHierarchy( s.workspace );
+            if ( action == 2 ) { REQUIRE( MapWorkspace_CopySelection( &s.workspace ) ); Seed( Bundle() ); }
+            else { Seed(); }
+            return ids;
+        };
+        const auto apply = [&]( map_workspace_t &ws ) { return action == 0 ? MapWorkspace_CopySelection( &ws ) : action == 1 ? MapWorkspace_CutSelection( &ws ) : MapWorkspace_Paste( &ws, true ); };
+        usize successfulCalls = 0;
+        {
+            session_t probe( &allocator ); prepare( probe ); audit.calls = 0; REQUIRE( apply( probe.workspace ) ); successfulCalls = audit.calls;
+        }
+        REQUIRE( audit.live == 0 ); REQUIRE( successfulCalls > 2 );
+        // Deliberately bounded probes: early allocation and final publication
+        // preparation. Kernel tests cover the finer-grained clone/parse sweep.
+        for ( const usize failure : { usize{ 1 }, usize{ 2 }, successfulCalls } ) {
+            CAPTURE( failure, successfulCalls );
+            {
+                audit.calls = 0; audit.failOn = 0; session_t s( &allocator ); const auto original = prepare( s ); auto &ws = s.workspace;
+                const auto *document = ws.pDocument; const auto *points = ws.wire.points.pData; const auto *selection = ws.selection.ids.pData;
+                const auto next = document->nextId, revision = document->geometry.revision, selectionRevision = ws.selection.revision;
+                const auto steps = EditorHistory_StepCount( &ws.history ), baselineLive = audit.live;
+                const auto token = UndoRedo_StateToken( ws.history.pUndo ); const auto mime = MimeSnapshot();
+                audit.calls = 0; audit.failOn = failure; CHECK_FALSE( apply( ws ) ); audit.failOn = 0;
+                CHECK( audit.calls >= failure ); CHECK( audit.live == baselineLive );
+                CHECK( ws.pDocument == document ); CHECK( ws.wire.points.pData == points ); CHECK( ws.selection.ids.pData == selection );
+                CHECK( ws.selection.revision == selectionRevision ); CHECK( Selection( ws ) == std::vector<u64>{ original.entities[0] } );
+                CHECK( ws.pDocument->nextId == next ); CHECK( ws.pDocument->geometry.revision == revision );
+                CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) ); CHECK( MimeSnapshot() == mime );
+                CheckHierarchy( *ws.pDocument, ws.wire, original );
+                audit.calls = 0; REQUIRE( apply( ws ) );
+                CHECK( EditorHistory_StepCount( &ws.history ) == steps + ( action == 0 ? 0 : 1 ) );
+                if ( action != 0 ) { REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); }
+                CheckHierarchy( *ws.pDocument, ws.wire, original ); CHECK( Selection( ws ) == std::vector<u64>{ original.entities[0] } );
             }
             CHECK( audit.live == 0 );
         }

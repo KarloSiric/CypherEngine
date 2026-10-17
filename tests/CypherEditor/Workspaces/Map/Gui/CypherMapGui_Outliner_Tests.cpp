@@ -133,7 +133,8 @@ TEST_CASE( "Outliner decorates actual mapnode kinds and authored group membershi
     CHECK( Row( *panel, 1300u )->text( 0 ).contains( QStringLiteral( "doorway arch" ) ) );
     auto *pGroup = Row( *panel, 190u );
     CHECK( pGroup->text( 0 ).contains( QStringLiteral( "Wave 1" ) ) );
-    CHECK_FALSE( pGroup->flags().testFlag( Qt::ItemIsSelectable ) );
+    CHECK( pGroup->flags().testFlag( Qt::ItemIsSelectable ) ); // Selecting a group row selects its members (Hammer 5 Outliner).
+    CHECK( pGroup->flags().testFlag( Qt::ItemIsEditable ) );   // Double-click renames it.
     CHECK( Row( *panel, 110u )->parent() == pGroup );
     CHECK( Row( *panel, 120u )->parent() == pGroup );
     CHECK( Row( *panel, 111u )->parent() == Row( *panel, 110u ) );
@@ -278,19 +279,15 @@ TEST_CASE( "Outliner filters survive document rebuilds and empty new maps", "[ma
 TEST_CASE( "Outliner group projection handles cycles duplicate membership and missing members", "[map][gui][outliner]" )
 {
     session_t session( false );
-    constexpr const char *root = R"(@cykv 1
-@schema "cypher.map" 10
+    constexpr const char *text = R"(@cykv 1
+@schema "cypher.map" 11
 { map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b" name = "Groups" game = "reap"
-  next_id = 1000u layers = [ { id = "default" } ] })";
-    constexpr const char *chunk = R"(@cykv 1
-@schema "cypher.map_chunk" 10
-{ map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b" layer = "default" cell = "global"
+  next_id = 1000u layers = [ { id = "default"
   entities = [ { id = 1u class = "info_target" name = "member" origin = [ 0, 0, 0 ] }, { id = 2u class = "logic_relay" } ]
   groups = [ { id = 30u name = "Second" members = [ 20u, 1u, 999u ] },
-             { id = 20u name = "First" members = [ 30u, 1u, 20u ] } ] })";
-    const map_chunk_input_t input{ StringView_FromCString( "default/global.cymapchunk" ), StringView_FromCString( chunk ) };
+             { id = 20u name = "First" members = [ 30u, 1u, 20u ] } ] } ] })";
     MapDocument_Shutdown( session.workspace.pDocument );
-    REQUIRE( MapDocument_Load( session.workspace.pDocument, Allocator_GetSystem(), StringView_FromCString( root ), { &input, 1u } ) == map_status_t::OK );
+    REQUIRE( MapDocument_Load( session.workspace.pDocument, Allocator_GetSystem(), StringView_FromCString( text ) ) == map_status_t::OK );
     MapWorkspace_DocumentChanged( &session.workspace );
     std::unique_ptr<QWidget> panel( MapOutliner_Create( nullptr, &session.workspace ) );
     CHECK( Row( *panel, 30u )->parent() == Row( *panel, 20u ) );
@@ -492,6 +489,42 @@ TEST_CASE( "Properties inspect live geometry and materials lifted out of source 
     CHECK( PropertyChild( PropertyGroup( *panel, "Selection" ), "Object IDs" )->text( 1 ) == QStringLiteral( "1000, 1200" ) );
 }
 
+TEST_CASE( "Properties show the whole map file with nothing selected and selected objects inside their layers", "[map][gui][properties]" )
+{
+    session_t session;
+    std::unique_ptr<QWidget> panel( MapProperties_Create( nullptr, &session.workspace ) );
+    const u64 revision = session.workspace.pDocument->geometry.revision;
+    const usize stores = session.workspace.pDocument->layerStores.nCount;
+    MapWorkspace_SetSelection( &session.workspace, nullptr, 0u );
+    QTreeWidgetItem *pFile = PropertyGroup( *panel, "Map file" );
+    CHECK( pFile->isExpanded() );
+    CHECK( PropertyChild( pFile, "name" )->text( 1 ).contains( QStringLiteral( "Research Facility (example)" ) ) );
+    CHECK( PropertyChild( pFile, "settings" ) != nullptr );
+    QTreeWidgetItem *pLayers = PropertyChild( pFile, "layers" );
+    CHECK( pLayers->text( 1 ) == QStringLiteral( "4 items" ) );
+    // A layer opens into its sections, a section into its objects.
+    QTreeWidgetItem *pStructure = pLayers->child( 0 );
+    pStructure->setExpanded( true );
+    CHECK( PropertyChild( pStructure, "id" )->text( 1 ).contains( QStringLiteral( "structure" ) ) );
+    CHECK( PropertyChild( pStructure, "info" ) != nullptr ); // The layer's own summary.
+    CHECK( PropertyChild( pStructure, "brushes" )->text( 1 ) == QStringLiteral( "6 items" ) );
+    CHECK( PropertyChild( pStructure, "terrains" )->text( 1 ) == QStringLiteral( "1 item" ) );
+    // Selected objects keep their place in the file: layer, then section.
+    const u64 selection[]{ 1000u, 140u };
+    MapWorkspace_SetSelection( &session.workspace, selection, 2u );
+    QTreeWidgetItem *pSelected = PropertyGroup( *panel, "In the map file" );
+    QTreeWidgetItem *pSelectedLayers = PropertyChild( pSelected, "layers" );
+    REQUIRE( pSelectedLayers->text( 1 ) == QStringLiteral( "2 items" ) );
+    pSelectedLayers->child( 0 )->setExpanded( true );
+    pSelectedLayers->child( 1 )->setExpanded( true );
+    CHECK( PropertyChild( pSelectedLayers->child( 0 ), "brushes" )->text( 1 ) == QStringLiteral( "1 item" ) );
+    CHECK( PropertyChild( pSelectedLayers->child( 1 ), "entities" )->text( 1 ) == QStringLiteral( "1 item" ) );
+    // Describing the file changes nothing in the map.
+    CHECK( session.workspace.pDocument->geometry.revision == revision );
+    CHECK( session.workspace.pDocument->layerStores.nCount == stores );
+    CHECK_FALSE( MapWorkspace_IsModified( &session.workspace ) );
+}
+
 TEST_CASE( "Properties distinguish entity attachment and owned geometry without invented runtime fields", "[map][gui][properties]" )
 {
     session_t session;
@@ -530,7 +563,7 @@ TEST_CASE( "Properties inspect unsaved geometry and page large terrain arrays", 
     MapWorkspace_Select( &session.workspace, boxId, MAP_SELECT_REPLACE );
     CHECK( PropertyChild( PropertyGroup( *panel, "Geometry" ), "Planes" )->text( 1 ) == QStringLiteral( "6" ) );
     CHECK( PropertyChild( PropertyGroup( *panel, "Materials" ), "Unassigned" )->text( 1 ) == QStringLiteral( "6 sides" ) );
-    CHECK( PropertyChild( PropertyGroup( *panel, "Placement" ), "(chunk)" )->text( 1 ) == QStringLiteral( "Assigned when saved" ) );
+    CHECK( PropertyChild( PropertyGroup( *panel, "Placement" ), "(record)" )->text( 1 ) == QStringLiteral( "Written on the next save" ) );
 
     const auto allocated = geo::GeometrySourceIdAllocator_Allocate( &pMap->geometry.sourceIds.allocator );
     REQUIRE( allocated.status == geo::geometry_status_t::OK );

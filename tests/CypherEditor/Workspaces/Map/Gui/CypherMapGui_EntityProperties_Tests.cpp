@@ -481,7 +481,7 @@ TEST_CASE( "Editing a malformed numeric entity name to empty text repairs its ty
 {
     session_t session;
     auto &ws = session.workspace;
-    map_chunk_t *chunk = nullptr;
+    map_layer_store_t *chunk = nullptr;
     auto *entity = MapDocument_FindObject( ws.pDocument, 110u, &chunk );
     REQUIRE( entity != nullptr );
     REQUIRE( chunk != nullptr );
@@ -517,7 +517,7 @@ TEST_CASE( "Custom class and name keys retain their selected row and do not edit
     for ( const char *key : { "class", "name" } ) {
         session_t session;
         auto &ws = session.workspace;
-        map_chunk_t *chunk = nullptr;
+        map_layer_store_t *chunk = nullptr;
         auto *entity = MapDocument_FindObject( ws.pDocument, 110u, &chunk );
         REQUIRE( entity != nullptr );
         REQUIRE( chunk != nullptr );
@@ -649,7 +649,7 @@ TEST_CASE( "An entity property dialog rejects changes to its selection or docume
         if ( changeSelection ) {
             MapWorkspace_Select( &ws, 120u, MAP_SELECT_REPLACE );
         } else {
-            map_chunk_t *chunk = nullptr;
+            map_layer_store_t *chunk = nullptr;
             auto *entity = MapDocument_FindObject( ws.pDocument, 110u, &chunk );
             CHECK( entity != nullptr );
             CHECK( chunk != nullptr );
