@@ -111,6 +111,17 @@ CYPHER_NODISCARD geometry_status_t BrushTransform_TextureLockScale(
     math::vec3d_t scale,
     const geometry_policy_t &policy ) noexcept;
 
+// Adjusts UV projections so textures stay where they are on the surfaces
+// after any affine transform with a non-singular linear part, a shear or a
+// mirror included: each texel lands where its surface point went. Exact,
+// because a planar projection can hold any affine plane-to-UV map
+// (CypherGeometry_UvProjection.h); the u/v axes may turn within the face.
+CYPHER_NODISCARD geometry_status_t BrushTransform_TextureLockAffine(
+    const brush_solid_t *pBrush,
+    geometry_brush_side_attribute_store_t *pStore,
+    math::affine3d_t transform,
+    const geometry_policy_t &policy ) noexcept;
+
 } // namespace cypher::editor::geometry
 
 #endif // CYPHER_EDITOR_GEOMETRY_BRUSH_TRANSFORM_H

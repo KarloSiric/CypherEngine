@@ -26,6 +26,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherGeometry_BrushTransform.h"
+#include "CypherGeometry_UvProjection.h"
 
 namespace cypher::editor::geometry
 {
@@ -176,6 +177,44 @@ geometry_brush_side_attributes_t TextureLockScaled(
             attributes.uvProjection.normal, 1.0 / nLen );
     }
     return attributes;
+}
+
+// The projection that puts the same texel at A * p as `before` put at p.
+// Its null direction (what the projection drops) follows A; the old world
+// to UV map composed with A's inverse is then re-expressed on the plane
+// across that direction (CypherGeometry_UvProjection.h).
+geometry_status_t TextureLockAffined( const geometry_brush_side_attributes_t &before, const math::affine3d_t &transform,
+                                      const math::affine3d_t &inverse, geometry_brush_side_attributes_t *pOut ) noexcept
+{
+    const math::planar_uv_mappingd_t &m = before.uvProjection;
+    const math::vec3d_t dropped = math::Vec3d_Cross( m.uAxis, m.vAxis );
+    math::vec3d_t normal = math::Affine3d_TransformDirection( transform, dropped );
+    const common::f64 normalLength = math::Scalar_Sqrt( math::Vec3d_LengthSquared( normal ) );
+    if ( !( normalLength > kMinNormalLength ) ) { return geometry_status_t::DEGENERATE; }
+    normal = math::Vec3d_Scale( normal, 1.0 / normalLength );
+    // e1: the turned u axis, made square to the new normal.
+    math::vec3d_t e1 = math::Affine3d_TransformDirection( transform, m.uAxis );
+    e1 = math::Vec3d_Subtract( e1, math::Vec3d_Scale( normal, math::Vec3d_Dot( e1, normal ) ) );
+    const common::f64 e1Length = math::Scalar_Sqrt( math::Vec3d_LengthSquared( e1 ) );
+    if ( !( e1Length > kMinNormalLength ) ) { return geometry_status_t::DEGENERATE; }
+    e1 = math::Vec3d_Scale( e1, 1.0 / e1Length );
+    const math::vec3d_t e2 = math::Vec3d_Cross( normal, e1 );
+    // UV per unit along a new-plane direction w: the old map of A^-1 w.
+    const uv_plane_map_t own = UvProjection_PlaneMap( m );
+    const auto uvAlong = [&]( math::vec3d_t w ) noexcept {
+        const math::vec3d_t x = math::Affine3d_TransformDirection( inverse, w );
+        const common::f64 a = math::Vec3d_Dot( x, m.uAxis ), b = math::Vec3d_Dot( x, m.vAxis );
+        return math::vec2d_t{ own.k00 * a + own.k01 * b, own.k10 * a + own.k11 * b };
+    };
+    const math::vec2d_t c1 = uvAlong( e1 ), c2 = uvAlong( e2 );
+    geometry_brush_side_attributes_t next = before;
+    const geometry_status_t status = UvProjection_TryFromPlaneMap( &next.uvProjection, math::Affine3d_TransformPoint( transform, m.origin ), e1, e2,
+                                                                   { c1.x, c2.x, c1.y, c2.y }, m.offset );
+    if ( status != geometry_status_t::OK ) { return status; }
+    // Keep the record's sense of normal (some records store -cross(u, v)).
+    if ( math::Vec3d_Dot( m.normal, dropped ) < 0.0 ) { next.uvProjection.normal = math::Vec3d_Negate( next.uvProjection.normal ); }
+    *pOut = next;
+    return geometry_status_t::OK;
 }
 
 } // namespace
@@ -492,6 +531,40 @@ geometry_status_t BrushTransform_TextureLockScale(
             scale );
     }
 
+    return geometry_status_t::OK;
+}
+
+geometry_status_t BrushTransform_TextureLockAffine(
+    const brush_solid_t *pBrush,
+    geometry_brush_side_attribute_store_t *pStore,
+    math::affine3d_t transform,
+    const geometry_policy_t &policy ) noexcept
+{
+    if ( !math::Affine3d_IsFinite( transform ) ) { return geometry_status_t::INVALID_ARGUMENT; }
+    math::affine3d_t inverse{};
+    if ( !math::Affine3d_TryInverse( transform, kMinAbsDeterminant, &inverse ) ) { return geometry_status_t::DEGENERATE; }
+    const geometry_status_t bindings = ValidateTextureLockBindings( pBrush, pStore, policy );
+    if ( bindings != geometry_status_t::OK ) { return bindings; }
+
+    // Every record is solved and validated before any is written.
+    const common::usize cSides = BrushSolid_SideCount( pBrush );
+    for ( common::usize iSide = 0u; iSide < cSides; ++iSide ) {
+        if ( !IsFirstAttributeReference( pBrush, iSide ) ) { continue; }
+        const common::usize iAttribute = static_cast<common::usize>( pBrush->sides.pData[iSide].iAttributeIndex );
+        geometry_brush_side_attributes_t transformed{};
+        geometry_status_t status = TextureLockAffined( pStore->records.pData[iAttribute], transform, inverse, &transformed );
+        if ( status == geometry_status_t::OK ) { status = BrushSideAttributes_Validate( policy.numerical, transformed ); }
+        if ( status != geometry_status_t::OK ) { return status; }
+    }
+    for ( common::usize iSide = 0u; iSide < cSides; ++iSide ) {
+        if ( !IsFirstAttributeReference( pBrush, iSide ) ) { continue; }
+        const common::usize iAttribute = static_cast<common::usize>( pBrush->sides.pData[iSide].iAttributeIndex );
+        geometry_brush_side_attributes_t transformed{};
+        if ( TextureLockAffined( pStore->records.pData[iAttribute], transform, inverse, &transformed ) != geometry_status_t::OK ) {
+            return geometry_status_t::CORRUPT_STATE;
+        }
+        pStore->records.pData[iAttribute] = transformed;
+    }
     return geometry_status_t::OK;
 }
 

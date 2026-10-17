@@ -82,6 +82,20 @@ CYPHER_NODISCARD geometry_status_t MeshUv_TryTransform(
     mesh_uv_pivot_t pivot,
     math::vec2d_t pivotPoint ) noexcept;
 
+// Shears the corner UVs about `pivotPoint`: uv' = pivot + S (uv - pivot)
+// with S = [1 shear.x; shear.y 1] (u gains shear.x * v, v gains shear.y * u),
+// the UV editor's shear handle. Rejected (store unchanged): a non-finite
+// shear or pivot -> NUMERIC_FAILURE; a shear that would collapse the UVs
+// (shear.x * shear.y within 1e-9 of 1) -> INVALID_ARGUMENT; others as
+// MeshUv_TryTransform.
+CYPHER_NODISCARD geometry_status_t MeshUv_TryShear(
+    mesh_attribute_store_t *pStore,
+    const editable_mesh_t *pMesh,
+    common::span_t<const geometry_mesh_face_handle_t> faces,
+    mesh_uv_set_t uvSet,
+    math::vec2d_t shear,
+    math::vec2d_t pivotPoint ) noexcept;
+
 // Justifies or fits the faces' UVs (see the file comment). FIT on a
 // selection (or, per face, a face) whose UVs have no extent along an axis
 // is DEGENERATE; other rejections as MeshUv_TryTransform.

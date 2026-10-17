@@ -208,6 +208,32 @@ TEST_CASE( "UndoRedo cancellation discards pending transaction history",
     UndoRedo_Destroy( pHistory );
 }
 
+TEST_CASE( "UndoRedo discarding redo drops undone operations only",
+           "[CypherCommon][Tier1][UndoRedo]" )
+{
+    undo_history_t *pHistory = UndoRedo_Create(
+        { Allocator_GetSystem(), 8u, 64u } );
+    REQUIRE( pHistory != nullptr );
+    undo_test_state_t state{};
+    i8 first = 3;
+    i8 second = 4;
+    REQUIRE( UndoRedo_Push( pHistory, Operation( 1u, &first, &state, "First" ) ) );
+    REQUIRE( UndoRedo_Push( pHistory, Operation( 2u, &second, &state, "Second" ) ) );
+    REQUIRE( UndoRedo_Undo( pHistory ) == CY_ERROR_OK );
+    UndoRedo_DiscardRedo( pHistory );
+    REQUIRE_FALSE( UndoRedo_CanRedo( pHistory ) );
+    REQUIRE( UndoRedo_CanUndo( pHistory ) );
+    REQUIRE( UndoRedo_OperationCount( pHistory ) == 1u );
+    REQUIRE( UndoRedo_GroupCount( pHistory ) == 1u );
+    // Inside a transaction it waits: the open step owns the cursor.
+    REQUIRE( UndoRedo_Undo( pHistory ) == CY_ERROR_OK );
+    REQUIRE( UndoRedo_BeginTransaction( pHistory, StringView_FromCString( "Open" ) ) );
+    UndoRedo_DiscardRedo( pHistory );
+    REQUIRE( UndoRedo_OperationCount( pHistory ) == 1u );
+    UndoRedo_CancelTransaction( pHistory );
+    UndoRedo_Destroy( pHistory );
+}
+
 TEST_CASE( "UndoRedo state tokens return with undo and change with merges and new edits",
            "[common][tier1][undoredo]" )
 {

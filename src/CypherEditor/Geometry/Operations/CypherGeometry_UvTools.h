@@ -15,10 +15,12 @@
 //           the texture turn or grow around the handle instead of around
 //           the projection origin.
 //
-//           Shear is not offered: projections keep orthogonal u/v axes
-//           (unprojection would otherwise not invert projection), so a
-//           sheared texture cannot be represented; callers get UNSUPPORTED
-//           from UvTools_TryShear rather than a silent approximation.
+//           Projections keep orthonormal u/v axes (unprojection would
+//           otherwise not invert projection), so UvTools_TryShear, which
+//           keeps the axes, cannot represent a shear and returns
+//           UNSUPPORTED. UvTools_TryTransformUv can: any 2x2 map factors as
+//           R(phi) * diag(sx, sy) * R(beta), and R(beta) is a turn of the u/v
+//           axes within the face plane, so they stay orthonormal.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-09-24
@@ -59,6 +61,18 @@ CYPHER_NODISCARD geometry_status_t UvTools_TryScaleAbout(
     geometry_brush_side_attributes_t *pRecord,
     math::vec3d_t pivot,
     math::vec2d_t factor,
+    const geometry_numerical_policy_t &policy ) noexcept;
+
+// Applies uv' = pivotUv + L * (uv - pivotUv), L = [rowU; rowV], exactly for
+// any non-singular L: a scale across a turned texture or a shear included,
+// which theta and (su, sv) alone cannot hold. The u/v axes turn within the
+// face plane only when L needs it (the smallest such turn is chosen), so a
+// turn or a scale along the texture's own axes leaves them where they are.
+CYPHER_NODISCARD geometry_status_t UvTools_TryTransformUv(
+    geometry_brush_side_attributes_t *pRecord,
+    math::vec2d_t rowU,
+    math::vec2d_t rowV,
+    math::vec2d_t pivotUv,
     const geometry_numerical_policy_t &policy ) noexcept;
 
 // Always UNSUPPORTED (see the file comment).

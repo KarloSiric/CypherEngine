@@ -193,6 +193,29 @@ geometry_status_t MeshUv_TryTransform(
     return Publish( pStore, pMesh, g, uvSet );
 }
 
+geometry_status_t MeshUv_TryShear(
+    mesh_attribute_store_t *pStore,
+    const editable_mesh_t *pMesh,
+    span_t<const geometry_mesh_face_handle_t> faces,
+    mesh_uv_set_t uvSet,
+    vec2d_t shear,
+    vec2d_t pivotPoint ) noexcept
+{
+    if ( !std::isfinite( shear.x ) || !std::isfinite( shear.y ) || !std::isfinite( pivotPoint.x ) || !std::isfinite( pivotPoint.y ) ) {
+        return geometry_status_t::NUMERIC_FAILURE;
+    }
+    if ( std::fabs( 1.0 - shear.x * shear.y ) < 1.0e-9 ) { return geometry_status_t::INVALID_ARGUMENT; }
+    gathered_t g{};
+    const geometry_status_t st = Gather( pStore, pMesh, faces, uvSet, &g );
+    if ( st != geometry_status_t::OK || g.corners.nCount == 0u ) { return st; }
+    for ( usize i = 0u; i < g.corners.nCount; ++i ) {
+        vec2d_t &uv = g.corners.pData[i].uv;
+        const f64 x = uv.x - pivotPoint.x, y = uv.y - pivotPoint.y;
+        uv = vec2d_t{ pivotPoint.x + x + shear.x * y, pivotPoint.y + shear.y * x + y };
+    }
+    return Publish( pStore, pMesh, g, uvSet );
+}
+
 geometry_status_t MeshUv_TryJustify(
     mesh_attribute_store_t *pStore,
     const editable_mesh_t *pMesh,

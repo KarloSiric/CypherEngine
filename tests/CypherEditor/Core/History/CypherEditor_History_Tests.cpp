@@ -224,6 +224,28 @@ TEST_CASE( "A saved empty state is lost once steps after it are evicted", "[edit
     CHECK_FALSE( EditorHistory_IsClean( &history ) ); // ...so this is not the saved state.
 }
 
+TEST_CASE( "Discarding redo forgets the undone steps and keeps the document", "[editor][core][history]" )
+{
+    editor_history_t history{};
+    REQUIRE( EditorHistory_Init( &history, Allocator_GetSystem() ) == editor_history_status_t::OK );
+    counter_t counter{};
+    int notified = 0;
+    REQUIRE( Add( &history, &counter, 5, "Move" ) == editor_history_status_t::OK );
+    REQUIRE( Add( &history, &counter, 2, "Convert" ) == editor_history_status_t::OK );
+    EditorHistory_MarkClean( &history ); // Saved with the conversion applied.
+    REQUIRE( EditorHistory_Undo( &history ) == editor_history_status_t::OK );
+    REQUIRE( EditorHistory_AddListener( &history, &Count, &notified ) );
+    EditorHistory_DiscardRedo( &history );
+    CHECK( notified == 1 );
+    CHECK( counter.value == 5 );
+    CHECK_FALSE( EditorHistory_CanRedo( &history ) );
+    CHECK( EditorHistory_StepCount( &history ) == 1u );
+    CHECK( Str( EditorHistory_UndoLabel( &history ) ) == "Move" );
+    CHECK_FALSE( EditorHistory_IsClean( &history ) ); // The saved state went with the step.
+    EditorHistory_DiscardRedo( &history );            // Nothing left to forget: no notification.
+    CHECK( notified == 1 );
+}
+
 TEST_CASE( "A failing undo is reported", "[editor][core][history]" )
 {
     editor_history_t history{};

@@ -177,6 +177,13 @@ editor_history_status_t EditorHistory_StepTo( editor_history_t *pHistory, usize 
     return status;
 }
 
+void EditorHistory_DiscardRedo( editor_history_t *pHistory ) noexcept
+{
+    if ( !EditorHistory_IsInitialized( pHistory ) || !UndoRedo_CanRedo( pHistory->pUndo ) ) { return; }
+    UndoRedo_DiscardRedo( pHistory->pUndo );
+    Notify( pHistory );
+}
+
 void EditorHistory_Clear( editor_history_t *pHistory ) noexcept
 {
     if ( !EditorHistory_IsInitialized( pHistory ) ) { return; }

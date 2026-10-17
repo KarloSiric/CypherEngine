@@ -18,6 +18,7 @@
 
 #include "CypherGeometry_UvTools.h"
 
+#include "CypherGeometry_UvProjection.h"
 #include "CypherMath_UV.h"
 
 #include <cmath>
@@ -94,6 +95,31 @@ geometry_status_t UvTools_TryScaleAbout(
     next.uvProjection.worldUnitsPerUv =
         vec2d_t{ next.uvProjection.worldUnitsPerUv.x * factor.x, next.uvProjection.worldUnitsPerUv.y * factor.y };
     return Commit( pRecord, PinPivot( *pRecord, next, pivot ), policy );
+}
+
+geometry_status_t UvTools_TryTransformUv( geometry_brush_side_attributes_t *pRecord, vec2d_t rowU, vec2d_t rowV, vec2d_t pivotUv,
+                                          const geometry_numerical_policy_t &policy ) noexcept
+{
+    if ( pRecord == nullptr ) { return geometry_status_t::INVALID_ARGUMENT; }
+    if ( !math::Vec2d_IsFinite( rowU ) || !math::Vec2d_IsFinite( rowV ) || !math::Vec2d_IsFinite( pivotUv ) ) {
+        return geometry_status_t::NUMERIC_FAILURE;
+    }
+    if ( !( std::fabs( rowU.x * rowV.y - rowU.y * rowV.x ) > 1.0e-12 ) ) { return geometry_status_t::DEGENERATE; }
+    const math::planar_uv_mappingd_t &m = pRecord->uvProjection;
+    if ( m.worldUnitsPerUv.x == 0.0 || m.worldUnitsPerUv.y == 0.0 ) { return geometry_status_t::DEGENERATE; }
+    // L times the projection's own map, along the same axes from the same origin.
+    const uv_plane_map_t own = UvProjection_PlaneMap( m );
+    const uv_plane_map_t k{ rowU.x * own.k00 + rowU.y * own.k10, rowU.x * own.k01 + rowU.y * own.k11,
+                            rowV.x * own.k00 + rowV.y * own.k10, rowV.x * own.k01 + rowV.y * own.k11 };
+    // offset' = pivot + L * (offset - pivot): the origin's UV, moved like any other.
+    const vec2d_t o{ m.offset.x - pivotUv.x, m.offset.y - pivotUv.y };
+    const vec2d_t offset{ pivotUv.x + rowU.x * o.x + rowU.y * o.y, pivotUv.y + rowV.x * o.x + rowV.y * o.y };
+    geometry_brush_side_attributes_t next = *pRecord;
+    const geometry_status_t st = UvProjection_TryFromPlaneMap( &next.uvProjection, m.origin, m.uAxis, m.vAxis, k, offset );
+    if ( st != geometry_status_t::OK ) { return st; }
+    // The record's normal convention is kept; only the in-plane axes turn.
+    next.uvProjection.normal = m.normal;
+    return Commit( pRecord, next, policy );
 }
 
 geometry_status_t UvTools_TryShear( geometry_brush_side_attributes_t *pRecord, vec2d_t ) noexcept

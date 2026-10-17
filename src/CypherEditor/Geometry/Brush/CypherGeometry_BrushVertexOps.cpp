@@ -461,6 +461,53 @@ brush_vertex_op_result_t BrushVertexOps_TryMoveVertex(
     return result;
 }
 
+brush_vertex_op_result_t BrushVertexOps_TryMoveVertices(
+    brush_solid_t *pBrush,
+    const brush_boundary_t *pBoundary,
+    const allocator_t *pAllocator,
+    const geometry_policy_t &policy,
+    geometry_source_id_allocator_t *pIdAllocator,
+    const usize *pIndices,
+    usize nIndices,
+    vec3d_t delta ) noexcept
+{
+    geometry_status_t status = ValidateOperationInputs(
+        pBrush, pBoundary, pAllocator, policy, pIdAllocator );
+    if ( status != geometry_status_t::OK ) {
+        return InvalidResult( status );
+    }
+    const usize cVertices = pBoundary->vertices.nCount;
+    if ( pIndices == nullptr || nIndices == 0u || nIndices > cVertices || !Vec3d_IsFinite( delta ) ) {
+        return InvalidResult( geometry_status_t::INVALID_ARGUMENT );
+    }
+    for ( usize i = 0u; i < nIndices; ++i ) {
+        if ( pIndices[i] >= cVertices ) { return InvalidResult( geometry_status_t::INVALID_ARGUMENT ); }
+        for ( usize j = 0u; j < i; ++j ) {
+            if ( pIndices[j] == pIndices[i] ) { return InvalidResult( geometry_status_t::INVALID_ARGUMENT ); }
+        }
+    }
+
+    vector_t<vec3d_t> points{};
+    usize cbPoints = 0u;
+    status = TryCreatePointWorkspace(
+        &points, pAllocator, policy, cVertices, &cbPoints );
+    if ( status != geometry_status_t::OK ) {
+        return InvalidResult( status );
+    }
+    for ( usize i = 0u; i < cVertices; ++i ) {
+        points.pData[i] = pBoundary->vertices.pData[i];
+    }
+    for ( usize i = 0u; i < nIndices; ++i ) {
+        points.pData[pIndices[i]] = Vec3d_Add( points.pData[pIndices[i]], delta );
+    }
+
+    const brush_vertex_op_result_t result = RebuildFromPoints(
+        pBrush, pAllocator, policy, pIdAllocator,
+        points.pData, cVertices, cbPoints );
+    Vector_Shutdown( &points );
+    return result;
+}
+
 brush_vertex_op_result_t BrushVertexOps_TryMoveEdge(
     brush_solid_t *pBrush,
     const brush_boundary_t *pBoundary,

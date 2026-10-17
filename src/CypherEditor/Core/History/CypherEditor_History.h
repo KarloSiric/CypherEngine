@@ -108,6 +108,10 @@ CYPHER_NODISCARD editor_history_status_t EditorHistory_Redo( editor_history_t *p
 // the history panel.
 CYPHER_NODISCARD editor_history_status_t EditorHistory_StepTo( editor_history_t *pHistory, common::usize nAppliedSteps ) noexcept;
 
+// Forgets the steps Redo would reapply. The document is unchanged; a saved
+// state among them stays unreachable, exactly as after a new edit.
+void EditorHistory_DiscardRedo( editor_history_t *pHistory ) noexcept;
+
 // Forgets every step. The document is unchanged, so it stays clean if it
 // was.
 void EditorHistory_Clear( editor_history_t *pHistory ) noexcept;

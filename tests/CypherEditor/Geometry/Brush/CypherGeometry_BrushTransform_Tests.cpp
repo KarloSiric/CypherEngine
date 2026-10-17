@@ -925,6 +925,48 @@ TEST_CASE( "TextureLock: preflight keeps every record unchanged on failure",
 // Texture lock — error paths
 // ---------------------------------------------------------------------------
 
+TEST_CASE( "TextureLock: any affine keeps every texel on its surface point",
+           "[Gate8][TextureLock]" )
+{
+    TransformFixture f;
+    BindEverySideToAttribute( &f.brush, 0u );
+    const math::vec3d_t points[] = { Vec3d_Make( 1, 1, 1 ), Vec3d_Make( -1, 0.5, 1 ), Vec3d_Make( 0.25, -1, -1 ),
+                                     Vec3d_Make( 1, -1, 0.3 ), Vec3d_Make( -0.7, 1, -0.2 ) };
+    // A shear (x gains half of z, about z = -1), and a mirror with a skew.
+    const math::affine3d_t shear = math::Affine3d_FromColumns( Vec3d_Make( 1, 0, 0 ), Vec3d_Make( 0, 1, 0 ), Vec3d_Make( 0.5, 0, 1 ),
+                                                               Vec3d_Make( 0.5, 0, 0 ) );
+    const math::affine3d_t skewMirror = math::Affine3d_FromColumns( Vec3d_Make( -1, 0.2, 0 ), Vec3d_Make( 0.3, 2, 0 ), Vec3d_Make( 0, 0.4, 1 ),
+                                                                    Vec3d_Make( 3, -2, 1 ) );
+    for ( const math::affine3d_t &transform : { shear, skewMirror } ) {
+        // A tilted projection, turned, scaled unevenly and offset: the
+        // texture is not square to the brush, so nothing lines up by luck.
+        geometry_brush_side_attribute_store_t store{};
+        REQUIRE( BrushSideAttributeStore_Init( &store, &f.allocator ) == geometry_status_t::OK );
+        geometry_brush_side_attributes_t attrs = BrushSideAttributes_MakeDefault();
+        REQUIRE( math::Uvd_TryBuildPlanarMapping( Vec3d_Make( 0.5, -0.25, 1 ), Vec3d_Make( 0.2, -0.3, 1 ), Vec3d_Make( 0, 1, 0 ),
+                                                  { 0.5, 0.75 }, 0.3, { 0.1, -0.2 }, 1e-12, &attrs.uvProjection ) );
+        REQUIRE( BrushSideAttributeStore_TryAppend( &store, f.policy, attrs, nullptr ) == geometry_status_t::OK );
+        REQUIRE( BrushTransform_TextureLockAffine( &f.brush, &store, transform, f.policy ) == geometry_status_t::OK );
+        geometry_brush_side_attributes_t result{};
+        REQUIRE( BrushSideAttributeStore_TryGet( &store, 0u, &result ) == geometry_status_t::OK );
+        CHECK( BrushSideAttributes_Validate( f.policy.numerical, result ) == geometry_status_t::OK );
+        for ( const math::vec3d_t &p : points ) {
+            math::vec2d_t before{}, after{};
+            REQUIRE( math::Uvd_TryProjectPlanarPoint( attrs.uvProjection, p, 0.0, &before ) );
+            REQUIRE( math::Uvd_TryProjectPlanarPoint( result.uvProjection, math::Affine3d_TransformPoint( transform, p ), 0.0, &after ) );
+            CHECK( after.x == Approx( before.x ).margin( 1e-9 ) );
+            CHECK( after.y == Approx( before.y ).margin( 1e-9 ) );
+        }
+        BrushSideAttributeStore_Shutdown( &store );
+    }
+    // A flattening transform is refused.
+    geometry_brush_side_attribute_store_t store{};
+    REQUIRE( BrushSideAttributeStore_Init( &store, &f.allocator ) == geometry_status_t::OK );
+    REQUIRE( BrushSideAttributeStore_TryAppend( &store, f.policy, BrushSideAttributes_MakeDefault(), nullptr ) == geometry_status_t::OK );
+    CHECK( BrushTransform_TextureLockAffine( &f.brush, &store, math::Affine3d_FromScale( Vec3d_Make( 1, 1, 0 ) ), f.policy ) == geometry_status_t::DEGENERATE );
+    BrushSideAttributeStore_Shutdown( &store );
+}
+
 TEST_CASE( "TextureLock: null store rejected by all three",
            "[Gate8][TextureLock]" )
 {

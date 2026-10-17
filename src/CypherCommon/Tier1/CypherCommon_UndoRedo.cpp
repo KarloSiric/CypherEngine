@@ -414,6 +414,16 @@ void UndoRedo_Clear( undo_history_t *pHistory ) noexcept
     pHistory->nTransactionGroup = 0u;
 }
 
+void UndoRedo_DiscardRedo( undo_history_t *pHistory ) noexcept
+{
+    if ( !HistoryIsValid( pHistory ) || pHistory->bApplying || pHistory->bTransactionOpen ) {
+        return;
+    }
+    if ( pHistory->iCursor < pHistory->nCount ) {
+        RemoveRedo( *pHistory );
+    }
+}
+
 bool_t UndoRedo_BeginTransaction(
     undo_history_t *pHistory,
     string_view_t label ) noexcept

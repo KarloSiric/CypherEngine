@@ -91,4 +91,41 @@ TEST_CASE( "UV tools keep the pivot fixed", "[geometry][uvtools]" ) {
     }
 }
 
+TEST_CASE( "A UV-space transform is held exactly, turning the axes only when it must", "[geometry][uvtools]" ) {
+    const geometry_numerical_policy_t policy{};
+    const vec3d_t points[] = { Vec3d_Make( 3, 5, 0 ), Vec3d_Make( 4, 6.5, 0 ), Vec3d_Make( -2, 1, 0 ), Vec3d_Make( 7, -3, 0 ) };
+    const vec2d_t pivot{ 0.75, -1.25 };
+    // Every point's UV must land at pivot + L * (uv - pivot).
+    const auto expect = [&]( vec2d_t rowU, vec2d_t rowV ) {
+        geometry_brush_side_attributes_t r = Floor();
+        vec2d_t before[4];
+        for ( int i = 0; i < 4; ++i ) { before[i] = Uv( r, points[i] ); }
+        REQUIRE( UvTools_TryTransformUv( &r, rowU, rowV, pivot, policy ) == geometry_status_t::OK );
+        for ( int i = 0; i < 4; ++i ) {
+            const vec2d_t d{ before[i].x - pivot.x, before[i].y - pivot.y }, after = Uv( r, points[i] );
+            CHECK( after.x == Approx( pivot.x + rowU.x * d.x + rowU.y * d.y ).margin( 1e-9 ) );
+            CHECK( after.y == Approx( pivot.y + rowV.x * d.x + rowV.y * d.y ).margin( 1e-9 ) );
+        }
+        return r;
+    };
+    // Floor() is turned 0.2 rad, so a U-only scale in UV space needs new axes.
+    const geometry_brush_side_attributes_t scaled = expect( { 2.0, 0.0 }, { 0.0, 1.0 } );
+    CHECK( std::fabs( math::Vec3d_Dot( scaled.uvProjection.uAxis, scaled.uvProjection.vAxis ) ) < 1e-12 );
+    CHECK( std::fabs( scaled.uvProjection.uAxis.z ) < 1e-12 ); // Still in the face plane.
+    (void)expect( { 1.0, 0.4 }, { 0.0, 1.0 } );              // Shear along U.
+    (void)expect( { 1.0, 0.0 }, { -0.3, 1.0 } );             // Shear along V.
+    (void)expect( { -1.0, 0.0 }, { 0.0, 1.0 } );             // Mirror.
+    // A uniform scale and a turn keep the axes and the mirror sense.
+    const geometry_brush_side_attributes_t same = expect( { 0.0, -1.5 }, { 1.5, 0.0 } );
+    const geometry_brush_side_attributes_t floor = Floor();
+    CHECK( same.uvProjection.uAxis.x == Approx( floor.uvProjection.uAxis.x ) );
+    CHECK( same.uvProjection.uAxis.y == Approx( floor.uvProjection.uAxis.y ) );
+    CHECK( same.uvProjection.worldUnitsPerUv.x == Approx( floor.uvProjection.worldUnitsPerUv.x / 1.5 ) );
+    CHECK( same.uvProjection.worldUnitsPerUv.y == Approx( floor.uvProjection.worldUnitsPerUv.y / 1.5 ) );
+    // Singular maps are refused and leave the record alone.
+    geometry_brush_side_attributes_t r = Floor();
+    CHECK( UvTools_TryTransformUv( &r, { 1.0, 2.0 }, { 0.5, 1.0 }, pivot, policy ) == geometry_status_t::DEGENERATE );
+    CHECK( r.uvProjection.offset.x == floor.uvProjection.offset.x );
+}
+
 } // namespace cypher::editor::geometry

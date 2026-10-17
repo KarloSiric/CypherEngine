@@ -80,6 +80,12 @@ bool_t UndoRedo_CommitTransaction( undo_history_t *pHistory ) noexcept;
 CYPHER_COMMON_API void UndoRedo_CancelTransaction(
     undo_history_t *pHistory ) noexcept;
 
+// Forgets the steps that Redo would reapply, as a new edit does. A caller
+// that undid a step of its own (a conversion an operation then refused)
+// uses this so the step is not left offered for Redo. Nothing happens while
+// a transaction is open or a callback is running.
+CYPHER_COMMON_API void UndoRedo_DiscardRedo( undo_history_t *pHistory ) noexcept;
+
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t UndoRedo_Push(
     undo_history_t *pHistory,

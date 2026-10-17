@@ -82,6 +82,21 @@ CYPHER_NODISCARD brush_vertex_op_result_t BrushVertexOps_TryMoveVertex(
     common::usize iVertex,
     math::vec3d_t newPosition ) noexcept;
 
+// Moves several boundary vertices by one delta and rebuilds once. A 2D view
+// shows a column of stacked vertices as one handle; dragging it moves them
+// all, and rebuilding once keeps every moved vertex on the new hull.
+//
+// pIndices: indices into the current boundary vertex array (unique).
+CYPHER_NODISCARD brush_vertex_op_result_t BrushVertexOps_TryMoveVertices(
+    brush_solid_t *pBrush,
+    const brush_boundary_t *pBoundary,
+    const common::allocator_t *pAllocator,
+    const geometry_policy_t &policy,
+    geometry_source_id_allocator_t *pIdAllocator,
+    const common::usize *pIndices,
+    common::usize nIndices,
+    math::vec3d_t delta ) noexcept;
+
 // ---------------------------------------------------------------------------
 // Edge move — translates both endpoints of an edge
 // ---------------------------------------------------------------------------

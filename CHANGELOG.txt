@@ -302,6 +302,13 @@ Added
   integration remain separate work.
 
 Fixed
+- Publishes Mason's history and geometry prerequisites: explicit redo
+  invalidation after an external document change, affine brush texture lock,
+  shared planar UV projection and UV transforms used by component tools.
+  Validation: Editor Core 60 cases / 1,170 assertions; complete Geometry
+  1,298 / 387,701; shared UndoRedo contracts pass. UV Shear is additionally
+  exercised through the Map GUI workflow suite. This prerequisite does not
+  publish the Map GUI integration or add a rendering backend.
 - Publishes the existing CYKV 2 source-composition and retained-comment
   foundation required by Mason's single-file maps: mutable tree traversal,
   comment cloning/parsing/writing, definitions/conditions, templates and

@@ -39,6 +39,8 @@ add_library(CypherEditorGeometry STATIC
     Core/CypherGeometry_Attributes_BrushSideStore.h
     Core/CypherGeometry_Attributes_Schema.cpp
     Core/CypherGeometry_Attributes_Schema.h
+    Core/CypherGeometry_UvProjection.cpp
+    Core/CypherGeometry_UvProjection.h
     Core/CypherGeometry_Diagnostics.cpp
     Core/CypherGeometry_Diagnostics.h
     Core/CypherGeometry_IdAllocator.cpp
