@@ -323,6 +323,18 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Publishes the existing CYKV 2 source-composition and retained-comment
+  foundation required by Mason's single-file maps: mutable tree traversal,
+  comment cloning/parsing/writing, definitions/conditions, templates and
+  composed includes, with matching format contracts. Settings retain the
+  declared language and comments. This prerequisite does not publish renderer
+  asset-schema/compiler changes. Validation: all nine relevant KeyValue,
+  JSON/Pack, resolver, writer, undo and Settings contract suites pass.
+- CYKV real-number output now checks the integer fast-path range before
+  converting to i64. A targeted float-cast-overflow sanitizer reproduces the
+  old abort on 1e30 and passes the corrected writer's 376 assertions across
+  extreme finite values, fast-path boundaries and signed zero. Only the
+  writer translation unit was instrumented in this targeted comparison.
 - Geometry adds a separate measured-width face Inset: offset each edge
   inward by a perpendicular distance on one planar, strictly convex face.
   A 256 x 128 face inset by 16 produces a 224 x 96 cap. Existing radial

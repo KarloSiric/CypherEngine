@@ -19,6 +19,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <string>
+
 using namespace cypher::common;
 
 namespace
@@ -602,4 +604,197 @@ TEST_CASE( "CYKV parser reports encoding lexical and trailing failures",
         StringView_FromCString( KeyValue_ParseStatusName(
             key_value_parse_status_t::UNDEFINED_DEFINITION ) ),
         StringView_FromCString( "UNDEFINED_DEFINITION" ) ) );
+}
+
+// ---------------------------------------------------------------------------
+// CYKV 2 @when build conditionals
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+key_value_build_property_t StringProperty( const char *pName, const char *pValue )
+{
+    return { StringView_FromCString( pName ), key_value_build_value_kind_t::STRING, CY_FALSE, 0, StringView_FromCString( pValue ) };
+}
+
+key_value_build_property_t BoolProperty( const char *pName, bool_t bValue )
+{
+    return { StringView_FromCString( pName ), key_value_build_value_kind_t::BOOL, bValue, 0, {} };
+}
+
+key_value_build_property_t IntegerProperty( const char *pName, i64 value )
+{
+    return { StringView_FromCString( pName ), key_value_build_value_kind_t::INTEGER, CY_FALSE, value, {} };
+}
+
+std::string StringMember( key_value_t *pObject, const char *pName )
+{
+    string_view_t text{};
+    REQUIRE( KeyValue_GetString( FindRequired( pObject, pName ), &text ) );
+    return std::string( text.pData, text.cchLength );
+}
+
+i64 IntegerMember( key_value_t *pObject, const char *pName )
+{
+    i64 value = 0;
+    REQUIRE( KeyValue_GetI64( FindRequired( pObject, pName ), &value ) );
+    return value;
+}
+
+} // namespace
+
+TEST_CASE( "CYKV 2 @when picks members for the build context",
+           "[CypherCommon][Tier1][CYKV][Conditional]" )
+{
+    constexpr const char *pSource = R"cykv(@cykv 2
+@schema "cypher.test" 1
+{
+    name = "panel"
+    @when target.platform == "windows" { format = "bc7" }
+    @else_when target.platform == "macos" and not build.debug { format = "astc" }
+    @else { format = "rgba8" }
+    @when build.debug { overlay = true }
+    @when quality != 3 and ( target.platform == "linux" or quality == 2 ) { lod = 1 }
+}
+)cykv";
+    const auto parse = [&]( bool_t bDebug, key_value_document_t *pDocument ) {
+        const key_value_build_property_t properties[]{
+            StringProperty( "target.platform", "macos" ), BoolProperty( "build.debug", bDebug ), IntegerProperty( "quality", 2 )
+        };
+        const key_value_build_context_t context{ properties, 3u };
+        key_value_parse_options_t options{};
+        options.pBuildContext = &context;
+        return KeyValue_ParseText( StringView_FromCString( pSource ), options, pDocument ).status;
+    };
+
+    key_value_document_t *pDebug = CreateDocument();
+    REQUIRE( parse( CY_TRUE, pDebug ) == key_value_parse_status_t::OK );
+    key_value_t *pRoot = KeyValue_Root( pDebug );
+    CHECK( StringMember( pRoot, "format" ) == "rgba8" ); // macOS, but debug: the second branch fails.
+    CHECK( KeyValue_Find( pRoot, StringView_FromCString( "overlay" ) ) != nullptr );
+    CHECK( IntegerMember( pRoot, "lod" ) == 1 );
+    CHECK( KeyValue_ChildCount( pRoot ) == 4u );
+    KeyValue_DestroyDocument( pDebug );
+
+    key_value_document_t *pRelease = CreateDocument();
+    REQUIRE( parse( CY_FALSE, pRelease ) == key_value_parse_status_t::OK );
+    pRoot = KeyValue_Root( pRelease );
+    CHECK( StringMember( pRoot, "format" ) == "astc" );
+    CHECK( KeyValue_Find( pRoot, StringView_FromCString( "overlay" ) ) == nullptr );
+    KeyValue_DestroyDocument( pRelease );
+
+    // The running build's own context is there without being passed.
+    const key_value_build_context_t *pHost = KeyValue_HostBuildContext();
+    REQUIRE( pHost->nProperties >= 3u );
+    CHECK( StringView_Equals( pHost->pProperties[0].name, StringView_FromCString( "target.platform" ) ) );
+    CHECK( ParseStatus( "@cykv 2\n@schema \"cypher.test\" 1\n{ @when build.debug { a = 1 } @else { a = 2 } }" ) == key_value_parse_status_t::OK );
+}
+
+TEST_CASE( "CYKV 2 @when rejects unknown properties, kind mismatches, and broken branches",
+           "[CypherCommon][Tier1][CYKV][Conditional]" )
+{
+    const key_value_build_property_t properties[]{ StringProperty( "target.platform", "macos" ), BoolProperty( "build.debug", CY_TRUE ) };
+    const key_value_build_context_t context{ properties, 2u };
+    key_value_parse_options_t options{};
+    options.pBuildContext = &context;
+    const auto status = [&]( const char *pBody ) {
+        const std::string source = std::string( "@cykv 2\n@schema \"cypher.test\" 1\n{ " ) + pBody + " }";
+        return ParseStatus( source.c_str(), options );
+    };
+    // A misspelt property is found even in a branch that is never reached.
+    CHECK( status( "@when build.debug { a = 1 } @else_when target.platfrom == \"linux\" { a = 2 }" ) ==
+           key_value_parse_status_t::UNKNOWN_CONDITION_PROPERTY );
+    CHECK( status( "@when target.platform { a = 1 }" ) == key_value_parse_status_t::CONDITION_TYPE_MISMATCH );
+    CHECK( status( "@when build.debug == \"yes\" { a = 1 }" ) == key_value_parse_status_t::CONDITION_TYPE_MISMATCH );
+    CHECK( status( "@when target.platform == 3 { a = 1 }" ) == key_value_parse_status_t::CONDITION_TYPE_MISMATCH );
+    // A branch adds members; it never silently replaces one.
+    CHECK( status( "a = 0 @when build.debug { a = 1 }" ) == key_value_parse_status_t::DUPLICATE_KEY );
+    // A branch not taken must still be valid CYKV.
+    CHECK( status( "@when not build.debug { a = }" ) == key_value_parse_status_t::SYNTAX_ERROR );
+    CHECK( status( "@else { a = 1 }" ) == key_value_parse_status_t::SYNTAX_ERROR );
+    CHECK( status( "@when build.debug a = 1" ) == key_value_parse_status_t::SYNTAX_ERROR );
+    CHECK( ParseStatus( "@cykv 1\n@schema \"cypher.test\" 1\n{ @when build.debug { a = 1 } }", options ) ==
+           key_value_parse_status_t::SYNTAX_ERROR );
+}
+
+// ---------------------------------------------------------------------------
+// CYKV 2 #extends templates and the #delete / += operators
+// ---------------------------------------------------------------------------
+
+TEST_CASE( "CYKV 2 #extends builds objects from templates with #delete and +=",
+           "[CypherCommon][Tier1][CYKV][Extends]" )
+{
+    constexpr const char *pSource = R"cykv(@cykv 2
+@schema "cypher.test" 1
+#define RIFLE { damage = 24 fire_rate = 8 tags = ["bullet"] scope = { zoom = 2.0 mount = "rail" } ammo = "556" }
+#define SILENCED { noise = 0.2 ammo = "subsonic" }
+#define SMG {
+    #extends $RIFLE
+    fire_rate = 12
+    tags += ["automatic"]
+    scope = #delete
+}
+{
+    rifle = { #extends $RIFLE }
+    smg = $SMG
+    marksman = {
+        #extends $RIFLE
+        #extends $SILENCED
+        scope = { zoom = 6.0 }
+    }
+}
+)cykv";
+    key_value_document_t *pDocument = CreateDocument();
+    REQUIRE( KeyValue_ParseText( StringView_FromCString( pSource ), {}, pDocument ).status == key_value_parse_status_t::OK );
+    key_value_t *pRoot = KeyValue_Root( pDocument );
+
+    key_value_t *pRifle = FindRequired( pRoot, "rifle" );
+    CHECK( IntegerMember( pRifle, "damage" ) == 24 );
+    CHECK( KeyValue_ChildCount( pRifle ) == 5u );
+
+    key_value_t *pSmg = FindRequired( pRoot, "smg" );
+    CHECK( IntegerMember( pSmg, "damage" ) == 24 );
+    CHECK( IntegerMember( pSmg, "fire_rate" ) == 12 );
+    CHECK( KeyValue_Find( pSmg, StringView_FromCString( "scope" ) ) == nullptr ); // Deleted, not left as null.
+    key_value_t *pTags = FindRequired( pSmg, "tags" );
+    REQUIRE( KeyValue_ChildCount( pTags ) == 2u );
+    string_view_t tag{};
+    REQUIRE( KeyValue_GetString( KeyValue_ChildAt( pTags, 0u ), &tag ) );
+    CHECK( StringView_Equals( tag, StringView_FromCString( "bullet" ) ) ); // Inherited first, then the appended ones.
+    REQUIRE( KeyValue_GetString( KeyValue_ChildAt( pTags, 1u ), &tag ) );
+    CHECK( StringView_Equals( tag, StringView_FromCString( "automatic" ) ) );
+
+    key_value_t *pMarksman = FindRequired( pRoot, "marksman" );
+    CHECK( StringMember( pMarksman, "ammo" ) == "556" ); // The earlier template wins.
+    CHECK( KeyValue_Find( pMarksman, StringView_FromCString( "noise" ) ) != nullptr );
+    key_value_t *pScope = FindRequired( pMarksman, "scope" );
+    f64 zoom = 0.0;
+    REQUIRE( KeyValue_GetF64( FindRequired( pScope, "zoom" ), &zoom ) );
+    CHECK( zoom == 6.0 );
+    CHECK( StringMember( pScope, "mount" ) == "rail" ); // Objects merge member by member.
+    KeyValue_DestroyDocument( pDocument );
+}
+
+TEST_CASE( "CYKV 2 #extends and operators fail loudly when misused",
+           "[CypherCommon][Tier1][CYKV][Extends]" )
+{
+    const auto status = [&]( const char *pBody ) {
+        const std::string source = std::string( "@cykv 2\n@schema \"cypher.test\" 1\n"
+                                                "#define BASE { list = [1] count = 2 nested = { a = 1 } }\n"
+                                                "#define NUMBER 7\n{ " ) + pBody + " }";
+        return ParseStatus( source.c_str() );
+    };
+    CHECK( status( "x = { #extends $BASE missing = #delete }" ) == key_value_parse_status_t::INHERITED_VALUE_MISSING );
+    CHECK( status( "x = { #extends $BASE count += [3] }" ) == key_value_parse_status_t::APPEND_TYPE_MISMATCH );
+    CHECK( status( "x = { #extends $BASE list += 3 }" ) == key_value_parse_status_t::APPEND_TYPE_MISMATCH );
+    CHECK( status( "x = { count = #delete }" ) == key_value_parse_status_t::OPERATOR_WITHOUT_BASE );
+    CHECK( status( "x = { list += [1] }" ) == key_value_parse_status_t::OPERATOR_WITHOUT_BASE );
+    CHECK( status( "x = { #extends $NOPE }" ) == key_value_parse_status_t::UNDEFINED_DEFINITION );
+    CHECK( status( "x = { #extends $NUMBER }" ) == key_value_parse_status_t::MERGE_CONFLICT );
+    CHECK( status( "x = { #extends $BASE count = \"two\" }" ) == key_value_parse_status_t::MERGE_CONFLICT );
+    CHECK( status( "x = { count = 1 #extends $BASE }" ) == key_value_parse_status_t::SYNTAX_ERROR );
+    CHECK( status( "x = { #extends $BASE nested = { b = #delete } }" ) == key_value_parse_status_t::INHERITED_VALUE_MISSING );
+    CHECK( status( "x = { #extends $BASE nested = { a = #delete } }" ) == key_value_parse_status_t::OK );
+    CHECK( ParseStatus( "@cykv 1\n@schema \"cypher.test\" 1\n{ x = { #extends $BASE } }" ) == key_value_parse_status_t::SYNTAX_ERROR );
 }

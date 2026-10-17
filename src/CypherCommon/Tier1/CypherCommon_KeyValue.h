@@ -139,6 +139,19 @@ const key_value_t *KeyValue_FirstChild( const key_value_t *pContainer ) noexcept
 CYPHER_NODISCARD CYPHER_COMMON_API
 const key_value_t *KeyValue_NextSibling( const key_value_t *pValue ) noexcept;
 
+// The newest child (null for null/scalar/empty nodes), in constant time:
+// the value an insert or append just created.
+CYPHER_NODISCARD CYPHER_COMMON_API
+key_value_t *KeyValue_LastChild( key_value_t *pContainer ) noexcept;
+
+// Mutable traversal in constant time per step, for loops over large
+// containers (KeyValue_ChildAt walks from the first child on every call).
+CYPHER_NODISCARD CYPHER_COMMON_API
+key_value_t *KeyValue_FirstChildMutable( key_value_t *pContainer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+key_value_t *KeyValue_NextSiblingMutable( key_value_t *pValue ) noexcept;
+
 CYPHER_NODISCARD CYPHER_COMMON_API
 key_value_t *KeyValue_ChildAt( key_value_t *pContainer, usize iChild ) noexcept;
 
@@ -176,11 +189,35 @@ bool_t KeyValue_Remove(
     key_value_t *pParent,
     key_value_t *pChild ) noexcept;
 
+// Copies a value and everything beneath it, comments included.
 CYPHER_NODISCARD CYPHER_COMMON_API
 key_value_t *KeyValue_CloneInto(
     key_value_document_t *pDestDocument,
     key_value_t *pDestParent,
     const key_value_t *pSource ) noexcept;
+
+// Comments a person wrote around a value in a CYKV file, kept when parsing
+// with KEY_VALUE_PARSE_FLAG_KEEP_COMMENTS and written back with
+// KEY_VALUE_WRITE_FLAG_COMMENTS, so a tool that rewrites a file keeps the
+// notes in it. leading: whole comment lines before a member or element;
+// trailing: the comment after it on its own line; inner: comment lines
+// before a container's closing bracket (for the root, lines after it).
+// Lines are separated by '\n' and keep their markers ("// ...", "/* */").
+struct key_value_comments_t {
+    string_view_t leading{};
+    string_view_t trailing{};
+    string_view_t inner{};
+};
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+key_value_comments_t KeyValue_Comments( const key_value_t *pValue ) noexcept;
+
+// Replaces a value's comments; all three empty removes them.
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t KeyValue_SetComments(
+    key_value_document_t *pDocument,
+    key_value_t *pValue,
+    const key_value_comments_t &comments ) noexcept;
 
 } // namespace cypher::common
 

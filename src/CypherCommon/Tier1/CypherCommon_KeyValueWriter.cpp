@@ -34,6 +34,8 @@ order must not depend on pointer values, locale, or process state.
 #include "CypherCommon_StringParse.h"
 #include "CypherCommon_Unicode.h"
 
+#include <cmath>
+
 namespace cypher::common
 {
 
@@ -47,7 +49,8 @@ constexpr flags32_t CY_KEY_VALUE_WRITE_VALID_FLAGS =
     KEY_VALUE_WRITE_FLAG_ASCII_ONLY |
     KEY_VALUE_WRITE_FLAG_BARE_KEYS |
     KEY_VALUE_WRITE_FLAG_SHORTEST_REALS |
-    KEY_VALUE_WRITE_FLAG_QUOTE_DOTTED_KEYS; // Reject unknown output policy bits.
+    KEY_VALUE_WRITE_FLAG_QUOTE_DOTTED_KEYS |
+    KEY_VALUE_WRITE_FLAG_COMMENTS; // Reject unknown output policy bits.
 
 constexpr flags32_t CY_KEY_VALUE_ESCAPE_FLAGS =
     STRING_ESCAPE_FLAG_QUOTES |
@@ -70,6 +73,7 @@ struct writer_t {
     usize nLineWidth{ 0u };                    // One-line and packed containers; 0 = off.
     bool_t bInline{ CY_FALSE };                // Inside a container being written on one line.
     bool_t bForceExpand{ CY_FALSE };           // The next container spreads over lines (its siblings did not fit).
+    bool_t bComments{ CY_FALSE };              // Write kept comments (pretty CYKV only).
     usize column{ 0u };                        // Characters since the last line break.
 };
 
@@ -284,6 +288,8 @@ struct scalar_text_t {
     usize cch{ 0u };
 };
 
+constexpr f64 kPositiveZero = 0.0;
+
 CYPHER_NODISCARD bool_t FormatI64( i64 value, scalar_text_t &out ) noexcept
 {
     string_integer_format_t format{};
@@ -303,6 +309,21 @@ CYPHER_NODISCARD bool_t FormatU64( const writer_t &writer, u64 value, scalar_tex
 
 CYPHER_NODISCARD bool_t FormatF64( const writer_t &writer, f64 value, scalar_text_t &out ) noexcept
 {
+    // Whole numbers below 10^15 print exactly as their integer digits under
+    // every precision tried below, so skip formatting and parsing back - most
+    // numbers in authored data (coordinates, sizes) are whole. -0.0 keeps the
+    // general path and its sign.
+    // Check the range before converting: large finite reals are valid values,
+    // but converting them to i64 before the fallback would be undefined.
+    if ( std::isfinite( value ) && value > -1.0e15 && value < 1.0e15 &&
+         value == static_cast<f64>( static_cast<i64>( value ) ) &&
+         !( value == 0.0 && Cy_MemCompare( &value, &kPositiveZero, sizeof( f64 ) ) != 0 ) ) {
+        if ( !FormatI64( static_cast<i64>( value ), out ) ) { return CY_FALSE; }
+        if ( writer.bStrictJson ) { return CY_TRUE; }
+        out.text[out.cch++] = '.';
+        out.text[out.cch++] = '0';
+        return CY_TRUE;
+    }
     const auto format = [&]( u8 nDigits ) noexcept {
         const string_convert_result_t converted = StringConvert_F64(
             value,
@@ -440,8 +461,58 @@ CYPHER_NODISCARD usize EscapedLength( const writer_t &writer, string_view_t text
     return measured.cchRequired == CY_USIZE_MAX ? CY_USIZE_MAX / 2u : measured.cchRequired + 2u;
 }
 
+// ---------------------------------------------------------------------------
+// Kept comments
+// ---------------------------------------------------------------------------
+
+CYPHER_NODISCARD bool_t HasComments( const writer_t &writer, const key_value_t *pValue ) noexcept
+{
+    return writer.bComments && pValue->iComment != 0u;
+}
+
+// Each line of a comment block on its own line at the given depth.
+CYPHER_NODISCARD bool_t EmitCommentLines( writer_t &writer, string_view_t text, usize nDepth ) noexcept
+{
+    usize iStart = 0u;
+    for ( usize i = 0u; i <= text.cchLength; ++i ) {
+        if ( i != text.cchLength && text.pData[i] != '\n' ) { continue; }
+        if ( !EmitIndent( writer, nDepth ) || !Emit( writer, text.pData + iStart, i - iStart ) || !EmitLiteral( writer, "\n" ) ) {
+            return CY_FALSE;
+        }
+        iStart = i + 1u;
+    }
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD bool_t EmitLeading( writer_t &writer, const key_value_t *pValue, usize nDepth ) noexcept
+{
+    if ( !HasComments( writer, pValue ) ) { return CY_TRUE; }
+    const string_view_t leading = KeyValue_Comments( pValue ).leading;
+    return leading.cchLength == 0u || EmitCommentLines( writer, leading, nDepth );
+}
+
+CYPHER_NODISCARD bool_t EmitTrailing( writer_t &writer, const key_value_t *pValue ) noexcept
+{
+    if ( !HasComments( writer, pValue ) ) { return CY_TRUE; }
+    const string_view_t trailing = KeyValue_Comments( pValue ).trailing;
+    return trailing.cchLength == 0u || ( EmitLiteral( writer, " " ) && Emit( writer, trailing.pData, trailing.cchLength ) );
+}
+
+CYPHER_NODISCARD bool_t EmitInner( writer_t &writer, const key_value_t *pContainer, usize nDepth ) noexcept
+{
+    if ( !HasComments( writer, pContainer ) ) { return CY_TRUE; }
+    const string_view_t inner = KeyValue_Comments( pContainer ).inner;
+    return inner.cchLength == 0u || EmitCommentLines( writer, inner, nDepth + 1u );
+}
+
+CYPHER_NODISCARD bool_t HasInner( const writer_t &writer, const key_value_t *pContainer ) noexcept
+{
+    return HasComments( writer, pContainer ) && KeyValue_Comments( pContainer ).inner.cchLength != 0u;
+}
+
 // Length of a value's one-line form, or more than nCap once it is known to
-// exceed it (so measuring a huge container stops early).
+// exceed it (so measuring a huge container stops early). A container with
+// comments inside never fits: a `//` would swallow the rest of the line.
 CYPHER_NODISCARD usize FlatLength( const writer_t &writer, const key_value_t *pValue, usize nCap ) noexcept
 {
     scalar_text_t text{};
@@ -456,11 +527,13 @@ CYPHER_NODISCARD usize FlatLength( const writer_t &writer, const key_value_t *pV
         case key_value_type_t::BINARY: return 5u + 2u * pValue->value.bytes.cbSize;
         case key_value_type_t::ARRAY:
         case key_value_type_t::OBJECT: {
+            if ( HasInner( writer, pValue ) ) { return nCap + 1u; }
             if ( pValue->nChildren == 0u ) { return 2u; }
             const bool_t bObject = pValue->type == key_value_type_t::OBJECT;
             usize cch = 4u; // "[ " and " ]", or "{ " and " }".
             usize i = 0u;
             for ( const key_value_t *pChild = pValue->pFirstChild; pChild != nullptr && cch <= nCap; pChild = pChild->pNext, ++i ) {
+                if ( HasComments( writer, pChild ) ) { return nCap + 1u; }
                 if ( i != 0u ) { cch += bObject ? 1u : 2u; } // " " between members, ", " between elements.
                 if ( bObject ) {
                     const string_view_t name{ pChild->pName, pChild->cchName };
@@ -569,8 +642,9 @@ CYPHER_NODISCARD bool_t WriteObject(
     if ( writer.bCanonical && pObject->nChildren != 0u &&
          pCanonical == nullptr ) return CY_FALSE;
 
+    const bool_t bInner = HasInner( writer, pObject );
     bool_t bSuccess = EmitLiteral( writer, "{" );
-    if ( bSuccess && pObject->nChildren != 0u && writer.bPretty ) {
+    if ( bSuccess && ( pObject->nChildren != 0u || bInner ) && writer.bPretty ) {
         bSuccess = EmitLiteral( writer, "\n" );
     }
     for ( usize i = 0u; bSuccess && i < pObject->nChildren; ++i ) {
@@ -578,6 +652,7 @@ CYPHER_NODISCARD bool_t WriteObject(
             ? pCanonical[i].pValue
             : KeyValue_ChildAt( pObject, i );
         bSuccess = pChild != nullptr &&
+                   EmitLeading( writer, pChild, nDepth + 1u ) &&
                    EmitIndent( writer, nDepth + 1u ) &&
                    EmitKey(
                        writer,
@@ -595,11 +670,17 @@ CYPHER_NODISCARD bool_t WriteObject(
                 bSuccess = EmitLiteral( writer, " " );
             }
         }
+        if ( bSuccess && pChild != nullptr ) {
+            bSuccess = EmitTrailing( writer, pChild );
+        }
         if ( bSuccess && writer.bPretty ) {
             bSuccess = EmitLiteral( writer, "\n" );
         }
     }
-    if ( bSuccess && pObject->nChildren != 0u ) {
+    if ( bSuccess ) {
+        bSuccess = EmitInner( writer, pObject, nDepth );
+    }
+    if ( bSuccess && ( pObject->nChildren != 0u || bInner ) ) {
         bSuccess = EmitIndent( writer, nDepth );
     }
     if ( bSuccess ) bSuccess = EmitLiteral( writer, "}" );
@@ -642,7 +723,7 @@ CYPHER_NODISCARD bool_t WriteArray(
             }
             bool_t bWritten = EmitLiteral( writer, "[\n" );
             for ( const key_value_t *pChild = pArray->pFirstChild; bWritten && pChild != nullptr; pChild = pChild->pNext ) {
-                bWritten = EmitIndent( writer, nDepth + 1u );
+                bWritten = EmitLeading( writer, pChild, nDepth + 1u ) && EmitIndent( writer, nDepth + 1u );
                 if ( bWritten && bAllFit ) {
                     bWritten = WriteFlatContainer( writer, pChild, nDepth + 1u );
                 } else if ( bWritten ) {
@@ -650,13 +731,13 @@ CYPHER_NODISCARD bool_t WriteArray(
                     bWritten = WriteValue( writer, pChild, nDepth + 1u );
                 }
                 if ( bWritten && pChild->pNext != nullptr ) { bWritten = EmitLiteral( writer, "," ); }
-                if ( bWritten ) { bWritten = EmitLiteral( writer, "\n" ); }
+                if ( bWritten ) { bWritten = EmitTrailing( writer, pChild ) && EmitLiteral( writer, "\n" ); }
             }
-            return bWritten && EmitIndent( writer, nDepth ) && EmitLiteral( writer, "]" );
+            return bWritten && EmitInner( writer, pArray, nDepth ) && EmitIndent( writer, nDepth ) && EmitLiteral( writer, "]" );
         }
-        bool_t bAllScalars = pArray->nChildren != 0u;
+        bool_t bAllScalars = pArray->nChildren != 0u && !HasInner( writer, pArray );
         for ( const key_value_t *pChild = pArray->pFirstChild; bAllScalars && pChild != nullptr; pChild = pChild->pNext ) {
-            bAllScalars = IsScalar( pChild );
+            bAllScalars = IsScalar( pChild ) && !HasComments( writer, pChild ); // Packed lines have no room for comments.
         }
         if ( bAllScalars ) {
             // Packed: as many scalars per line as fit, lines ending in commas.
@@ -674,23 +755,31 @@ CYPHER_NODISCARD bool_t WriteArray(
             return bPacked && EmitLiteral( writer, "\n" ) && EmitIndent( writer, nDepth ) && EmitLiteral( writer, "]" );
         }
     }
+    const bool_t bInner = HasInner( writer, pArray );
     bool_t bSuccess = EmitLiteral( writer, "[" );
-    if ( bSuccess && pArray->nChildren != 0u && writer.bPretty ) {
+    if ( bSuccess && ( pArray->nChildren != 0u || bInner ) && writer.bPretty ) {
         bSuccess = EmitLiteral( writer, "\n" );
     }
     for ( usize i = 0u; bSuccess && i < pArray->nChildren; ++i ) {
         const key_value_t *pChild = KeyValue_ChildAt( pArray, i );
         bSuccess = pChild != nullptr &&
+                   EmitLeading( writer, pChild, nDepth + 1u ) &&
                    EmitIndent( writer, nDepth + 1u ) &&
                    WriteValue( writer, pChild, nDepth + 1u );
         if ( bSuccess && i + 1u < pArray->nChildren ) {
             bSuccess = EmitLiteral( writer, "," );
         }
+        if ( bSuccess ) {
+            bSuccess = EmitTrailing( writer, pChild );
+        }
         if ( bSuccess && writer.bPretty ) {
             bSuccess = EmitLiteral( writer, "\n" );
         }
     }
-    if ( bSuccess && pArray->nChildren != 0u ) {
+    if ( bSuccess ) {
+        bSuccess = EmitInner( writer, pArray, nDepth );
+    }
+    if ( bSuccess && ( pArray->nChildren != 0u || bInner ) ) {
         bSuccess = EmitIndent( writer, nDepth );
     }
     return bSuccess && EmitLiteral( writer, "]" );
@@ -831,14 +920,29 @@ CYPHER_NODISCARD key_value_write_result_t WriteToSink(
     writer.bQuoteDottedKeys = ( options.flags & KEY_VALUE_WRITE_FLAG_QUOTE_DOTTED_KEYS ) != 0u;
     writer.bShortestReals = !writer.bCanonical && ( options.flags & KEY_VALUE_WRITE_FLAG_SHORTEST_REALS ) != 0u;
     writer.nLineWidth = writer.bPretty ? options.nLineWidth : 0u;
+    writer.bComments = writer.bPretty && !writer.bStrictJson && ( options.flags & KEY_VALUE_WRITE_FLAG_COMMENTS ) != 0u;
 
     if ( !writer.bStrictJson && !bValueOnly ) {
         static_cast<void>( WriteDocumentHeader(
             writer,
             pRoot->pDocument ) );
     }
+    // The root's leading comments sit between the header and the root, its
+    // trailing ones after the closing bracket.
+    if ( writer.result.status == key_value_write_status_t::OK && !bValueOnly ) {
+        static_cast<void>( EmitLeading( writer, pRoot, 0u ) );
+    }
     if ( writer.result.status == key_value_write_status_t::OK ) {
         static_cast<void>( WriteValue( writer, pRoot, 0u ) );
+    }
+    if ( writer.result.status == key_value_write_status_t::OK && !bValueOnly && HasComments( writer, pRoot ) ) {
+        const string_view_t trailing = KeyValue_Comments( pRoot ).trailing;
+        usize iStart = 0u;
+        for ( usize i = 0u; trailing.cchLength != 0u && i <= trailing.cchLength; ++i ) {
+            if ( i != trailing.cchLength && trailing.pData[i] != '\n' ) { continue; }
+            static_cast<void>( EmitLiteral( writer, "\n" ) && Emit( writer, trailing.pData + iStart, i - iStart ) );
+            iStart = i + 1u;
+        }
     }
     if ( writer.result.status == key_value_write_status_t::OK &&
          !writer.bCanonical &&

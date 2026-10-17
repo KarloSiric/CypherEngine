@@ -10,6 +10,8 @@
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
+//  - Extended on 2026-10-12 for CYKV 2 `@when` build conditionals, `#extends`
+//    object templates, and the `#delete` / `+=` inheritance operators
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -33,7 +35,10 @@ enum key_value_parse_flags_t : flags32_t {
     KEY_VALUE_PARSE_FLAG_ALLOW_TRAILING_COMMA = CYPHER_BIT32( 1 ), // Permit final separators.
     KEY_VALUE_PARSE_FLAG_ALLOW_UNQUOTED_KEYS = CYPHER_BIT32( 2 ), // Accept identifiers as keys.
     KEY_VALUE_PARSE_FLAG_REJECT_DUPLICATE_KEYS = CYPHER_BIT32( 3 ), // Enforce unique object keys.
-    KEY_VALUE_PARSE_FLAG_ALLOW_ROOT_VALUE = CYPHER_BIT32( 4 ) // Permit scalar/array roots.
+    KEY_VALUE_PARSE_FLAG_ALLOW_ROOT_VALUE = CYPHER_BIT32( 4 ), // Permit scalar/array roots.
+    // CYKV with ALLOW_COMMENTS: keep comments with the values they belong to
+    // (KeyValue_Comments) so a tool that rewrites the file can keep them.
+    KEY_VALUE_PARSE_FLAG_KEEP_COMMENTS = CYPHER_BIT32( 5 )
 };
 
 enum class key_value_parse_status_t : u8 {
@@ -56,8 +61,46 @@ enum class key_value_parse_status_t : u8 {
     TRAILING_INPUT,    // Non-trivia bytes follow the root value.
     DUPLICATE_DEFINITION, // A CYKV 2 local definition name is already bound.
     UNDEFINED_DEFINITION, // A $NAME reference has no prior local definition.
-    DEFINITION_LIMIT   // Local definition count exceeds policy.
+    DEFINITION_LIMIT,  // Local definition count exceeds policy.
+    UNKNOWN_CONDITION_PROPERTY, // A @when condition names a property the build context lacks.
+    CONDITION_TYPE_MISMATCH, // A @when comparison mixes kinds, or a non-Boolean property stands alone.
+    MERGE_CONFLICT,    // An inherited and a local value at one path have different kinds.
+    INCLUDE_CONFLICT,  // A merging #include supplies a member the document already has.
+    INHERITED_VALUE_MISSING, // #delete or += names a member nothing is inherited for.
+    APPEND_TYPE_MISMATCH, // += where the written or the inherited value is not an array.
+    OPERATOR_WITHOUT_BASE // #delete or += outside an #extends object or a document with #base.
 };
+
+// One property a CYKV 2 `@when` condition may read: a dotted name such as
+// "target.platform" and a Boolean, integer, or string value. Conditions read
+// nothing else - no environment, files, clock, or hardware - so the same
+// source and context always resolve to the same document.
+enum class key_value_build_value_kind_t : u8 {
+    BOOL = 0u,
+    INTEGER,
+    STRING
+};
+
+struct key_value_build_property_t {
+    string_view_t name{};
+    key_value_build_value_kind_t kind{ key_value_build_value_kind_t::BOOL };
+    bool_t bValue{ CY_FALSE };
+    i64 iValue{ 0 };
+    string_view_t text{};
+};
+
+struct key_value_build_context_t {
+    const key_value_build_property_t *pProperties{ nullptr };
+    usize nProperties{ 0u };
+};
+
+// The running build's context: target.platform ("windows", "macos",
+// "linux"), target.architecture ("x64", "arm64", ...), build.profile
+// ("debug", "development", "release", "shipping"), and the Booleans
+// build.debug and build.shipping. Tools that cook for another target pass
+// their own context instead.
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
+const key_value_build_context_t *KeyValue_HostBuildContext() noexcept;
 
 struct key_value_parse_options_t {
     flags32_t flags{ KEY_VALUE_PARSE_FLAG_ALLOW_COMMENTS |
@@ -71,6 +114,9 @@ struct key_value_parse_options_t {
     usize nMaxCommentDepth{ 64u };              // Maximum nested block-comment depth.
     usize cbMaxStringData{ 64u * CY_MIB };     // Maximum aggregate decoded payload bytes.
     usize nMaxDefinitions{ 256u };             // Maximum CYKV 2 definitions, including include aliases.
+    // Properties CYKV 2 `@when` conditions read; null selects the running
+    // build's (KeyValue_HostBuildContext).
+    const key_value_build_context_t *pBuildContext{ nullptr };
 };
 
 struct key_value_parse_result_t {

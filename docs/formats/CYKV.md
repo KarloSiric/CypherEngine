@@ -399,11 +399,14 @@ Parsing a conforming document produces:
 - owned typed values
 - an exact source location for syntax failures
 
-The semantic tree does not preserve comments, exact whitespace, quote choice, or
-original numeric spelling, and CYKV 1 semantic nodes do not retain source ranges.
-Mason eventually requires a separate lossless syntax tree and source map for
-comment-preserving edits and node-level diagnostics. The lossless tree lowers
-into the same semantic document used by validators and compilers.
+The semantic tree does not preserve exact whitespace, quote choice, or original
+numeric spelling, and CYKV 1 semantic nodes do not retain source ranges.
+Comments are kept on request: parsing with `KEY_VALUE_PARSE_FLAG_KEEP_COMMENTS`
+attaches each comment to the value it belongs to and writing with
+`KEY_VALUE_WRITE_FLAG_COMMENTS` puts it back, so tools that rewrite a file keep
+the notes in it ([CYKV_2.md](CYKV_2.md) section 22; this is tooling, not a
+language change). Node-level diagnostics still need a separate lossless syntax
+tree and source map that lowers into the same semantic document.
 
 ## Schema Boundary
 
@@ -567,7 +570,7 @@ CYKV 1 deliberately excludes:
 - custom user-defined scalar literals
 - dates and calendar values
 - non-finite floating-point values
-- preserving comments in the semantic tree
+- comments as data (they are kept beside values on request, never as values)
 - direct serialization of pointers or compiler ABI structures
 
 These exclusions keep the first contract deterministic, bounded, and suitable

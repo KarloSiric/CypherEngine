@@ -21,6 +21,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstring>
+#include <limits>
+#include <memory>
 #include <string>
 
 using namespace cypher::common;
@@ -329,6 +331,49 @@ TEST_CASE( "Shortest reals round-trip with the fewest digits", "[keyvalue][write
     CHECK( ValuesEqual( KeyValue_Root( pDocument ), KeyValue_Root( pBack ) ) );
     KeyValue_DestroyDocument( pBack );
     KeyValue_DestroyDocument( pDocument );
+}
+
+TEST_CASE( "Real writer preserves large finite values without an out of range integer conversion", "[keyvalue][writer][float-range]" )
+{
+    struct example_t { f64 value; const char *spelling; };
+    const example_t examples[]{
+        { 1.0e30, nullptr }, { -1.0e30, nullptr },
+        { std::numeric_limits<f64>::max(), nullptr }, { std::numeric_limits<f64>::lowest(), nullptr },
+        { 1.0e19, nullptr }, { -1.0e19, nullptr },
+        { 1.0e15, nullptr }, { -1.0e15, nullptr },
+        { 999999999999999.0, "999999999999999.0" }, { -999999999999999.0, "-999999999999999.0" },
+        { 8192.0, "8192.0" }, { -8192.0, "-8192.0" }, { 0.0, "0.0" }, { -0.0, "-0.0" }
+    };
+    for ( const auto mode : { KEY_VALUE_WRITE_FLAG_NONE, KEY_VALUE_WRITE_FLAG_SHORTEST_REALS } ) {
+        for ( const auto &example : examples ) {
+            CAPTURE( mode, example.value );
+            using document_owner_t = std::unique_ptr<key_value_document_t, decltype( &KeyValue_DestroyDocument )>;
+            document_owner_t source( KeyValue_CreateDocument( {} ), KeyValue_DestroyDocument );
+            document_owner_t restored( KeyValue_CreateDocument( {} ), KeyValue_DestroyDocument );
+            REQUIRE( source ); REQUIRE( restored );
+            REQUIRE( KeyValue_SetDocumentHeader( source.get(), { CYKV_LANGUAGE_VERSION, StringView_FromCString( "cypher.test" ), 1u } ) );
+            REQUIRE( KeyValue_SetRootType( source.get(), key_value_type_t::OBJECT ) );
+            auto *value = KeyValue_ObjectInsert( source.get(), KeyValue_Root( source.get() ), StringView_FromCString( "value" ), key_value_type_t::F64 );
+            REQUIRE( value ); REQUIRE( KeyValue_SetF64( source.get(), value, example.value ) );
+
+            key_value_write_options_t options{};
+            options.flags = KEY_VALUE_WRITE_FLAG_PRETTY | KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE | KEY_VALUE_WRITE_FLAG_BARE_KEYS | mode;
+            const auto measured = KeyValue_WriteText( KeyValue_Root( source.get() ), options, nullptr, 0u );
+            REQUIRE( measured.status == key_value_write_status_t::OUTPUT_TRUNCATED );
+            std::string text( measured.cchRequired + 1u, '\0' );
+            const auto written = KeyValue_WriteText( KeyValue_Root( source.get() ), options, text.data(), text.size() );
+            REQUIRE( written.status == key_value_write_status_t::OK ); CHECK( written.cchWritten == measured.cchRequired );
+            text.resize( written.cchWritten );
+            if ( example.spelling ) { CHECK( text.find( std::string( "value = " ) + example.spelling + "\n" ) != std::string::npos ); }
+            REQUIRE( KeyValue_ParseText( { text.data(), text.size() }, {}, restored.get() ).status == key_value_parse_status_t::OK );
+            const auto *back = KeyValue_Find( KeyValue_Root( restored.get() ), StringView_FromCString( "value" ) );
+            REQUIRE( KeyValue_Type( back ) == key_value_type_t::F64 );
+            f64 actual = 0;
+            REQUIRE( KeyValue_GetF64( back, &actual ) );
+            // Exact bits also check that the fast path still preserves -0.0.
+            CHECK( std::memcmp( &actual, &example.value, sizeof( f64 ) ) == 0 );
+        }
+    }
 }
 
 TEST_CASE( "Bare keys are written only where the grammar allows them", "[keyvalue][writer][compact]" )
@@ -650,4 +695,65 @@ TEST_CASE( "Native value text escapes UTF-8 scalars and rejects invalid argument
     CHECK( KeyValue_WriteValueText( value, options, buffer, sizeof( buffer ) ).status == key_value_write_status_t::INVALID_ARGUMENT );
     KeyValue_DestroyDocument( roundTrip );
     KeyValue_DestroyDocument( document );
+}
+
+TEST_CASE( "CYKV kept comments survive a parse and rewrite",
+           "[CypherCommon][Tier1][CYKV][Writer][Comments]" )
+{
+    constexpr const char *pSource = R"cykv(@cykv 1
+@schema "cypher.test" 1
+
+// Settings for the arena.
+// Keep gravity low.
+{
+    // The display name.
+    name = "Arena" // shown in the browser
+    values = [
+        1, // first
+        // second, below
+        2
+    ]
+    nested = {
+        a = 1
+        // b was removed
+    }
+    empty = {
+        // nothing yet
+    }
+    plain = { x = 1 y = 2 }
+}
+// end of file
+)cykv";
+    key_value_document_t *pDocument = KeyValue_CreateDocument( {} );
+    REQUIRE( pDocument != nullptr );
+    key_value_parse_options_t parse{};
+    parse.flags |= KEY_VALUE_PARSE_FLAG_KEEP_COMMENTS;
+    REQUIRE( KeyValue_ParseText( StringView_FromCString( pSource ), parse, pDocument ).status == key_value_parse_status_t::OK );
+
+    key_value_t *pName = KeyValue_Find( KeyValue_Root( pDocument ), StringView_FromCString( "name" ) );
+    REQUIRE( pName != nullptr );
+    const key_value_comments_t comments = KeyValue_Comments( pName );
+    CHECK( StringView_Equals( comments.leading, StringView_FromCString( "// The display name." ) ) );
+    CHECK( StringView_Equals( comments.trailing, StringView_FromCString( "// shown in the browser" ) ) );
+
+    key_value_write_options_t write{};
+    write.flags = KEY_VALUE_WRITE_FLAG_PRETTY | KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE | KEY_VALUE_WRITE_FLAG_BARE_KEYS | KEY_VALUE_WRITE_FLAG_COMMENTS;
+    write.nLineWidth = 100u;
+    const key_value_write_result_t measured = KeyValue_WriteText( KeyValue_Root( pDocument ), write, nullptr, 0u );
+    std::string text( measured.cchRequired, '\0' );
+    REQUIRE( KeyValue_WriteText( KeyValue_Root( pDocument ), write, text.data(), text.size() + 1u ).status == key_value_write_status_t::OK );
+    CHECK( text == pSource );
+
+    // Copies keep comments; without the flag the writer leaves them out.
+    key_value_document_t *pCopy = KeyValue_CreateDocument( {} );
+    REQUIRE( KeyValue_SetRootType( pCopy, key_value_type_t::OBJECT ) );
+    key_value_t *pCopied = KeyValue_CloneInto( pCopy, KeyValue_Root( pCopy ), pName );
+    REQUIRE( pCopied != nullptr );
+    CHECK( StringView_Equals( KeyValue_Comments( pCopied ).trailing, StringView_FromCString( "// shown in the browser" ) ) );
+    write.flags &= ~static_cast<flags32_t>( KEY_VALUE_WRITE_FLAG_COMMENTS );
+    std::string bare( KeyValue_WriteText( KeyValue_Root( pDocument ), write, nullptr, 0u ).cchRequired, '\0' );
+    REQUIRE( KeyValue_WriteText( KeyValue_Root( pDocument ), write, bare.data(), bare.size() + 1u ).status == key_value_write_status_t::OK );
+    CHECK( bare.find( "//" ) == std::string::npos );
+    KeyValue_DestroyDocument( pCopy );
+    KeyValue_DestroyDocument( pDocument );
 }

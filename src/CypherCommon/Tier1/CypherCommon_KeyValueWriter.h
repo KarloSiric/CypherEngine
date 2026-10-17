@@ -47,7 +47,11 @@ enum key_value_write_flags_t : flags32_t {
     // With BARE_KEYS: keys holding a '.' stay quoted. Dotted IDs ("ui.border",
     // "file.save") are single member names, never nested paths; quotes keep
     // that visible to people reading the file.
-    KEY_VALUE_WRITE_FLAG_QUOTE_DOTTED_KEYS = CYPHER_BIT32( 6 )
+    KEY_VALUE_WRITE_FLAG_QUOTE_DOTTED_KEYS = CYPHER_BIT32( 6 ),
+    // Pretty CYKV only: write the comments kept with values (KeyValue_Comments)
+    // where they were - leading lines above, trailing at the line's end. A
+    // container holding comments always spreads over lines.
+    KEY_VALUE_WRITE_FLAG_COMMENTS = CYPHER_BIT32( 7 )
 };
 
 enum class key_value_write_status_t : u8 {

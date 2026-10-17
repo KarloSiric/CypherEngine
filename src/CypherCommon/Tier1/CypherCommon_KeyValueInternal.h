@@ -46,6 +46,12 @@ struct key_value_t {
     usize cchName{ 0u };                        // Key bytes excluding terminator.
     usize nChildren{ 0u };                      // Direct-child count for containers.
     key_value_type_t type{ key_value_type_t::NULL_VALUE }; // Active value-union member.
+    // Parse-time CYKV 2 operator mark (#delete, +=) awaiting inheritance;
+    // zero in every published document. Occupies padding: no size change.
+    u8 parseMark{ 0u };
+    // 1-based index into the document's comment table; 0 for none. Also in
+    // padding: no size change.
+    u32 iComment{ 0u };
     union {
         bool_t bValue; // BOOL payload.
         i64 iValue;    // I64 payload.
@@ -56,6 +62,16 @@ struct key_value_t {
             usize cbSize;      // Payload bytes; string terminator is excluded.
         } bytes;               // Shared representation for byte-oriented types.
     } value{};                 // Scalar payload selected by type.
+};
+
+// Comment text kept with a node; strings live in the document's data arena.
+struct key_value_comment_record_t {
+    const char *pLeading{ nullptr };
+    usize cchLeading{ 0u };
+    const char *pTrailing{ nullptr };
+    usize cchTrailing{ 0u };
+    const char *pInner{ nullptr };
+    usize cchInner{ 0u };
 };
 
 struct key_value_node_block_t {
@@ -87,6 +103,9 @@ struct key_value_document_t {
     u32 nSchemaVersion{ 0u };                         // Parsed schema revision.
     bool_t bCaseInsensitiveKeys{ CY_FALSE };          // Object-key comparison policy.
     u32 nMagic{ 0u };                                 // Runtime validity cookie.
+    key_value_comment_record_t *pComments{ nullptr }; // Comment table indexed by key_value_t::iComment - 1.
+    u32 nComments{ 0u };
+    u32 nCommentCapacity{ 0u };
     key_value_t root{};                               // Permanent document root node.
 };
 

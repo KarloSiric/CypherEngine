@@ -12,6 +12,9 @@
 //
 //  History:
 //  - Created by Karlo Siric on 2026-09-18
+//  - Second expansion on 2026-10-12: @when build conditionals, #extends
+//    templates, #delete and += operators, merging and folder includes, and
+//    kept comments (sections 19-23)
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -36,6 +39,20 @@ repository snapshot, the implementation includes:
 - bounded graph traversal, cycle checks, stable errors, and transactional
   destination preservation; and
 - text writing and canonical semantic hashing of resolved CYKV 2 documents.
+
+The second expansion (2026-10-12) adds, each with the reason it exists:
+
+- `@when` build conditionals - one file for several targets, choosing
+  members by platform or build profile from a fixed context (section 19);
+- `#extends $template` inside objects, with `key = #delete` and
+  `key += [...]` - object-level inheritance, and patch documents over a
+  `#base`, without copying whole files (section 20);
+- merging `#include "file"` and folder includes `"dir/*.cydf"` - one
+  document split into parts, and one file per item with no central list
+  (section 21);
+- kept comments - tools that rewrite a file keep the notes in it (section 22).
+
+Section 23 says which of the composition features to reach for.
 
 The implementation does not yet retain node-level provenance or a lossless
 directive syntax tree, emit a complete dependency manifest or resolution hash,
@@ -72,11 +89,17 @@ The terms **must**, **must not**, **required**, **should**, **should not**, and
 16. [Excluded and Deferred Features](#16-excluded-and-deferred-features)
 17. [Implementation Plan and Conformance](#17-implementation-plan-and-conformance)
 18. [Valve Research Boundary](#18-valve-research-boundary)
+19. [`@when` Build Conditionals](#19-when-build-conditionals)
+20. [`#extends` Templates and the `#delete` / `+=` Operators](#20-extends-templates-and-the-delete---operators)
+21. [Merging and Folder Includes](#21-merging-and-folder-includes)
+22. [Kept Comments](#22-kept-comments)
+23. [Choosing a Composition Feature](#23-choosing-a-composition-feature)
 
 ## 1. Scope
 
-CYKV 2 adds exactly three source directives and two reference forms to the CYKV
-1 typed data model:
+The first expansion adds three source directives and two reference forms to
+the CYKV 1 typed data model (the second expansion's additions are in sections
+19-21):
 
 - `#define NAME <value>` declares one immutable typed constant;
 - `#include "path" as namespace` imports another resolved document root behind
@@ -404,9 +427,12 @@ sink. A namespace cannot be redeclared.
 ### 6.3 Difference from Valve `#include`
 
 Valve's classic KeyValues loader parses included content and appends its
-top-level keys after the current list. CYKV deliberately does not copy that
-behavior. Namespaces keep data origin visible, preserve the local root shape,
-and avoid duplicate-key and directive-position ambiguity.
+top-level keys after the current list. A namespaced import deliberately does
+not: namespaces keep data origin visible, preserve the local root shape, and
+avoid duplicate-key and directive-position ambiguity. For the "this file is
+part of me" use Valve's `#include` serves, CYKV 2 has the merging include
+(section 21), which keeps typed values and refuses collisions instead of
+appending duplicates.
 
 ## 7. `#base` Missing-Value Composition
 
@@ -807,10 +833,14 @@ source API reports:
 | `DEPENDENCY_SINK_FAILED` | The optional edge callback rejected a dependency |
 | `PARSE_FAILED` | A source failed ordinary CYKV parsing; inspect the nested parser result |
 | `OUT_OF_MEMORY` | Transactional source, dependency, alias, or merge storage could not be allocated |
+| `INCLUDE_CONFLICT` | A merging include supplies a member the document or an earlier part already defines (section 21) |
 
 The nested parser distinguishes unsupported versions, malformed headers and
 schemas, duplicate keys, ordinary limits, duplicate definitions,
-undefined/self/forward/member references, and the definition budget. A
+undefined/self/forward/member references, and the definition budget, and for
+the second expansion `UNKNOWN_CONDITION_PROPERTY`, `CONDITION_TYPE_MISMATCH`,
+`MERGE_CONFLICT` (an `#extends` template disagrees in kind), 
+`INHERITED_VALUE_MISSING`, `APPEND_TYPE_MISMATCH`, and `OPERATOR_WITHOUT_BASE`. A
 duplicate include alias is a source error; an alias/local-definition collision
 is reported by the parser as a duplicate definition.
 
@@ -936,22 +966,28 @@ The accepted first expansion deliberately excludes:
 - function-like or variadic macros;
 - token pasting, stringification, textual replacement, and generated keys;
 - `#undef`, redefinition, and command-line macro injection;
-- conditional directives such as `#if`, `#when`, or platform tags;
+- textual conditional directives such as `#if` or `#ifdef` (structural `@when`
+  is accepted, section 19);
 - expressions, arithmetic, comparisons, functions, and string interpolation;
 - environment, CVar, clock, random, hardware, and process-state lookups;
-- transparent include append behavior;
-- wildcard, directory, URL, or package discovery includes;
+- include append that keeps duplicate keys (the merging include refuses
+  collisions, section 21);
+- recursive (`**`), URL, or package discovery includes (single-folder `*` is
+  accepted, section 21);
 - optional/missing dependency fallbacks;
-- array concatenation or index-wise base merging;
+- implicit array concatenation or index-wise base merging (explicit `+=` is
+  accepted, section 20);
 - configurable per-file base precedence;
 - array indexing and quoted, computed, or dynamic member paths;
 - non-finite floats and exact-width numeric node kinds;
 - tagged semantic scalar syntax;
 - pointer or ABI-structure serialization; and
-- preservation of comments in the semantic tree.
+- preservation of whitespace, quote choice, or numeric spelling (comments are
+  kept on request, section 22).
 
-Conditionals, non-finite values, exact-width literals, tagged values, a complete
-binary generation, and a lossless editor tree remain separate proposals. They
+Non-finite values, exact-width literals, tagged values, a complete binary
+generation, and a lossless editor tree that also keeps directives remain
+separate proposals. They
 require their own accepted specification changes and tests; `@cykv 2` does not
 implicitly authorize them.
 
@@ -984,9 +1020,16 @@ The repository currently implements:
   document; and
 - whole-document transactional failure behavior for parser and resolver paths.
 
+The second expansion adds `@when` chains over a caller build context
+(`KeyValue_HostBuildContext` by default), `#extends` with `#delete` and `+=`
+(also against document bases, now composed by the parser), merging and folder
+includes with an optional list callback, and comment keeping in the parser
+(`KEY_VALUE_PARSE_FLAG_KEEP_COMMENTS`) and writer
+(`KEY_VALUE_WRITE_FLAG_COMMENTS`). Settings documents and maps use both.
+
 The implementation rejects function-like macros, references in key position,
-conditionals, token operations, and dependency directives after the first local
-definition. The generic binary pack does not yet provide a self-contained CYKV
+textual conditionals, token operations, and dependency directives after the
+first local definition. The generic binary pack does not yet provide a self-contained CYKV
 2 identity.
 
 ### 17.2 Remaining implementation work
@@ -1063,3 +1106,176 @@ remain invalid, includes are typed and namespaced instead of appended, paths use
 the Cypher VFS security contract, all recursive work is bounded, and provenance
 and deterministic dependency identity are required. The sources are design
 references, not a grammar, binary-layout, or source-code import.
+
+## 19. `@when` Build Conditionals
+
+**Why:** one source file serves several targets - a texture that cooks to BC7
+on desktop and ASTC on mobile, settings that differ in a debug build - without
+copies that drift apart.
+
+```cykv
+@cykv 2
+@schema "cypher.texture" 3
+
+{
+    source = "textures/world/panel.png"
+    @when target.platform == "ios" or target.platform == "android" { format = "astc_6x6" }
+    @else_when build.debug { format = "rgba8" }
+    @else { format = "bc7" }
+}
+```
+
+- A chain is `@when <condition> { members }`, any number of
+  `@else_when <condition> { members }`, and at most one `@else { members }`.
+  The members of the first branch whose condition holds become members of the
+  enclosing object; chains may follow one another.
+- Branches appear where object members appear (the root included), never in
+  arrays or in place of a value: a branch always contributes named members, so
+  every result can be validated by the schema.
+- A branch adds members; one that names a member the object already has is
+  `DUPLICATE_KEY`. Defaults are written as `@else`, never as an override.
+- Conditions read only the caller's build context: properties with a dotted
+  name and a Boolean, integer, or string value. The running build's context
+  (`KeyValue_HostBuildContext`) has `target.platform` (`"windows"`, `"macos"`,
+  `"linux"`), `target.architecture` (`"x64"`, `"arm64"`, ...),
+  `build.profile` (`"debug"`, `"development"`, `"release"`, `"shipping"`),
+  and the Booleans `build.debug` and `build.shipping`; a cooker passes the
+  target's context instead.
+- Grammar: `or`, `and`, `not`, parentheses, `property == literal`,
+  `property != literal`, and a bare Boolean property. Literals are strings,
+  integers, `true`, and `false`.
+- Every property is looked up and every branch is parsed in full, whichever
+  is taken: a misspelt property (`UNKNOWN_CONDITION_PROPERTY`) or a broken
+  branch fails on every target, not only the one it was written for. Comparing
+  a property with a literal of another kind, or using a non-Boolean property
+  alone, is `CONDITION_TYPE_MISMATCH`.
+- Nothing else is read - no environment, files, clock, or hardware - so a
+  source and a context always resolve to the same document. A cache key for a
+  conditional document must include the context's properties.
+
+## 20. `#extends` Templates and the `#delete` / `+=` Operators
+
+**Why:** game data is full of near-copies - a rifle and the SMG that differs
+in three fields, a base enemy and its variants. `#base` composes whole files;
+`#extends` does the same for one object, and the two operators let a document
+remove or extend inherited values instead of only overriding them, which is
+what mod and platform patch files need.
+
+```cykv
+@cykv 2
+@schema "reap.weapons" 1
+
+#define RIFLE { damage = 24 fire_rate = 8 tags = ["bullet"] scope = { zoom = 2.0 } }
+
+{
+    rifle = { #extends $RIFLE }
+    smg = {
+        #extends $RIFLE
+        fire_rate = 12
+        tags += ["automatic"]
+        scope = #delete
+    }
+}
+```
+
+- `#extends $reference` lines open an object, before its members. The
+  reference must name an object: a definition, an include alias, or a member
+  path into one. Several lines are allowed; as with `#base`, the earlier
+  template wins (local > first > second ...).
+- Composition is the `#base` algorithm (section 7.2): local values win,
+  objects merge member by member, arrays and scalars are whole values, and two
+  different kinds at one path are `MERGE_CONFLICT`.
+- `key = #delete` keeps the inherited member out of the result.
+  `key += [ ... ]` puts the inherited array's elements first and these after
+  them. Either one with nothing inherited to apply to is
+  `INHERITED_VALUE_MISSING` (a misspelt key does not silently do nothing);
+  `+=` where either side is not an array is `APPEND_TYPE_MISMATCH`.
+- The operators apply to the nearest inheritance: the enclosing `#extends`
+  object, else the document's `#base` documents. Outside both they are
+  `OPERATOR_WITHOUT_BASE`. Deleted members stay deleted when an outer base
+  composes later.
+- A patch file is a document with a `#base` and operators:
+
+```cykv
+@cykv 2
+@schema "reap.weapons" 1
+#base "weapons.cydf"
+
+{
+    rifle = { damage = 30 scope = #delete tags += ["modded"] }
+}
+```
+
+## 21. Merging and Folder Includes
+
+**Why:** large data sets read and merge better as several files - entity
+classes split by area, one file per weapon. Adding an item should mean adding
+a file, with no central list to edit.
+
+```cykv
+@cykv 2
+@schema "cypher.game" 1
+
+#include "classes/core.cydf"
+#include "classes/*.cydf"
+#include "weapons/*.cydf" as weapons
+
+{
+    name = "reap"
+    arsenal = $weapons
+    starting_weapon = $weapons.rifle
+}
+```
+
+- `#include "path"` without `as` merges the part's root into this document.
+  Members either side lacks are added; objects both define merge member by
+  member; any other member both define is `INCLUDE_CONFLICT`, naming the part
+  - parts never silently override each other (that is what `#base` is for).
+  Parts merge in directive order before any `#base` fills in.
+- A part, like a base, must have this document's exact schema identity
+  (`SCHEMA_MISMATCH` otherwise): it is part of the same kind of document.
+- A final path segment holding `*` names every matching file of that folder,
+  in byte order of their names, whatever order the folder lists them in.
+  Only the last segment may hold `*`; hidden files (`.name`) are left out
+  unless the pattern starts with `.`; `#base` takes no pattern. A pattern that
+  matches nothing is `OPEN_FAILED`, so a misspelt folder never includes
+  nothing quietly.
+- Without `as`, each matching file is a merged part. With `as name`, the
+  namespace binds an object with one member per file, named by the file's stem
+  (`rifle.cydf` is `rifle`), holding that file's root.
+- The resolver enumerates folders through the optional `pfnList` callback;
+  without it a pattern is `INVALID_ARGUMENT`. Every file is one dependency edge
+  and counts against the edge limit.
+
+## 22. Kept Comments
+
+**Why:** files are edited by hand and by tools. A tool that rewrites a file -
+Mason saving a map, the editor saving settings - must not delete the notes a
+person wrote in it.
+
+- Parsing with `KEY_VALUE_PARSE_FLAG_KEEP_COMMENTS` keeps each comment with the
+  value it belongs to: whole comment lines before a member or element are its
+  leading comment, a comment after it on its line its trailing comment, lines
+  before a closing bracket the container's inner comment, and lines between
+  the header and the root (or after the root) the document's.
+- Writing with `KEY_VALUE_WRITE_FLAG_COMMENTS` puts them back in place:
+  leading lines above at the value's indentation, trailing at the end of its
+  line. A container holding comments is always spread over lines, since a
+  `//` would swallow the rest of a one-line record.
+- Copies (`KeyValue_CloneInto`) keep comments; expansions of definitions do
+  not. A comment on a member that a tool removes goes with it.
+- Comments are kept in both CYKV 1 and CYKV 2 documents: keeping them is a
+  tooling feature, not a language change. Whitespace, quote choice, and numeric
+  spelling are still rewritten canonically.
+
+## 23. Choosing a Composition Feature
+
+| You want to... | Use |
+| --- | --- |
+| Name a value once and use it in several places | `#define NAME value`, `$NAME` |
+| Read values from another document without mixing its members into yours | `#include "x" as name`, `$name.member` |
+| Split one document into several files | `#include "part.cydf"` (collisions are errors) |
+| Make adding an item mean adding a file | `#include "dir/*.cydf"` (with or without `as`) |
+| Start from another document and change some of it | `#base "x"`, then overrides, `#delete`, `+=` |
+| Start one object from another | `#extends $template`, then overrides, `#delete`, `+=` |
+| Choose members by platform or build | `@when` / `@else_when` / `@else` |

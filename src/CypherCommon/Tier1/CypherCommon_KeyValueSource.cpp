@@ -41,6 +41,12 @@ struct source_record_t {
     usize cchPath{ 0u };
     key_value_document_t *pDocument{ nullptr };
     source_record_state_t state{ source_record_state_t::EMPTY };
+    // The CYKV 2 header, read before any dependency opens, so parts and
+    // bases are checked against it before they are merged.
+    char schemaId[CY_KEY_VALUE_SOURCE_DIAGNOSTIC_PATH_CAPACITY]{};
+    usize cchSchemaId{ 0u };
+    u32 nSchemaVersion{ 0u };
+    bool_t bHasHeader{ CY_FALSE };
 };
 
 struct source_directive_t {
@@ -51,6 +57,14 @@ struct source_directive_t {
     usize iEraseBegin{ 0u };
     usize iEraseEnd{ 0u };
     key_value_document_t *pResolvedDocument{ nullptr };
+    // Folder includes: one directive per matching file, all sharing the
+    // index of the first as iGroup. With a namespace, the first holds the
+    // object keyed by file stem that the namespace binds.
+    usize iGroup{ CY_USIZE_MAX };
+    string_view_t stem{};
+    char *pOwnedPath{ nullptr };
+    usize cbOwnedPath{ 0u };
+    key_value_document_t *pGroupDocument{ nullptr };
 };
 
 struct source_context_t {
@@ -439,10 +453,11 @@ CYPHER_NODISCARD bool_t HeaderSelectsCykv2(
 
 CYPHER_NODISCARD bool_t ValidateCykv2HeaderBeforeDependencyIo(
     source_context_t &context,
-    string_view_t sourcePath,
+    source_record_t &source,
     string_view_t text,
     usize iAfterHeader ) noexcept
 {
+    const string_view_t sourcePath{ source.path, source.cchPath };
     if ( iAfterHeader > CY_USIZE_MAX - 3u ) {
         FailParse(
             context,
@@ -491,6 +506,15 @@ CYPHER_NODISCARD bool_t ValidateCykv2HeaderBeforeDependencyIo(
         { pProbe, cchProbe },
         probeOptions,
         pProbeDocument );
+    if ( parsed.status == key_value_parse_status_t::OK ) {
+        const key_value_document_header_t header = KeyValue_DocumentHeader( pProbeDocument );
+        source.bHasHeader = header.schemaId.cchLength < sizeof( source.schemaId );
+        if ( source.bHasHeader ) {
+            Cy_MemCopy( source.schemaId, header.schemaId.pData, header.schemaId.cchLength );
+            source.cchSchemaId = header.schemaId.cchLength;
+            source.nSchemaVersion = header.nSchemaVersion;
+        }
+    }
     KeyValue_DestroyDocument( pProbeDocument );
     Allocator_Free(
         context.pAllocator,
@@ -649,11 +673,12 @@ CYPHER_NODISCARD bool_t DirectiveTailIsValid(
 
 CYPHER_NODISCARD bool_t ScanDependencyDirectives(
     source_context_t &context,
-    string_view_t sourcePath,
+    source_record_t &source,
     string_view_t text,
     usize &iDirectiveBegin,
     usize &iDirectiveEnd ) noexcept
 {
+    const string_view_t sourcePath{ source.path, source.cchPath };
     iDirectiveBegin = context.nDirectives;
     iDirectiveEnd = iDirectiveBegin;
     usize iByte = 0u;
@@ -662,7 +687,7 @@ CYPHER_NODISCARD bool_t ScanDependencyDirectives(
     }
     if ( !ValidateCykv2HeaderBeforeDependencyIo(
              context,
-             sourcePath,
+             source,
              text,
              iByte ) ) {
         return CY_FALSE;
@@ -759,6 +784,14 @@ CYPHER_NODISCARD bool_t ScanDependencyDirectives(
         }
 
         string_view_t alias{};
+        if ( kind == key_value_dependency_kind_t::INCLUDE ) {
+            // Without `as name` the include merges a part into this document.
+            usize iTail = iByte;
+            SkipHorizontal( text, iLineEnd, iTail );
+            if ( iTail == iLineEnd || text.pData[iTail] == '\r' || text.pData[iTail] == '/' ) {
+                kind = key_value_dependency_kind_t::MERGE_INCLUDE;
+            }
+        }
         if ( kind == key_value_dependency_kind_t::INCLUDE ) {
             if ( iByte == iLineEnd ||
                  ( text.pData[iByte] != ' ' && text.pData[iByte] != '\t' ) ) {
@@ -872,6 +905,7 @@ CYPHER_NODISCARD bool_t ScanDependencyDirectives(
         }
         source_directive_t &directive =
             context.pDirectives[context.nDirectives++];
+        directive = source_directive_t{}; // The array is zero-filled; defaults matter (iGroup).
         directive.kind = kind;
         directive.referencedPath = referencedPath;
         directive.alias = alias;
@@ -1103,6 +1137,44 @@ CYPHER_NODISCARD bool_t BuildStrippedSource(
     return CY_TRUE;
 }
 
+// The object a namespaced folder include binds: one member per file, named
+// by the file's stem, holding that file's resolved root.
+CYPHER_NODISCARD bool_t BuildFolderObject(
+    source_context_t &context,
+    source_record_t &source,
+    usize iFirst,
+    usize iDirectiveEnd ) noexcept
+{
+    source_directive_t &first = context.pDirectives[iFirst];
+    key_value_document_desc_t desc{};
+    desc.pAllocator = context.pAllocator;
+    first.pGroupDocument = KeyValue_CreateDocument( desc );
+    if ( first.pGroupDocument == nullptr || !KeyValue_SetRootType( first.pGroupDocument, key_value_type_t::OBJECT ) ) {
+        Fail( context, key_value_source_status_t::OUT_OF_MEMORY, RecordPath( source ), first.referencedPath, first.location, first.kind );
+        return CY_FALSE;
+    }
+    key_value_t *pRoot = KeyValue_Root( first.pGroupDocument );
+    for ( usize i = iFirst; i < iDirectiveEnd; ++i ) {
+        const source_directive_t &directive = context.pDirectives[i];
+        if ( directive.iGroup != iFirst ) {
+            continue;
+        }
+        if ( KeyValue_Find( pRoot, directive.stem ) != nullptr ) {
+            Fail( context, key_value_source_status_t::DUPLICATE_ALIAS, RecordPath( source ), directive.referencedPath,
+                  directive.location, directive.kind );
+            return CY_FALSE;
+        }
+        key_value_t *pMember = KeyValue_ObjectInsert( first.pGroupDocument, pRoot, directive.stem, key_value_type_t::NULL_VALUE );
+        if ( pMember == nullptr ||
+             !KeyValue_InternalCopyValue( first.pGroupDocument, pMember, KeyValue_Root( directive.pResolvedDocument ) ) ) {
+            Fail( context, key_value_source_status_t::OUT_OF_MEMORY, RecordPath( source ), directive.referencedPath,
+                  directive.location, directive.kind );
+            return CY_FALSE;
+        }
+    }
+    return CY_TRUE;
+}
+
 CYPHER_NODISCARD bool_t BuildIncludeSeeds(
     source_context_t &context,
     source_record_t &source,
@@ -1115,8 +1187,12 @@ CYPHER_NODISCARD bool_t BuildIncludeSeeds(
           iDirective < iDirectiveEnd;
           ++iDirective ) {
         source_directive_t &directive = context.pDirectives[iDirective];
-        if ( directive.kind != key_value_dependency_kind_t::INCLUDE ) {
-            continue;
+        if ( directive.kind != key_value_dependency_kind_t::INCLUDE ||
+             ( directive.iGroup != CY_USIZE_MAX && directive.iGroup != iDirective ) ) {
+            continue; // A folder include binds its namespace once, at its first file.
+        }
+        if ( directive.iGroup != CY_USIZE_MAX && !BuildFolderObject( context, source, iDirective, iDirectiveEnd ) ) {
+            return CY_FALSE;
         }
         for ( usize iSeed = 0u; iSeed < nSeeds; ++iSeed ) {
             if ( !StringView_Equals(
@@ -1135,427 +1211,262 @@ CYPHER_NODISCARD bool_t BuildIncludeSeeds(
         }
         context.pIncludeSeeds[nSeeds++] = {
             directive.alias,
-            KeyValue_Root( directive.pResolvedDocument )
+            KeyValue_Root( directive.pGroupDocument != nullptr ? directive.pGroupDocument : directive.pResolvedDocument )
         };
     }
     return CY_TRUE;
 }
 
-struct cloned_value_cost_t {
-    usize nNodes{ 0u };
-    usize cbData{ 0u };
-    usize nMaxContainerDepth{ 0u };
-    bool_t bHasContainer{ CY_FALSE };
-};
+// ---------------------------------------------------------------------------
+// Folder includes
+// ---------------------------------------------------------------------------
 
-CYPHER_NODISCARD bool_t AddCost(
-    usize &total,
-    usize amount ) noexcept
+// `*` matches any run of characters, including none; everything else
+// matches itself, case-sensitively.
+CYPHER_NODISCARD bool_t GlobMatch( string_view_t pattern, string_view_t name ) noexcept
 {
-    if ( amount > CY_USIZE_MAX - total ) return CY_FALSE;
-    total += amount;
-    return CY_TRUE;
-}
-
-CYPHER_NODISCARD bool_t MeasureClonedValue(
-    const key_value_t *pValue,
-    usize nRelativeDepth,
-    cloned_value_cost_t &cost ) noexcept
-{
-    if ( !AddCost( cost.nNodes, 1u ) ) return CY_FALSE;
-    if ( pValue->pName != nullptr &&
-         ( pValue->cchName == CY_USIZE_MAX ||
-           !AddCost( cost.cbData, pValue->cchName + 1u ) ) ) {
-        return CY_FALSE;
-    }
-    if ( pValue->type == key_value_type_t::STRING ) {
-        if ( pValue->value.bytes.cbSize == CY_USIZE_MAX ||
-             !AddCost( cost.cbData, pValue->value.bytes.cbSize + 1u ) ) {
-            return CY_FALSE;
-        }
-    } else if ( pValue->type == key_value_type_t::BINARY &&
-                !AddCost( cost.cbData, pValue->value.bytes.cbSize ) ) {
-        return CY_FALSE;
-    }
-    if ( pValue->type == key_value_type_t::OBJECT ||
-         pValue->type == key_value_type_t::ARRAY ) {
-        cost.bHasContainer = CY_TRUE;
-        if ( nRelativeDepth > cost.nMaxContainerDepth ) {
-            cost.nMaxContainerDepth = nRelativeDepth;
-        }
-    }
-    for ( const key_value_t *pChild = pValue->pFirstChild;
-          pChild != nullptr;
-          pChild = pChild->pNext ) {
-        if ( nRelativeDepth == CY_USIZE_MAX ||
-             !MeasureClonedValue(
-                 pChild,
-                 nRelativeDepth + 1u,
-                 cost ) ) {
-            return CY_FALSE;
-        }
-    }
-    return CY_TRUE;
-}
-
-void FailMergeLimit(
-    source_context_t &context,
-    source_record_t &source,
-    const source_directive_t &directive,
-    key_value_parse_status_t status ) noexcept
-{
-    context.result.parseResult.status = status;
-    context.result.parseResult.errorLocation = directive.location;
-    context.result.parseResult.nNodesParsed =
-        KeyValue_InternalNodeCount( source.pDocument );
-    context.result.parseResult.cbStringData =
-        KeyValue_InternalDataSize( source.pDocument );
-    Fail(
-        context,
-        key_value_source_status_t::PARSE_FAILED,
-        RecordPath( source ),
-        directive.referencedPath,
-        directive.location,
-        directive.kind );
-}
-
-CYPHER_NODISCARD bool_t PreflightBaseClone(
-    source_context_t &context,
-    source_record_t &source,
-    key_value_t *pContainer,
-    const key_value_t *pBaseValue,
-    usize nContainerDepth,
-    const source_directive_t &directive ) noexcept
-{
-    cloned_value_cost_t cost{};
-    if ( !MeasureClonedValue( pBaseValue, 0u, cost ) ) {
-        FailMergeLimit(
-            context,
-            source,
-            directive,
-            key_value_parse_status_t::NODE_LIMIT );
-        return CY_FALSE;
-    }
-
-    const key_value_parse_options_t &limits = context.options.parseOptions;
-    const usize nNodes = KeyValue_InternalNodeCount( source.pDocument );
-    const usize cbData = KeyValue_InternalDataSize( source.pDocument );
-    if ( KeyValue_ChildCount( pContainer ) >= limits.nMaxContainerValues ) {
-        FailMergeLimit(
-            context,
-            source,
-            directive,
-            key_value_parse_status_t::CONTAINER_LIMIT );
-        return CY_FALSE;
-    }
-    if ( nNodes > limits.nMaxNodes ||
-         cost.nNodes > limits.nMaxNodes - nNodes ) {
-        FailMergeLimit(
-            context,
-            source,
-            directive,
-            key_value_parse_status_t::NODE_LIMIT );
-        return CY_FALSE;
-    }
-    if ( cbData > limits.cbMaxStringData ||
-         cost.cbData > limits.cbMaxStringData - cbData ) {
-        FailMergeLimit(
-            context,
-            source,
-            directive,
-            key_value_parse_status_t::STRING_LIMIT );
-        return CY_FALSE;
-    }
-    if ( cost.bHasContainer ) {
-        if ( nContainerDepth >= limits.nMaxDepth ) {
-            FailMergeLimit(
-                context,
-                source,
-                directive,
-                key_value_parse_status_t::DEPTH_LIMIT );
-            return CY_FALSE;
-        }
-        const usize nValueDepth = nContainerDepth + 1u;
-        if ( cost.nMaxContainerDepth > limits.nMaxDepth - nValueDepth ) {
-            FailMergeLimit(
-                context,
-                source,
-                directive,
-                key_value_parse_status_t::DEPTH_LIMIT );
-            return CY_FALSE;
-        }
-    }
-    return CY_TRUE;
-}
-
-CYPHER_NODISCARD i32 CompareNames(
-    string_view_t left,
-    string_view_t right,
-    bool_t bInsensitive ) noexcept
-{
-    const usize cchCommon = left.cchLength < right.cchLength
-        ? left.cchLength
-        : right.cchLength;
-    for ( usize iByte = 0u; iByte < cchCommon; ++iByte ) {
-        const unsigned char leftByte = static_cast<unsigned char>(
-            bInsensitive ? Char_ToLowerAscii( left.pData[iByte] )
-                         : left.pData[iByte] );
-        const unsigned char rightByte = static_cast<unsigned char>(
-            bInsensitive ? Char_ToLowerAscii( right.pData[iByte] )
-                         : right.pData[iByte] );
-        if ( leftByte < rightByte ) return -1;
-        if ( leftByte > rightByte ) return 1;
-    }
-    if ( left.cchLength < right.cchLength ) return -1;
-    if ( left.cchLength > right.cchLength ) return 1;
-    return 0;
-}
-
-CYPHER_NODISCARD string_view_t InternalName(
-    const key_value_t *pValue ) noexcept
-{
-    return { pValue->pName, pValue->cchName };
-}
-
-void SiftNameIndex(
-    key_value_t **ppValues,
-    usize iRoot,
-    usize nValues,
-    bool_t bInsensitive ) noexcept
-{
-    for ( ;; ) {
-        const usize iLeft = iRoot * 2u + 1u;
-        if ( iLeft >= nValues ) return;
-        usize iLargest = iLeft;
-        const usize iRight = iLeft + 1u;
-        if ( iRight < nValues &&
-             CompareNames(
-                 InternalName( ppValues[iLeft] ),
-                 InternalName( ppValues[iRight] ),
-                 bInsensitive ) < 0 ) {
-            iLargest = iRight;
-        }
-        if ( CompareNames(
-                 InternalName( ppValues[iRoot] ),
-                 InternalName( ppValues[iLargest] ),
-                 bInsensitive ) >= 0 ) {
-            return;
-        }
-        key_value_t *pSwap = ppValues[iRoot];
-        ppValues[iRoot] = ppValues[iLargest];
-        ppValues[iLargest] = pSwap;
-        iRoot = iLargest;
-    }
-}
-
-void SortNameIndex(
-    key_value_t **ppValues,
-    usize nValues,
-    bool_t bInsensitive ) noexcept
-{
-    for ( usize iRoot = nValues / 2u; iRoot != 0u; ) {
-        SiftNameIndex( ppValues, --iRoot, nValues, bInsensitive );
-    }
-    for ( usize iEnd = nValues; iEnd > 1u; ) {
-        --iEnd;
-        key_value_t *pSwap = ppValues[0];
-        ppValues[0] = ppValues[iEnd];
-        ppValues[iEnd] = pSwap;
-        SiftNameIndex( ppValues, 0u, iEnd, bInsensitive );
-    }
-}
-
-CYPHER_NODISCARD key_value_t *FindInNameIndex(
-    key_value_t *const *ppValues,
-    usize nValues,
-    string_view_t name,
-    bool_t bInsensitive ) noexcept
-{
-    usize iBegin = 0u;
-    usize iEnd = nValues;
-    while ( iBegin < iEnd ) {
-        const usize iMiddle = iBegin + ( iEnd - iBegin ) / 2u;
-        const i32 comparison = CompareNames(
-            InternalName( ppValues[iMiddle] ),
-            name,
-            bInsensitive );
-        if ( comparison < 0 ) {
-            iBegin = iMiddle + 1u;
-        } else if ( comparison > 0 ) {
-            iEnd = iMiddle;
-        } else {
-            return ppValues[iMiddle];
-        }
-    }
-    return nullptr;
-}
-
-CYPHER_NODISCARD bool_t MergeBaseObject(
-    source_context_t &context,
-    source_record_t &source,
-    key_value_t *pLocal,
-    const key_value_t *pBase,
-    const source_directive_t &directive,
-    usize nDepth ) noexcept
-{
-    const usize nLocalChildren = KeyValue_ChildCount( pLocal );
-    key_value_t **ppLocalChildren = nullptr;
-    if ( nLocalChildren != 0u ) {
-        ppLocalChildren = Allocator_AllocateArrayStorage<key_value_t *>(
-            context.pAllocator,
-            nLocalChildren );
-        if ( ppLocalChildren == nullptr ) {
-            Fail(
-                context,
-                key_value_source_status_t::OUT_OF_MEMORY,
-                RecordPath( source ),
-                directive.referencedPath,
-                directive.location,
-                directive.kind );
-            return CY_FALSE;
-        }
-        usize iLocal = 0u;
-        for ( key_value_t *pChild = pLocal->pFirstChild;
-              pChild != nullptr;
-              pChild = pChild->pNext ) {
-            ppLocalChildren[iLocal++] = pChild;
-        }
-        // Authored CYKV member identity is exact-case even when the destination
-        // document offers case-insensitive lookup to generic consumers.
-        SortNameIndex(
-            ppLocalChildren,
-            nLocalChildren,
-            CY_FALSE );
-    }
-
-    bool_t bMerged = CY_TRUE;
-    for ( const key_value_t *pBaseChild = pBase->pFirstChild;
-          pBaseChild != nullptr;
-          pBaseChild = pBaseChild->pNext ) {
-        const string_view_t name = KeyValue_Name( pBaseChild );
-        key_value_t *pLocalChild = FindInNameIndex(
-            ppLocalChildren,
-            nLocalChildren,
-            name,
-            CY_FALSE );
-        if ( pLocalChild == nullptr ) {
-            if ( !PreflightBaseClone(
-                     context,
-                     source,
-                     pLocal,
-                     pBaseChild,
-                     nDepth,
-                     directive ) ||
-                 KeyValue_CloneInto(
-                     source.pDocument,
-                     pLocal,
-                     pBaseChild ) == nullptr ) {
-                if ( context.result.status == key_value_source_status_t::OK ) {
-                    Fail(
-                        context,
-                        key_value_source_status_t::OUT_OF_MEMORY,
-                        RecordPath( source ),
-                        directive.referencedPath,
-                        directive.location,
-                        directive.kind );
-                }
-                bMerged = CY_FALSE;
-                break;
-            }
+    usize iPattern = 0u;
+    usize iName = 0u;
+    usize iStar = CY_USIZE_MAX;
+    usize iMark = 0u;
+    while ( iName < name.cchLength ) {
+        if ( iPattern < pattern.cchLength && pattern.pData[iPattern] == '*' ) {
+            iStar = iPattern++;
+            iMark = iName;
             continue;
         }
-
-        const key_value_type_t localType = KeyValue_Type( pLocalChild );
-        const key_value_type_t baseType = KeyValue_Type( pBaseChild );
-        if ( localType != baseType ) {
-            Fail(
-                context,
-                key_value_source_status_t::MERGE_CONFLICT,
-                RecordPath( source ),
-                directive.referencedPath,
-                directive.location,
-                directive.kind );
-            bMerged = CY_FALSE;
-            break;
+        if ( iPattern < pattern.cchLength && pattern.pData[iPattern] == name.pData[iName] ) {
+            ++iPattern;
+            ++iName;
+            continue;
         }
-        if ( localType == key_value_type_t::OBJECT &&
-             !MergeBaseObject(
-                 context,
-                 source,
-                 pLocalChild,
-                 pBaseChild,
-                 directive,
-                 nDepth + 1u ) ) {
-            bMerged = CY_FALSE;
-            break;
+        if ( iStar == CY_USIZE_MAX ) {
+            return CY_FALSE;
         }
-        // Matching scalar and array values are complete local overrides.
+        iPattern = iStar + 1u;
+        iName = ++iMark;
     }
-    if ( ppLocalChildren != nullptr ) {
-        Allocator_FreeArrayStorage(
-            context.pAllocator,
-            ppLocalChildren,
-            nLocalChildren );
+    while ( iPattern < pattern.cchLength && pattern.pData[iPattern] == '*' ) {
+        ++iPattern;
     }
-    return bMerged;
+    return iPattern == pattern.cchLength;
 }
 
-CYPHER_NODISCARD bool_t ApplyBases(
+struct listed_name_t {
+    usize iOffset{ 0u };
+    usize cchName{ 0u };
+};
+
+// The names a list callback emitted that the pattern matches.
+struct name_list_t {
+    const allocator_t *pAllocator{ nullptr };
+    string_view_t pattern{};
+    usize nMaxNames{ 0u };
+    char *pText{ nullptr };
+    usize cbText{ 0u };
+    usize cbCapacity{ 0u };
+    listed_name_t *pNames{ nullptr };
+    usize nNames{ 0u };
+    bool_t bTooMany{ CY_FALSE };
+    bool_t bOutOfMemory{ CY_FALSE };
+
+    CYPHER_NODISCARD string_view_t Name( usize i ) const noexcept { return { pText + pNames[i].iOffset, pNames[i].cchName }; }
+};
+
+void ReleaseNameList( name_list_t &list ) noexcept
+{
+    if ( list.pText != nullptr ) { Allocator_Free( list.pAllocator, list.pText, list.cbCapacity, alignof( char ) ); }
+    if ( list.pNames != nullptr ) { Allocator_FreeArrayStorage( list.pAllocator, list.pNames, list.nMaxNames ); }
+    list.pText = nullptr;
+    list.pNames = nullptr;
+}
+
+bool_t EmitListedName( void *pEmitContext, string_view_t name ) noexcept
+{
+    auto &list = *static_cast<name_list_t *>( pEmitContext );
+    if ( !StringView_IsValid( name ) || name.cchLength == 0u ) {
+        return CY_TRUE;
+    }
+    for ( usize i = 0u; i < name.cchLength; ++i ) {
+        const unsigned char ch = static_cast<unsigned char>( name.pData[i] );
+        if ( ch < 0x20u || ch == 0x7fu || ch == '/' || ch == '\\' ) {
+            return CY_TRUE; // A file name, not a path; anything else is not ours.
+        }
+    }
+    // Hidden files stay out unless the pattern asks for them.
+    if ( name.pData[0] == '.' && ( list.pattern.cchLength == 0u || list.pattern.pData[0] != '.' ) ) {
+        return CY_TRUE;
+    }
+    if ( !GlobMatch( list.pattern, name ) ) {
+        return CY_TRUE;
+    }
+    if ( list.nNames == list.nMaxNames ) {
+        list.bTooMany = CY_TRUE;
+        return CY_FALSE;
+    }
+    if ( list.pNames == nullptr ) {
+        list.pNames = Allocator_AllocateArrayStorage<listed_name_t>( list.pAllocator, list.nMaxNames );
+        if ( list.pNames == nullptr ) {
+            list.bOutOfMemory = CY_TRUE;
+            return CY_FALSE;
+        }
+    }
+    if ( list.cbText + name.cchLength > list.cbCapacity ) {
+        usize cbCapacity = list.cbCapacity == 0u ? 1024u : list.cbCapacity * 2u;
+        while ( cbCapacity < list.cbText + name.cchLength ) { cbCapacity *= 2u; }
+        char *pGrown = static_cast<char *>( Allocator_Allocate( list.pAllocator, cbCapacity, alignof( char ) ) );
+        if ( pGrown == nullptr ) {
+            list.bOutOfMemory = CY_TRUE;
+            return CY_FALSE;
+        }
+        if ( list.cbText != 0u ) { Cy_MemCopy( pGrown, list.pText, list.cbText ); }
+        if ( list.pText != nullptr ) { Allocator_Free( list.pAllocator, list.pText, list.cbCapacity, alignof( char ) ); }
+        list.pText = pGrown;
+        list.cbCapacity = cbCapacity;
+    }
+    Cy_MemCopy( list.pText + list.cbText, name.pData, name.cchLength );
+    list.pNames[list.nNames++] = { list.cbText, name.cchLength };
+    list.cbText += name.cchLength;
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD bool_t NameLess( const name_list_t &list, const listed_name_t &a, const listed_name_t &b ) noexcept
+{
+    const usize cchCommon = a.cchName < b.cchName ? a.cchName : b.cchName;
+    for ( usize i = 0u; i < cchCommon; ++i ) {
+        const unsigned char ca = static_cast<unsigned char>( list.pText[a.iOffset + i] );
+        const unsigned char cb = static_cast<unsigned char>( list.pText[b.iOffset + i] );
+        if ( ca != cb ) { return ca < cb; }
+    }
+    return a.cchName < b.cchName;
+}
+
+// Byte order: the same on every machine whatever order the folder listed.
+void SortNames( name_list_t &list ) noexcept
+{
+    for ( usize i = 1u; i < list.nNames; ++i ) {
+        const listed_name_t entry = list.pNames[i];
+        usize j = i;
+        while ( j > 0u && NameLess( list, entry, list.pNames[j - 1u] ) ) {
+            list.pNames[j] = list.pNames[j - 1u];
+            --j;
+        }
+        list.pNames[j] = entry;
+    }
+}
+
+// Replaces each folder include ("dir/*.cydf") with one include per matching
+// file, in sorted order. Only the last path segment may hold `*`.
+CYPHER_NODISCARD bool_t ExpandFolderIncludes(
+    source_context_t &context,
+    source_record_t &source,
+    usize iDirectiveBegin,
+    usize &iDirectiveEnd ) noexcept
+{
+    const string_view_t sourcePath = RecordPath( source );
+    for ( usize i = iDirectiveBegin; i < iDirectiveEnd; ++i ) {
+        const source_directive_t directive = context.pDirectives[i];
+        const string_view_t path = directive.referencedPath;
+        usize iSlash = CY_USIZE_MAX;
+        usize iFirstStar = CY_USIZE_MAX;
+        for ( usize k = 0u; k < path.cchLength; ++k ) {
+            if ( path.pData[k] == '/' ) { iSlash = k; }
+            if ( path.pData[k] == '*' && iFirstStar == CY_USIZE_MAX ) { iFirstStar = k; }
+        }
+        if ( iFirstStar == CY_USIZE_MAX ) {
+            continue;
+        }
+        if ( directive.kind == key_value_dependency_kind_t::BASE || ( iSlash != CY_USIZE_MAX && iFirstStar < iSlash ) ) {
+            Fail( context, key_value_source_status_t::INVALID_PATH, sourcePath, path, directive.location, directive.kind );
+            return CY_FALSE;
+        }
+        if ( context.options.pfnList == nullptr ) {
+            Fail( context, key_value_source_status_t::INVALID_ARGUMENT, sourcePath, path, directive.location, directive.kind );
+            return CY_FALSE;
+        }
+        const string_view_t folder = iSlash == CY_USIZE_MAX ? string_view_t{ path.pData, 0u } : string_view_t{ path.pData, iSlash };
+        name_list_t list{};
+        list.pAllocator = context.pAllocator;
+        list.pattern = iSlash == CY_USIZE_MAX ? path : string_view_t{ path.pData + iSlash + 1u, path.cchLength - iSlash - 1u };
+        list.nMaxNames = context.options.nMaxEdges;
+        const key_value_source_open_status_t listed = context.options.pfnList(
+            sourcePath, folder, &EmitListedName, &list, context.options.pUserData );
+        const auto fail = [&]( key_value_source_status_t status ) noexcept {
+            ReleaseNameList( list );
+            Fail( context, status, sourcePath, path, directive.location, directive.kind );
+            return CY_FALSE;
+        };
+        if ( list.bOutOfMemory ) { return fail( key_value_source_status_t::OUT_OF_MEMORY ); }
+        if ( list.bTooMany ) { return fail( key_value_source_status_t::EDGE_LIMIT ); }
+        if ( listed != key_value_source_open_status_t::OK || list.nNames == 0u ) {
+            // An empty match is an error: a misspelt folder or pattern must
+            // not quietly include nothing.
+            context.result.openStatus = listed != key_value_source_open_status_t::OK ? listed : key_value_source_open_status_t::NOT_FOUND;
+            return fail( key_value_source_status_t::OPEN_FAILED );
+        }
+        SortNames( list );
+        const usize nExtra = list.nNames - 1u;
+        if ( nExtra > context.options.nMaxEdges - context.nDirectives ) { return fail( key_value_source_status_t::EDGE_LIMIT ); }
+        for ( usize k = context.nDirectives; k > i + 1u; --k ) {
+            context.pDirectives[k - 1u + nExtra] = context.pDirectives[k - 1u];
+        }
+        for ( usize n = 0u; n <= nExtra; ++n ) { context.pDirectives[i + n] = directive; }
+        context.nDirectives += nExtra;
+        iDirectiveEnd += nExtra;
+        context.result.nDependencyEdges += nExtra;
+        for ( usize n = 0u; n < list.nNames; ++n ) {
+            source_directive_t &expanded = context.pDirectives[i + n];
+            const string_view_t name = list.Name( n );
+            const usize cchPrefix = folder.cchLength != 0u ? folder.cchLength + 1u : 0u;
+            expanded.cbOwnedPath = cchPrefix + name.cchLength;
+            expanded.pOwnedPath = static_cast<char *>( Allocator_Allocate( context.pAllocator, expanded.cbOwnedPath, alignof( char ) ) );
+            if ( expanded.pOwnedPath == nullptr ) {
+                expanded.cbOwnedPath = 0u;
+                return fail( key_value_source_status_t::OUT_OF_MEMORY );
+            }
+            if ( cchPrefix != 0u ) {
+                Cy_MemCopy( expanded.pOwnedPath, folder.pData, folder.cchLength );
+                expanded.pOwnedPath[folder.cchLength] = '/';
+            }
+            Cy_MemCopy( expanded.pOwnedPath + cchPrefix, name.pData, name.cchLength );
+            expanded.referencedPath = { expanded.pOwnedPath, expanded.cbOwnedPath };
+            expanded.iGroup = i;
+            usize cchStem = name.cchLength;
+            while ( cchStem > 0u && name.pData[cchStem - 1u] != '.' ) { --cchStem; }
+            cchStem = cchStem > 1u ? cchStem - 1u : name.cchLength; // "rifle.cydf" -> "rifle"; no dot keeps the name.
+            expanded.stem = { expanded.pOwnedPath + cchPrefix, cchStem };
+            if ( !IsValidReferencedPath( context, sourcePath, expanded.referencedPath, directive.location, directive.kind ) ) {
+                ReleaseNameList( list );
+                return CY_FALSE;
+            }
+        }
+        ReleaseNameList( list );
+        i += nExtra;
+    }
+    return CY_TRUE;
+}
+
+// Parts and bases become part of this document, so they must be documents
+// of the same kind: the exact schema identity, checked before merging.
+CYPHER_NODISCARD bool_t CheckComposedSchemas(
     source_context_t &context,
     source_record_t &source,
     usize iDirectiveBegin,
     usize iDirectiveEnd ) noexcept
 {
-    const key_value_document_header_t localHeader =
-        KeyValue_DocumentHeader( source.pDocument );
-    for ( usize iDirective = iDirectiveBegin;
-          iDirective < iDirectiveEnd;
-          ++iDirective ) {
-        const source_directive_t &directive = context.pDirectives[iDirective];
-        if ( directive.kind != key_value_dependency_kind_t::BASE ) {
+    for ( usize i = iDirectiveBegin; i < iDirectiveEnd; ++i ) {
+        const source_directive_t &directive = context.pDirectives[i];
+        if ( directive.kind == key_value_dependency_kind_t::INCLUDE ) {
             continue;
         }
-        const key_value_document_header_t baseHeader =
-            KeyValue_DocumentHeader( directive.pResolvedDocument );
-        if ( localHeader.nSchemaVersion != baseHeader.nSchemaVersion ||
-             !StringView_Equals( localHeader.schemaId, baseHeader.schemaId ) ) {
-            Fail(
-                context,
-                key_value_source_status_t::SCHEMA_MISMATCH,
-                RecordPath( source ),
-                directive.referencedPath,
-                directive.location,
-                directive.kind );
-            return CY_FALSE;
-        }
-        key_value_t *pLocalRoot = KeyValue_Root( source.pDocument );
-        const key_value_t *pBaseRoot = KeyValue_Root(
-            directive.pResolvedDocument );
-        if ( KeyValue_Type( pLocalRoot ) != key_value_type_t::OBJECT ||
-             KeyValue_Type( pBaseRoot ) != key_value_type_t::OBJECT ) {
-            Fail(
-                context,
-                key_value_source_status_t::MERGE_CONFLICT,
-                RecordPath( source ),
-                directive.referencedPath,
-                directive.location,
-                directive.kind );
-            return CY_FALSE;
-        }
-        if ( !MergeBaseObject(
-                 context,
-                 source,
-                 pLocalRoot,
-                 pBaseRoot,
-                 directive,
-                 0u ) ) {
+        const key_value_document_header_t header = KeyValue_DocumentHeader( directive.pResolvedDocument );
+        if ( !source.bHasHeader || header.nSchemaVersion != source.nSchemaVersion ||
+             !StringView_Equals( header.schemaId, { source.schemaId, source.cchSchemaId } ) ) {
+            Fail( context, key_value_source_status_t::SCHEMA_MISMATCH, RecordPath( source ), directive.referencedPath,
+                  directive.location, directive.kind );
             return CY_FALSE;
         }
     }
-    context.result.parseResult.nNodesParsed =
-        KeyValue_InternalNodeCount( source.pDocument );
-    context.result.parseResult.cbStringData =
-        KeyValue_InternalDataSize( source.pDocument );
     return CY_TRUE;
 }
 
@@ -1576,8 +1487,13 @@ bool_t ResolveDocument(
     usize iDirectiveEnd = iDirectiveBegin;
     if ( !ScanDependencyDirectives(
              context,
-             RecordPath( source ),
+             source,
              text,
+             iDirectiveBegin,
+             iDirectiveEnd ) ||
+         !ExpandFolderIncludes(
+             context,
+             source,
              iDirectiveBegin,
              iDirectiveEnd ) ) {
         return CY_FALSE;
@@ -1597,7 +1513,12 @@ bool_t ResolveDocument(
     }
 
     usize nIncludeSeeds = 0u;
-    if ( !BuildIncludeSeeds(
+    if ( !CheckComposedSchemas(
+             context,
+             source,
+             iDirectiveBegin,
+             iDirectiveEnd ) ||
+         !BuildIncludeSeeds(
              context,
              source,
              iDirectiveBegin,
@@ -1606,13 +1527,40 @@ bool_t ResolveDocument(
         return CY_FALSE;
     }
 
+    // Parts and bases in directive order; the parser merges and fills them
+    // in, so #delete and += in this document can apply to base values.
+    const usize nDirectives = iDirectiveEnd - iDirectiveBegin;
+    const key_value_t **ppComposed = nDirectives != 0u
+        ? Allocator_AllocateArrayStorage<const key_value_t *>( context.pAllocator, nDirectives * 2u )
+        : nullptr;
+    if ( nDirectives != 0u && ppComposed == nullptr ) {
+        Fail( context, key_value_source_status_t::OUT_OF_MEMORY, RecordPath( source ) );
+        return CY_FALSE;
+    }
+    key_value_composition_t composition{};
+    composition.ppParts = ppComposed;
+    composition.ppBases = ppComposed != nullptr ? ppComposed + nDirectives : nullptr;
+    for ( usize iDirective = iDirectiveBegin; iDirective < iDirectiveEnd; ++iDirective ) {
+        const source_directive_t &directive = context.pDirectives[iDirective];
+        const key_value_t *pRoot = KeyValue_Root( directive.pResolvedDocument );
+        if ( directive.kind == key_value_dependency_kind_t::MERGE_INCLUDE ) {
+            ppComposed[composition.nParts++] = pRoot;
+        } else if ( directive.kind == key_value_dependency_kind_t::BASE ) {
+            ppComposed[nDirectives + composition.nBases++] = pRoot;
+        }
+    }
+
     char *pStripped = nullptr;
+    const auto releaseComposed = [&]() noexcept {
+        if ( ppComposed != nullptr ) { Allocator_FreeArrayStorage( context.pAllocator, ppComposed, nDirectives * 2u ); }
+    };
     if ( !BuildStrippedSource(
              context,
              text,
              iDirectiveBegin,
              iDirectiveEnd,
              pStripped ) ) {
+        releaseComposed();
         Fail(
             context,
             key_value_source_status_t::OUT_OF_MEMORY,
@@ -1626,8 +1574,10 @@ bool_t ResolveDocument(
             context.options.parseOptions,
             context.pIncludeSeeds,
             nIncludeSeeds,
+            &composition,
             source.pDocument,
             CY_FALSE );
+    releaseComposed();
     Allocator_Free(
         context.pAllocator,
         pStripped,
@@ -1635,6 +1585,23 @@ bool_t ResolveDocument(
         alignof( char ) );
     if ( parsed.status != key_value_parse_status_t::OK ) {
         context.result.parseResult = parsed;
+        // A conflict while merging a part or filling from a base names that
+        // directive; anything else is the document's own parse failure.
+        const bool_t bPart = parsed.status == key_value_parse_status_t::INCLUDE_CONFLICT && composition.iFailedPart != CY_USIZE_MAX;
+        const bool_t bBase = parsed.status == key_value_parse_status_t::MERGE_CONFLICT && composition.iFailedBase != CY_USIZE_MAX;
+        if ( bPart || bBase ) {
+            const usize iWanted = bPart ? composition.iFailedPart : composition.iFailedBase;
+            const key_value_dependency_kind_t kind = bPart ? key_value_dependency_kind_t::MERGE_INCLUDE : key_value_dependency_kind_t::BASE;
+            usize iSeen = 0u;
+            for ( usize iDirective = iDirectiveBegin; iDirective < iDirectiveEnd; ++iDirective ) {
+                const source_directive_t &directive = context.pDirectives[iDirective];
+                if ( directive.kind != kind || iSeen++ != iWanted ) { continue; }
+                Fail( context, bPart ? key_value_source_status_t::INCLUDE_CONFLICT : key_value_source_status_t::MERGE_CONFLICT,
+                      RecordPath( source ), directive.referencedPath, directive.location, kind );
+                break;
+            }
+            return CY_FALSE;
+        }
         Fail(
             context,
             key_value_source_status_t::PARSE_FAILED,
@@ -1644,14 +1611,6 @@ bool_t ResolveDocument(
         return CY_FALSE;
     }
     context.result.parseResult = parsed;
-
-    if ( !ApplyBases(
-             context,
-             source,
-             iDirectiveBegin,
-             iDirectiveEnd ) ) {
-        return CY_FALSE;
-    }
     source.state = source_record_state_t::RESOLVED;
     return CY_TRUE;
 }
@@ -1671,6 +1630,15 @@ void ShutdownContext( source_context_t &context ) noexcept
             context.options.nMaxSources );
     }
     if ( context.pDirectives != nullptr ) {
+        for ( usize iDirective = 0u; iDirective < context.nDirectives; ++iDirective ) {
+            source_directive_t &directive = context.pDirectives[iDirective];
+            if ( directive.pOwnedPath != nullptr ) {
+                Allocator_Free( context.pAllocator, directive.pOwnedPath, directive.cbOwnedPath, alignof( char ) );
+            }
+            if ( directive.pGroupDocument != nullptr ) {
+                KeyValue_DestroyDocument( directive.pGroupDocument );
+            }
+        }
         Allocator_FreeArrayStorage(
             context.pAllocator,
             context.pDirectives,
@@ -1799,6 +1767,7 @@ const char *KeyValue_SourceStatusName(
             return "DEPENDENCY_SINK_FAILED";
         case key_value_source_status_t::PARSE_FAILED: return "PARSE_FAILED";
         case key_value_source_status_t::OUT_OF_MEMORY: return "OUT_OF_MEMORY";
+        case key_value_source_status_t::INCLUDE_CONFLICT: return "INCLUDE_CONFLICT";
     }
     return "UNKNOWN_KEY_VALUE_SOURCE_STATUS";
 }

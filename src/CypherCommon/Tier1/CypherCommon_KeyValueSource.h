@@ -8,8 +8,16 @@
 //  Details: A caller-provided loader resolves #include and #base through its VFS.
 //           Parsing, dependency expansion, and base merging commit transactionally.
 //
+//           Three include forms: `#include "x" as name` imports a document
+//           behind a namespace; `#include "x"` merges a part into this
+//           document; a final path segment with `*` ("weapons/*.cydf") names
+//           every matching file in sorted order, which the optional list
+//           callback enumerates.
+//
 //  History:
 //  - Created by Karlo Siric on 2026-09-18
+//  - Extended on 2026-10-12 for merging and folder includes, and #delete /
+//    += in documents with #base (applied by the parser)
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -42,8 +50,9 @@ enum class key_value_source_open_status_t : u8 {
 };
 
 enum class key_value_dependency_kind_t : u8 {
-    INCLUDE = 0u, // Typed namespace import.
-    BASE           // Missing-value inheritance source.
+    INCLUDE = 0u,  // Typed namespace import.
+    BASE,          // Missing-value inheritance source.
+    MERGE_INCLUDE  // Part merged into the including document.
 };
 
 struct key_value_source_view_t {
@@ -63,6 +72,23 @@ using key_value_source_open_fn_t = key_value_source_open_status_t ( * )(
 
 using key_value_source_release_fn_t = void ( * )(
     const key_value_source_view_t *pSource,
+    void *pUserData ) noexcept;
+
+// Receives one file name of a listed folder; false stops the listing.
+using key_value_source_emit_fn_t = bool_t ( * )(
+    void *pEmitContext,
+    string_view_t fileName ) noexcept;
+
+// Lists the files of the folder a folder include names, relative to the
+// requesting source (referencedFolder is empty for the requesting source's
+// own folder). Pass every file name - not subfolders - to pfnEmit; the
+// resolver keeps the names the pattern matches and sorts them, so listing
+// order never changes the result.
+using key_value_source_list_fn_t = key_value_source_open_status_t ( * )(
+    string_view_t requestingSourcePath,
+    string_view_t referencedFolder,
+    key_value_source_emit_fn_t pfnEmit,
+    void *pEmitContext,
     void *pUserData ) noexcept;
 
 // Called once for every dependency edge, including repeated references to an
@@ -90,7 +116,8 @@ enum class key_value_source_status_t : u8 {
     MERGE_CONFLICT,       // Local/base values at one path have incompatible types.
     DEPENDENCY_SINK_FAILED, // Dependency reporting callback rejected an edge.
     PARSE_FAILED,         // One source failed ordinary CYKV parsing.
-    OUT_OF_MEMORY         // Scratch storage, a dependency document, or a merge allocation failed.
+    OUT_OF_MEMORY,        // Scratch storage, a dependency document, or a merge allocation failed.
+    INCLUDE_CONFLICT      // A merging #include supplies a member the document already defines.
 };
 
 struct key_value_source_options_t {
@@ -99,6 +126,7 @@ struct key_value_source_options_t {
     key_value_source_open_fn_t pfnOpen{ nullptr }; // Required dependency loader.
     key_value_source_release_fn_t pfnRelease{ nullptr }; // Required matching release.
     key_value_dependency_fn_t pfnDependency{ nullptr }; // Optional edge reporter.
+    key_value_source_list_fn_t pfnList{ nullptr }; // Required only for folder includes ("dir/*.cydf").
     void *pUserData{ nullptr }; // Shared callback state.
     usize nMaxDependencyDepth{ 16u }; // Maximum edge depth; hard ceiling is 64.
     usize nMaxSources{ 64u };         // Unique sources; hard ceiling is 1,024.
@@ -129,8 +157,13 @@ struct key_value_source_result_t {
 };
 
 // Dependency directives are available only in CYKV 2 and must appear after the
-// two-line header and before local #define declarations. #include requires an
-// explicit namespace: #include "path.cydf" as namespace. #base takes one path.
+// two-line header and before local #define declarations:
+//   #include "path.cydf" as name   import behind a namespace ($name.member)
+//   #include "path.cydf"           merge a part; colliding members are errors
+//   #include "dir/*.cydf" [as name] every matching file, sorted; with a
+//                                  namespace, an object keyed by file stem
+//   #base "path.cydf"              fill missing values; local values win
+// Parts and bases must have this document's exact schema identity.
 CYPHER_NODISCARD CYPHER_COMMON_API
 key_value_source_result_t KeyValue_ParseSource(
     string_view_t rootCanonicalPath,

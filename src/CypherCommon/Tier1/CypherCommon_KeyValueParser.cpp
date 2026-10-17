@@ -28,6 +28,8 @@ document.
 #include "CypherCommon_KeyValueParserInternal.h"
 
 #include "CypherCommon_Char.h"
+#include "CypherCommon_BuildConfig.h"
+#include "CypherCommon_Platform.h"
 #include "CypherCommon_KeyValueInternal.h"
 #include "CypherCommon_StringConvert.h"
 #include "CypherCommon_StringEscape.h"
@@ -45,7 +47,8 @@ constexpr flags32_t CY_KEY_VALUE_PARSE_VALID_FLAGS =
     KEY_VALUE_PARSE_FLAG_ALLOW_TRAILING_COMMA |
     KEY_VALUE_PARSE_FLAG_ALLOW_UNQUOTED_KEYS |
     KEY_VALUE_PARSE_FLAG_REJECT_DUPLICATE_KEYS |
-    KEY_VALUE_PARSE_FLAG_ALLOW_ROOT_VALUE; // Reject unknown option bits at the public boundary.
+    KEY_VALUE_PARSE_FLAG_ALLOW_ROOT_VALUE |
+    KEY_VALUE_PARSE_FLAG_KEEP_COMMENTS; // Reject unknown option bits at the public boundary.
 
 constexpr flags32_t CY_KEY_VALUE_ESCAPE_FLAGS =
     STRING_ESCAPE_FLAG_QUOTES |
@@ -59,6 +62,20 @@ struct decoded_text_t {
     char *pAllocation{ nullptr }; // Temporary allocator-owned decoding storage.
     usize cbAllocation{ 0u };     // Exact byte count needed when releasing storage.
 };
+
+// A CYKV 2 operator (#delete, +=) waiting for the inheritance it applies to.
+struct parse_op_t {
+    key_value_t *pNode{ nullptr };   // The member carrying the operator; its parseMark says which.
+    text_location_t location{};      // Where it was written, for an unapplied-operator error.
+};
+
+enum parse_mark_t : u8 {
+    PARSE_MARK_DELETE = 1u,  // `key = #delete`: drop the inherited member.
+    PARSE_MARK_APPEND = 2u,  // `key += [...]`: inherited elements first, then these.
+    PARSE_MARK_APPLIED = 4u  // An inheritance source supplied what the operator needs.
+};
+
+constexpr usize kMaxExtends = 16u; // #extends lines per object.
 
 struct parser_t {
     lexer_t lexer{};                       // Lexer and source cursor owned by this parse.
@@ -75,6 +92,12 @@ struct parser_t {
     bool_t bStrictJson{ CY_FALSE };         // Selects JSON grammar instead of CYKV grammar.
     bool_t bAtEnd{ CY_FALSE };              // Lexer has emitted its terminal state.
     bool_t bHasToken{ CY_FALSE };           // token contains a current lexical item.
+    key_value_document_t *pScratch{ nullptr }; // Receives skipped @when branches; emptied after each.
+    const key_value_build_context_t *pBuildContext{ nullptr }; // What @when conditions read.
+    usize nInheritanceDepth{ 0u };         // > 0 inside an #extends object or a document with #base.
+    parse_op_t *pOps{ nullptr };           // Operators awaiting inheritance, in source order.
+    usize nOps{ 0u };
+    usize nOpsCapacity{ 0u };
 };
 
 CYPHER_NODISCARD bool_t HasFlag(
@@ -833,15 +856,23 @@ CYPHER_NODISCARD bool_t CheckLimits( parser_t &parser ) noexcept
     const usize cbDefinitionData = parser.pDefinitions != nullptr
         ? KeyValue_InternalDataSize( parser.pDefinitions )
         : 0u;
+    // A skipped @when branch is parsed in full before it is dropped, so it
+    // counts while it is live.
+    const usize nScratchNodes = parser.pScratch != nullptr
+        ? KeyValue_InternalNodeCount( parser.pScratch ) - 1u
+        : 0u;
+    const usize cbScratchData = parser.pScratch != nullptr
+        ? KeyValue_InternalDataSize( parser.pScratch )
+        : 0u;
 
-    const bool_t bNodeOverflow = nOutputNodes > CY_USIZE_MAX - nDefinitionNodes;
-    const bool_t bDataOverflow = cbOutputData > CY_USIZE_MAX - cbDefinitionData;
+    const bool_t bNodeOverflow = nOutputNodes > CY_USIZE_MAX - nDefinitionNodes - nScratchNodes;
+    const bool_t bDataOverflow = cbOutputData > CY_USIZE_MAX - cbDefinitionData - cbScratchData;
     parser.result.nNodesParsed = bNodeOverflow
         ? CY_USIZE_MAX
-        : nOutputNodes + nDefinitionNodes;
+        : nOutputNodes + nDefinitionNodes + nScratchNodes;
     parser.result.cbStringData = bDataOverflow
         ? CY_USIZE_MAX
-        : cbOutputData + cbDefinitionData;
+        : cbOutputData + cbDefinitionData + cbScratchData;
     if ( bNodeOverflow || parser.result.nNodesParsed > parser.options.nMaxNodes ) {
         FailCurrent( parser, key_value_parse_status_t::NODE_LIMIT );
         return CY_FALSE;
@@ -1002,22 +1033,13 @@ CYPHER_NODISCARD bool_t CopyDefinitionValue(
     return CheckLimits( parser );
 }
 
-CYPHER_NODISCARD bool_t ParseDefinitionReference(
-    parser_t &parser,
-    key_value_t *pValue,
-    usize nDepth ) noexcept
+// The value a `$name.member...` path names: a definition or include alias,
+// then object members. Null when any segment is missing, or names the
+// definition still being declared.
+CYPHER_NODISCARD const key_value_t *LookupDefinition(
+    const parser_t &parser,
+    string_view_t path ) noexcept
 {
-    // '$' is deliberately meaningful only in value position and only in CYKV 2.
-    if ( !Advance( parser ) || HasTriviaBeforeCurrent( parser ) ||
-         parser.token.kind != token_kind_t::IDENTIFIER ||
-         !IsDefinitionPath( parser.token.lexeme ) ) {
-        if ( parser.result.status == key_value_parse_status_t::OK ) {
-            FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
-        }
-        return CY_FALSE;
-    }
-
-    const string_view_t path = parser.token.lexeme;
     usize iSegmentEnd = 0u;
     while ( iSegmentEnd < path.cchLength &&
             path.pData[iSegmentEnd] != '.' ) {
@@ -1052,6 +1074,25 @@ CYPHER_NODISCARD bool_t ParseDefinitionReference(
             ? iSegmentEnd + 1u
             : path.cchLength;
     }
+    return pDefinition;
+}
+
+CYPHER_NODISCARD bool_t ParseDefinitionReference(
+    parser_t &parser,
+    key_value_t *pValue,
+    usize nDepth ) noexcept
+{
+    // '$' is deliberately meaningful only in value position and only in CYKV 2.
+    if ( !Advance( parser ) || HasTriviaBeforeCurrent( parser ) ||
+         parser.token.kind != token_kind_t::IDENTIFIER ||
+         !IsDefinitionPath( parser.token.lexeme ) ) {
+        if ( parser.result.status == key_value_parse_status_t::OK ) {
+            FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+        }
+        return CY_FALSE;
+    }
+
+    const key_value_t *pDefinition = LookupDefinition( parser, parser.token.lexeme );
     if ( pDefinition == nullptr ) {
         FailCurrent(
             parser,
@@ -1138,94 +1179,720 @@ CYPHER_NODISCARD bool_t ParseValue(
     key_value_t *pValue,
     usize nDepth ) noexcept;
 
-CYPHER_NODISCARD bool_t ParseObject(
+// ---------------------------------------------------------------------------
+// Kept comments (KEY_VALUE_PARSE_FLAG_KEEP_COMMENTS)
+// ---------------------------------------------------------------------------
+
+CYPHER_NODISCARD bool_t KeepsComments( const parser_t &parser ) noexcept
+{
+    return !parser.bStrictJson && HasFlag( parser, KEY_VALUE_PARSE_FLAG_KEEP_COMMENTS ) &&
+           HasFlag( parser, KEY_VALUE_PARSE_FLAG_ALLOW_COMMENTS );
+}
+
+// The comments in the source between two tokens. Those before the first
+// line break end the line of what came before (trailing); whole lines after
+// it belong to what follows (leading), joined with '\n'.
+struct gap_comments_t {
+    string_view_t trailing{};
+    char *pLeading{ nullptr };
+    usize cchLeading{ 0u };
+    usize cbCapacity{ 0u };
+    const allocator_t *pAllocator{ nullptr };
+
+    ~gap_comments_t() noexcept
+    {
+        if ( pLeading != nullptr ) { Allocator_Free( pAllocator, pLeading, cbCapacity, alignof( char ) ); }
+    }
+
+    CYPHER_NODISCARD string_view_t Leading() const noexcept { return { pLeading != nullptr ? pLeading : "", cchLeading }; }
+
+    CYPHER_NODISCARD bool_t AppendLeading( string_view_t text ) noexcept
+    {
+        const usize cchNeeded = cchLeading + ( cchLeading != 0u ? 1u : 0u ) + text.cchLength;
+        if ( cchNeeded > cbCapacity ) {
+            usize cbGrown = cbCapacity == 0u ? 128u : cbCapacity * 2u;
+            while ( cbGrown < cchNeeded ) { cbGrown *= 2u; }
+            char *pGrown = static_cast<char *>( Allocator_Allocate( pAllocator, cbGrown, alignof( char ) ) );
+            if ( pGrown == nullptr ) { return CY_FALSE; }
+            if ( cchLeading != 0u ) { Cy_MemCopy( pGrown, pLeading, cchLeading ); }
+            if ( pLeading != nullptr ) { Allocator_Free( pAllocator, pLeading, cbCapacity, alignof( char ) ); }
+            pLeading = pGrown;
+            cbCapacity = cbGrown;
+        }
+        if ( cchLeading != 0u ) { pLeading[cchLeading++] = '\n'; }
+        Cy_MemCopy( pLeading + cchLeading, text.pData, text.cchLength );
+        cchLeading += text.cchLength;
+        return CY_TRUE;
+    }
+};
+
+CYPHER_NODISCARD bool_t CollectGapComments(
+    parser_t &parser,
+    usize iBegin,
+    usize iEnd,
+    gap_comments_t &out ) noexcept
+{
+    out.pAllocator = parser.pOutputDocument->pAllocator;
+    const char *pText = parser.lexer.source.pData;
+    // After an opening bracket nothing came before on this line to own a
+    // comment, so every comment leads what follows.
+    bool_t bNewline = iBegin != 0u && ( pText[iBegin - 1u] == '{' || pText[iBegin - 1u] == '[' || pText[iBegin - 1u] == '\n' );
+    for ( usize i = iBegin; i < iEnd; ) {
+        if ( pText[i] == '\n' ) {
+            bNewline = CY_TRUE;
+            ++i;
+            continue;
+        }
+        if ( pText[i] != '/' || i + 1u >= iEnd || ( pText[i + 1u] != '/' && pText[i + 1u] != '*' ) ) {
+            ++i;
+            continue;
+        }
+        usize j = i + 2u;
+        if ( pText[i + 1u] == '/' ) {
+            while ( j < iEnd && pText[j] != '\n' ) { ++j; }
+        } else {
+            usize nDepth = 1u;
+            while ( j < iEnd && nDepth != 0u ) {
+                if ( pText[j] == '/' && j + 1u < iEnd && pText[j + 1u] == '*' ) { ++nDepth; j += 2u; continue; }
+                if ( pText[j] == '*' && j + 1u < iEnd && pText[j + 1u] == '/' ) { --nDepth; j += 2u; continue; }
+                ++j;
+            }
+        }
+        usize jEnd = j;
+        while ( jEnd > i && ( pText[jEnd - 1u] == ' ' || pText[jEnd - 1u] == '\t' || pText[jEnd - 1u] == '\r' ) ) { --jEnd; }
+        const string_view_t comment{ pText + i, jEnd - i };
+        if ( !bNewline ) {
+            // Two comments on one line stay one trailing comment.
+            out.trailing = out.trailing.cchLength == 0u ? comment : string_view_t{ out.trailing.pData, static_cast<usize>( comment.pData + comment.cchLength - out.trailing.pData ) };
+        } else if ( !out.AppendLeading( comment ) ) {
+            FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+            return CY_FALSE;
+        }
+        i = j;
+    }
+    return CY_TRUE;
+}
+
+// Adds to a value's kept comments; empty parts leave what is there.
+CYPHER_NODISCARD bool_t AddComments(
+    parser_t &parser,
+    key_value_t *pValue,
+    string_view_t leading,
+    string_view_t trailing,
+    string_view_t inner ) noexcept
+{
+    if ( pValue == nullptr || ( leading.cchLength == 0u && trailing.cchLength == 0u && inner.cchLength == 0u ) ) {
+        return CY_TRUE;
+    }
+    key_value_comments_t comments = KeyValue_Comments( pValue );
+    if ( leading.cchLength != 0u ) { comments.leading = leading; }
+    if ( trailing.cchLength != 0u ) { comments.trailing = trailing; }
+    if ( inner.cchLength != 0u ) { comments.inner = inner; }
+    if ( !KeyValue_SetComments( pValue->pDocument, pValue, comments ) ) {
+        FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+        return CY_FALSE;
+    }
+    return CheckLimits( parser );
+}
+
+// Comments before the next item of a container: the end of the previous
+// item's line goes to that item; the lines after lead the next one, which
+// the caller attaches once it exists.
+CYPHER_NODISCARD bool_t TakeCommentsBeforeItem(
+    parser_t &parser,
+    key_value_t *pContainer,
+    gap_comments_t &gap ) noexcept
+{
+    if ( !KeepsComments( parser ) || parser.bAtEnd ) { return CY_TRUE; }
+    if ( !CollectGapComments( parser, parser.iPreviousTokenEnd, parser.token.range.begin.iByte, gap ) ) { return CY_FALSE; }
+    return AddComments( parser, pContainer->pLastChild, {}, gap.trailing, {} );
+}
+
+// Comments before a closing bracket: the last item's line end, then lines
+// kept inside the container.
+CYPHER_NODISCARD bool_t TakeCommentsBeforeClose(
+    parser_t &parser,
+    key_value_t *pContainer ) noexcept
+{
+    if ( !KeepsComments( parser ) || parser.bAtEnd ) { return CY_TRUE; }
+    gap_comments_t gap{};
+    if ( !CollectGapComments( parser, parser.iPreviousTokenEnd, parser.token.range.begin.iByte, gap ) ) { return CY_FALSE; }
+    return AddComments( parser, pContainer->pLastChild, {}, gap.trailing, {} ) &&
+           AddComments( parser, pContainer, {}, {}, gap.Leading() );
+}
+
+CYPHER_NODISCARD bool_t ParseObjectMembers(
+    parser_t &parser,
+    key_value_t *pObject,
+    usize nDepth ) noexcept;
+
+// ---------------------------------------------------------------------------
+// CYKV 2 operators and inheritance (#extends, #base, #delete, +=)
+// ---------------------------------------------------------------------------
+
+CYPHER_NODISCARD bool_t PushOperator(
+    parser_t &parser,
+    key_value_t *pNode,
+    text_location_t location ) noexcept
+{
+    if ( parser.nOps == parser.nOpsCapacity ) {
+        const allocator_t *pAllocator = parser.pOutputDocument->pAllocator;
+        const usize nCapacity = parser.nOpsCapacity == 0u ? 16u : parser.nOpsCapacity * 2u;
+        parse_op_t *pGrown = Allocator_AllocateArrayStorage<parse_op_t>( pAllocator, nCapacity );
+        if ( pGrown == nullptr ) {
+            Fail( parser, key_value_parse_status_t::OUT_OF_MEMORY, location );
+            return CY_FALSE;
+        }
+        for ( usize i = 0u; i < parser.nOps; ++i ) { pGrown[i] = parser.pOps[i]; }
+        if ( parser.pOps != nullptr ) {
+            Allocator_FreeArrayStorage( pAllocator, parser.pOps, parser.nOpsCapacity );
+        }
+        parser.pOps = pGrown;
+        parser.nOpsCapacity = nCapacity;
+    }
+    parser.pOps[parser.nOps++] = { pNode, location };
+    return CY_TRUE;
+}
+
+// Copies source's elements in front of the array's own: inherited first,
+// then the ones written with +=.
+CYPHER_NODISCARD bool_t PrependCopies(
+    parser_t &parser,
+    key_value_t *pArray,
+    const key_value_t *pSource,
+    usize nDepth ) noexcept
+{
+    key_value_t *pOldFirst = pArray->pFirstChild;
+    key_value_t *pOldLast = pArray->pLastChild;
+    for ( const key_value_t *pFrom = pSource->pFirstChild; pFrom != nullptr; pFrom = pFrom->pNext ) {
+        if ( pArray->nChildren >= parser.options.nMaxContainerValues ) {
+            FailCurrent( parser, key_value_parse_status_t::CONTAINER_LIMIT );
+            return CY_FALSE;
+        }
+        if ( !CanAllocateNode( parser ) ) { return CY_FALSE; }
+        key_value_t *pCopy = KeyValue_ArrayAppend( parser.pDocument, pArray, key_value_type_t::NULL_VALUE );
+        if ( pCopy == nullptr ) {
+            FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+            return CY_FALSE;
+        }
+        if ( !CopyDefinitionValue( parser, pCopy, pFrom, nDepth ) ) { return CY_FALSE; }
+    }
+    if ( pOldFirst != nullptr && pOldLast->pNext != nullptr ) {
+        key_value_t *pNewFirst = pOldLast->pNext;
+        key_value_t *pNewLast = pArray->pLastChild;
+        pOldLast->pNext = nullptr;
+        pArray->pLastChild = pOldLast;
+        pNewFirst->pPrevious = nullptr;
+        pNewLast->pNext = pOldFirst;
+        pOldFirst->pPrevious = pNewLast;
+        pArray->pFirstChild = pNewFirst;
+    }
+    return CY_TRUE;
+}
+
+// Fills members the local object lacks from an inherited object: local
+// values win, objects merge member by member, arrays and scalars are whole
+// values, and two different kinds at one path are an error. A member marked
+// #delete keeps the inherited one out; one marked += receives the inherited
+// elements in front of its own. Shared by #extends and #base.
+CYPHER_NODISCARD bool_t FillMissing(
+    parser_t &parser,
+    key_value_t *pLocal,
+    const key_value_t *pInherited,
+    usize nDepth ) noexcept
+{
+    for ( const key_value_t *pFrom = pInherited->pFirstChild; pFrom != nullptr; pFrom = pFrom->pNext ) {
+        const string_view_t name{ pFrom->pName, pFrom->cchName };
+        key_value_t *pLocalChild = KeyValue_Find( pLocal, name );
+        if ( pLocalChild == nullptr ) {
+            if ( pLocal->nChildren >= parser.options.nMaxContainerValues ) {
+                FailCurrent( parser, key_value_parse_status_t::CONTAINER_LIMIT );
+                return CY_FALSE;
+            }
+            if ( !CanAllocateNode( parser ) ) { return CY_FALSE; }
+            key_value_t *pCopy = KeyValue_ObjectInsert( parser.pDocument, pLocal, name, key_value_type_t::NULL_VALUE );
+            if ( pCopy == nullptr ) {
+                FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+                return CY_FALSE;
+            }
+            if ( !CopyDefinitionValue( parser, pCopy, pFrom, nDepth + 1u ) ) { return CY_FALSE; }
+            continue;
+        }
+        if ( ( pLocalChild->parseMark & PARSE_MARK_DELETE ) != 0u ) {
+            pLocalChild->parseMark |= PARSE_MARK_APPLIED;
+            continue;
+        }
+        if ( ( pLocalChild->parseMark & PARSE_MARK_APPEND ) != 0u ) {
+            if ( ( pLocalChild->parseMark & PARSE_MARK_APPLIED ) != 0u ) { continue; } // An earlier source supplied it.
+            if ( pFrom->type != key_value_type_t::ARRAY ) {
+                FailCurrent( parser, key_value_parse_status_t::APPEND_TYPE_MISMATCH );
+                return CY_FALSE;
+            }
+            if ( !PrependCopies( parser, pLocalChild, pFrom, nDepth + 2u ) ) { return CY_FALSE; }
+            pLocalChild->parseMark |= PARSE_MARK_APPLIED;
+            continue;
+        }
+        if ( pLocalChild->type != pFrom->type ) {
+            FailCurrent( parser, key_value_parse_status_t::MERGE_CONFLICT );
+            return CY_FALSE;
+        }
+        if ( pFrom->type == key_value_type_t::OBJECT &&
+             !FillMissing( parser, pLocalChild, pFrom, nDepth + 1u ) ) {
+            return CY_FALSE;
+        }
+    }
+    return CY_TRUE;
+}
+
+// Merges a part (a merging #include) into the local object: the part's
+// members are added, objects present on both sides merge member by member,
+// and any other member both define is an error - parts of one document never
+// silently override each other.
+CYPHER_NODISCARD bool_t MergePart(
+    parser_t &parser,
+    key_value_t *pLocal,
+    const key_value_t *pPart,
+    usize nDepth ) noexcept
+{
+    for ( const key_value_t *pFrom = pPart->pFirstChild; pFrom != nullptr; pFrom = pFrom->pNext ) {
+        const string_view_t name{ pFrom->pName, pFrom->cchName };
+        key_value_t *pLocalChild = KeyValue_Find( pLocal, name );
+        if ( pLocalChild == nullptr ) {
+            if ( pLocal->nChildren >= parser.options.nMaxContainerValues ) {
+                FailCurrent( parser, key_value_parse_status_t::CONTAINER_LIMIT );
+                return CY_FALSE;
+            }
+            if ( !CanAllocateNode( parser ) ) { return CY_FALSE; }
+            key_value_t *pCopy = KeyValue_ObjectInsert( parser.pDocument, pLocal, name, key_value_type_t::NULL_VALUE );
+            if ( pCopy == nullptr ) {
+                FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+                return CY_FALSE;
+            }
+            if ( !CopyDefinitionValue( parser, pCopy, pFrom, nDepth + 1u ) ) { return CY_FALSE; }
+            continue;
+        }
+        if ( pLocalChild->type != key_value_type_t::OBJECT || pFrom->type != key_value_type_t::OBJECT ||
+             pLocalChild->parseMark != 0u ) {
+            FailCurrent( parser, key_value_parse_status_t::INCLUDE_CONFLICT );
+            return CY_FALSE;
+        }
+        if ( !MergePart( parser, pLocalChild, pFrom, nDepth + 1u ) ) { return CY_FALSE; }
+    }
+    return CY_TRUE;
+}
+
+// Every operator written since iFirstOp must have found its inherited value.
+// Leaving the outermost inheritance, #delete members are removed - not
+// earlier, or a later source would supply the value again - and marks are
+// cleared so no published node carries one.
+CYPHER_NODISCARD bool_t SettleOperators(
+    parser_t &parser,
+    usize iFirstOp ) noexcept
+{
+    for ( usize i = iFirstOp; i < parser.nOps; ++i ) {
+        const parse_op_t &op = parser.pOps[i];
+        if ( ( op.pNode->parseMark & PARSE_MARK_APPLIED ) == 0u ) {
+            Fail( parser, key_value_parse_status_t::INHERITED_VALUE_MISSING, op.location );
+            return CY_FALSE;
+        }
+    }
+    if ( parser.nInheritanceDepth != 0u ) { return CY_TRUE; }
+    for ( usize i = iFirstOp; i < parser.nOps; ++i ) {
+        key_value_t *pNode = parser.pOps[i].pNode;
+        if ( ( pNode->parseMark & PARSE_MARK_DELETE ) != 0u ) {
+            if ( !KeyValue_Remove( pNode->pDocument, pNode->pParent, pNode ) ) {
+                FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+                return CY_FALSE;
+            }
+            continue;
+        }
+        pNode->parseMark = 0u;
+    }
+    parser.nOps = iFirstOp;
+    return CY_TRUE;
+}
+
+// `#extends $template` at the top of an object: the template must be an
+// object definition or an imported object.
+CYPHER_NODISCARD bool_t ParseExtends(
+    parser_t &parser,
+    const key_value_t **ppExtends,
+    usize &nExtends ) noexcept
+{
+    if ( !Advance( parser ) || HasTriviaBeforeCurrent( parser ) || !TokenEqualsIdentifier( parser, "extends" ) ||
+         !Advance( parser ) || !HasHorizontalSpaceBeforeCurrent( parser ) || !IsPunctuation( parser, '$' ) ||
+         !Advance( parser ) || HasTriviaBeforeCurrent( parser ) || parser.token.kind != token_kind_t::IDENTIFIER ||
+         !IsDefinitionPath( parser.token.lexeme ) ) {
+        if ( parser.result.status == key_value_parse_status_t::OK ) {
+            FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+        }
+        return CY_FALSE;
+    }
+    const key_value_t *pTemplate = LookupDefinition( parser, parser.token.lexeme );
+    if ( pTemplate == nullptr ) {
+        FailCurrent( parser, key_value_parse_status_t::UNDEFINED_DEFINITION );
+        return CY_FALSE;
+    }
+    if ( pTemplate->type != key_value_type_t::OBJECT ) {
+        FailCurrent( parser, key_value_parse_status_t::MERGE_CONFLICT );
+        return CY_FALSE;
+    }
+    if ( nExtends == kMaxExtends ) {
+        FailCurrent( parser, key_value_parse_status_t::DEFINITION_LIMIT );
+        return CY_FALSE;
+    }
+    ppExtends[nExtends++] = pTemplate;
+    return Advance( parser );
+}
+
+// ---------------------------------------------------------------------------
+// CYKV 2 @when build conditionals
+// ---------------------------------------------------------------------------
+
+CYPHER_NODISCARD bool_t IsConditionKeyword( const parser_t &parser ) noexcept
+{
+    return TokenEqualsIdentifier( parser, "and" ) || TokenEqualsIdentifier( parser, "or" ) ||
+           TokenEqualsIdentifier( parser, "not" ) || TokenEqualsIdentifier( parser, "true" ) ||
+           TokenEqualsIdentifier( parser, "false" );
+}
+
+CYPHER_NODISCARD bool_t ParseConditionOr( parser_t &parser, bool_t &bValue ) noexcept;
+
+CYPHER_NODISCARD bool_t ParseConditionPrimary( parser_t &parser, bool_t &bValue ) noexcept
+{
+    if ( IsPunctuation( parser, '(' ) ) {
+        if ( !Advance( parser ) || !ParseConditionOr( parser, bValue ) ) { return CY_FALSE; }
+        if ( !IsPunctuation( parser, ')' ) ) {
+            FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+            return CY_FALSE;
+        }
+        return Advance( parser );
+    }
+    if ( parser.bAtEnd || parser.token.kind != token_kind_t::IDENTIFIER || IsConditionKeyword( parser ) ) {
+        FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+        return CY_FALSE;
+    }
+    // Every property is looked up, in branches already decided too, so a
+    // misspelt name is found on the first parse rather than on the target it
+    // was meant for.
+    const key_value_build_property_t *pProperty = nullptr;
+    for ( usize i = 0u; i < parser.pBuildContext->nProperties && pProperty == nullptr; ++i ) {
+        if ( StringView_Equals( parser.pBuildContext->pProperties[i].name, parser.token.lexeme ) ) {
+            pProperty = &parser.pBuildContext->pProperties[i];
+        }
+    }
+    if ( pProperty == nullptr ) {
+        FailCurrent( parser, key_value_parse_status_t::UNKNOWN_CONDITION_PROPERTY );
+        return CY_FALSE;
+    }
+    if ( !Advance( parser ) ) { return CY_FALSE; }
+    const bool_t bEqual = IsPunctuation( parser, '=' );
+    const bool_t bNotEqual = IsPunctuation( parser, '!' );
+    if ( !bEqual && !bNotEqual ) {
+        if ( pProperty->kind != key_value_build_value_kind_t::BOOL ) {
+            FailCurrent( parser, key_value_parse_status_t::CONDITION_TYPE_MISMATCH );
+            return CY_FALSE;
+        }
+        bValue = pProperty->bValue;
+        return CY_TRUE;
+    }
+    if ( !Advance( parser ) || HasTriviaBeforeCurrent( parser ) || !IsPunctuation( parser, '=' ) || !Advance( parser ) ) {
+        if ( parser.result.status == key_value_parse_status_t::OK ) {
+            FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+        }
+        return CY_FALSE;
+    }
+    bool_t bMatch = CY_FALSE;
+    if ( parser.token.kind == token_kind_t::STRING ) {
+        if ( pProperty->kind != key_value_build_value_kind_t::STRING ) {
+            FailCurrent( parser, key_value_parse_status_t::CONDITION_TYPE_MISMATCH );
+            return CY_FALSE;
+        }
+        decoded_text_t decoded{};
+        if ( !DecodeTokenText( parser, parser.token, decoded ) ) {
+            if ( parser.result.status == key_value_parse_status_t::OK ) {
+                FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+            }
+            return CY_FALSE;
+        }
+        bMatch = StringView_Equals( decoded.text, pProperty->text );
+        ReleaseDecoded( parser, decoded );
+    } else if ( parser.token.kind == token_kind_t::INTEGER ) {
+        i64 value = 0;
+        string_parse_options_t options{};
+        options.flags = STRING_PARSE_FLAG_ALLOW_PLUS_SIGN;
+        if ( pProperty->kind != key_value_build_value_kind_t::INTEGER ) {
+            FailCurrent( parser, key_value_parse_status_t::CONDITION_TYPE_MISMATCH );
+            return CY_FALSE;
+        }
+        if ( !StringParse_Succeeded( StringParse_I64( parser.token.lexeme, options, &value ) ) ) {
+            FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+            return CY_FALSE;
+        }
+        bMatch = value == pProperty->iValue;
+    } else if ( TokenEqualsIdentifier( parser, "true" ) || TokenEqualsIdentifier( parser, "false" ) ) {
+        if ( pProperty->kind != key_value_build_value_kind_t::BOOL ) {
+            FailCurrent( parser, key_value_parse_status_t::CONDITION_TYPE_MISMATCH );
+            return CY_FALSE;
+        }
+        bMatch = TokenEqualsIdentifier( parser, "true" ) == ( pProperty->bValue != CY_FALSE );
+    } else {
+        FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+        return CY_FALSE;
+    }
+    bValue = bEqual ? bMatch : !bMatch;
+    return Advance( parser );
+}
+
+CYPHER_NODISCARD bool_t ParseConditionNot( parser_t &parser, bool_t &bValue ) noexcept
+{
+    if ( !TokenEqualsIdentifier( parser, "not" ) ) { return ParseConditionPrimary( parser, bValue ); }
+    if ( !Advance( parser ) || !ParseConditionNot( parser, bValue ) ) { return CY_FALSE; }
+    bValue = !bValue;
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD bool_t ParseConditionAnd( parser_t &parser, bool_t &bValue ) noexcept
+{
+    if ( !ParseConditionNot( parser, bValue ) ) { return CY_FALSE; }
+    while ( TokenEqualsIdentifier( parser, "and" ) ) {
+        bool_t bRight = CY_FALSE;
+        if ( !Advance( parser ) || !ParseConditionNot( parser, bRight ) ) { return CY_FALSE; }
+        bValue = bValue && bRight;
+    }
+    return CY_TRUE;
+}
+
+bool_t ParseConditionOr( parser_t &parser, bool_t &bValue ) noexcept
+{
+    if ( !ParseConditionAnd( parser, bValue ) ) { return CY_FALSE; }
+    while ( TokenEqualsIdentifier( parser, "or" ) ) {
+        bool_t bRight = CY_FALSE;
+        if ( !Advance( parser ) || !ParseConditionAnd( parser, bRight ) ) { return CY_FALSE; }
+        bValue = bValue || bRight;
+    }
+    return CY_TRUE;
+}
+
+// A branch not taken is still parsed in full - so an error in it is found
+// on every target - into scratch storage that is dropped afterwards.
+CYPHER_NODISCARD bool_t ParseSkippedMembers(
+    parser_t &parser,
+    usize nDepth ) noexcept
+{
+    if ( parser.pScratch == nullptr ) {
+        const key_value_document_t *pOutput = parser.pOutputDocument;
+        parser.pScratch = KeyValue_CreateDocument( { pOutput->pAllocator, pOutput->nInitialNodes, pOutput->cbInitialData, CY_FALSE } );
+        if ( parser.pScratch == nullptr || !KeyValue_SetRootType( parser.pScratch, key_value_type_t::ARRAY ) ) {
+            FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+            return CY_FALSE;
+        }
+    }
+    if ( !CanAllocateNode( parser ) ) { return CY_FALSE; }
+    key_value_t *pScratchRoot = KeyValue_Root( parser.pScratch );
+    key_value_t *pBlock = KeyValue_ArrayAppend( parser.pScratch, pScratchRoot, key_value_type_t::OBJECT );
+    if ( pBlock == nullptr ) {
+        FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+        return CY_FALSE;
+    }
+    key_value_document_t *pPrevious = parser.pDocument;
+    const usize iFirstOp = parser.nOps;
+    parser.pDocument = parser.pScratch;
+    const bool_t bParsed = ParseObjectMembers( parser, pBlock, nDepth );
+    parser.pDocument = pPrevious;
+    parser.nOps = iFirstOp; // Operators in a dropped branch apply to nothing.
+    const bool_t bRemoved = KeyValue_Remove( parser.pScratch, pScratchRoot, pBlock );
+    return bParsed && bRemoved;
+}
+
+// `@when <condition> { ... } @else_when <condition> { ... } @else { ... }`
+// in an object: the members of the first branch whose condition holds become
+// members of the object. Chains may follow one another.
+CYPHER_NODISCARD bool_t ParseConditional(
     parser_t &parser,
     key_value_t *pObject,
     usize nDepth ) noexcept
 {
-    if ( nDepth > parser.options.nMaxDepth ) {
-        FailCurrent( parser, key_value_parse_status_t::DEPTH_LIMIT );
+    if ( !Advance( parser ) || HasTriviaBeforeCurrent( parser ) || !TokenEqualsIdentifier( parser, "when" ) ) {
+        if ( parser.result.status == key_value_parse_status_t::OK ) {
+            FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+        }
         return CY_FALSE;
     }
-    if ( !KeyValue_SetContainerType(
-             parser.pDocument,
-             pObject,
-             key_value_type_t::OBJECT ) || !Advance( parser ) ) {
-        if ( parser.result.status == key_value_parse_status_t::OK )
-            FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
-        return CY_FALSE;
-    }
-    if ( IsPunctuation( parser, '}' ) ) {
-        return Advance( parser );
-    }
-
-    // Each pass consumes one name/value pair and leaves token at '}' or the next name.
-    while ( !parser.bAtEnd ) {
-        decoded_text_t decodedName{};
-        string_view_t name{};
-        if ( parser.token.kind == token_kind_t::STRING ) {
-            if ( !DecodeTokenText( parser, parser.token, decodedName ) ) {
-                if ( parser.result.status == key_value_parse_status_t::OK )
-                    FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
-                return CY_FALSE;
-            }
-            name = decodedName.text;
-        } else if ( !parser.bStrictJson &&
-                    HasFlag( parser, KEY_VALUE_PARSE_FLAG_ALLOW_UNQUOTED_KEYS ) &&
-                    parser.token.kind == token_kind_t::IDENTIFIER ) {
-            name = parser.token.lexeme;
-        } else {
+    bool_t bTaken = CY_FALSE;
+    bool_t bFinal = CY_FALSE;
+    for ( ;; ) {
+        bool_t bCondition = CY_TRUE;
+        if ( !Advance( parser ) ) { return CY_FALSE; }
+        if ( !bFinal && !ParseConditionOr( parser, bCondition ) ) { return CY_FALSE; }
+        if ( !IsPunctuation( parser, '{' ) ) {
             FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
             return CY_FALSE;
         }
-
-        // Duplicate rejection happens before insertion so the object remains unchanged.
-        if ( ( !parser.bStrictJson ||
-               HasFlag(
-                   parser,
-                   KEY_VALUE_PARSE_FLAG_REJECT_DUPLICATE_KEYS ) ) &&
-             KeyValue_Find( pObject, name ) != nullptr ) {
-            ReleaseDecoded( parser, decodedName );
-            FailCurrent( parser, key_value_parse_status_t::DUPLICATE_KEY );
+        if ( !Advance( parser ) ) { return CY_FALSE; }
+        const bool_t bTake = !bTaken && bCondition;
+        if ( !( bTake ? ParseObjectMembers( parser, pObject, nDepth ) : ParseSkippedMembers( parser, nDepth ) ) ) {
             return CY_FALSE;
         }
-        if ( !Advance( parser ) ||
-             !IsPunctuation( parser, parser.bStrictJson ? ':' : '=' ) ) {
+        bTaken = bTaken || bTake;
+        if ( bFinal || !IsPunctuation( parser, '@' ) ) { return CY_TRUE; }
+        if ( !Advance( parser ) || HasTriviaBeforeCurrent( parser ) ) {
+            if ( parser.result.status == key_value_parse_status_t::OK ) {
+                FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+            }
+            return CY_FALSE;
+        }
+        if ( TokenEqualsIdentifier( parser, "when" ) ) {
+            bTaken = CY_FALSE; // A new chain starts.
+        } else if ( TokenEqualsIdentifier( parser, "else" ) ) {
+            bFinal = CY_TRUE;
+        } else if ( !TokenEqualsIdentifier( parser, "else_when" ) ) {
+            FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+            return CY_FALSE;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Objects
+// ---------------------------------------------------------------------------
+
+// One `name = value` (or, in CYKV 2, `name += [...]` / `name = #delete`).
+CYPHER_NODISCARD bool_t ParseObjectMember(
+    parser_t &parser,
+    key_value_t *pObject,
+    usize nDepth ) noexcept
+{
+    const bool_t bCykv2 = !parser.bStrictJson && parser.nLanguageVersion == CYKV_LANGUAGE_VERSION_2;
+    gap_comments_t gap{};
+    if ( !TakeCommentsBeforeItem( parser, pObject, gap ) ) {
+        return CY_FALSE;
+    }
+    decoded_text_t decodedName{};
+    string_view_t name{};
+    const text_location_t memberLocation = parser.token.range.begin;
+    if ( parser.token.kind == token_kind_t::STRING ) {
+        if ( !DecodeTokenText( parser, parser.token, decodedName ) ) {
+            if ( parser.result.status == key_value_parse_status_t::OK )
+                FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+            return CY_FALSE;
+        }
+        name = decodedName.text;
+    } else if ( !parser.bStrictJson &&
+                HasFlag( parser, KEY_VALUE_PARSE_FLAG_ALLOW_UNQUOTED_KEYS ) &&
+                parser.token.kind == token_kind_t::IDENTIFIER ) {
+        name = parser.token.lexeme;
+    } else {
+        FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+        return CY_FALSE;
+    }
+
+    // Duplicate rejection happens before insertion so the object remains unchanged.
+    if ( ( !parser.bStrictJson ||
+           HasFlag(
+               parser,
+               KEY_VALUE_PARSE_FLAG_REJECT_DUPLICATE_KEYS ) ) &&
+         KeyValue_Find( pObject, name ) != nullptr ) {
+        ReleaseDecoded( parser, decodedName );
+        FailCurrent( parser, key_value_parse_status_t::DUPLICATE_KEY );
+        return CY_FALSE;
+    }
+    if ( !Advance( parser ) ) {
+        ReleaseDecoded( parser, decodedName );
+        return CY_FALSE;
+    }
+    u8 mark = 0u;
+    if ( bCykv2 && IsPunctuation( parser, '+' ) ) {
+        if ( !Advance( parser ) || HasTriviaBeforeCurrent( parser ) || !IsPunctuation( parser, '=' ) ) {
             ReleaseDecoded( parser, decodedName );
             if ( parser.result.status == key_value_parse_status_t::OK )
                 FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
             return CY_FALSE;
         }
-        if ( !Advance( parser ) ) {
-            ReleaseDecoded( parser, decodedName );
-            return CY_FALSE;
-        }
-        if ( !CanAllocateNode( parser ) ) {
-            ReleaseDecoded( parser, decodedName );
-            return CY_FALSE;
-        }
-        if ( pObject->nChildren >= parser.options.nMaxContainerValues ) {
-            ReleaseDecoded( parser, decodedName );
-            FailCurrent( parser, key_value_parse_status_t::CONTAINER_LIMIT );
-            return CY_FALSE;
-        }
-        key_value_t *pChild = KeyValue_ObjectInsert(
-            parser.pDocument,
-            pObject,
-            name,
-            key_value_type_t::NULL_VALUE );
+        mark = PARSE_MARK_APPEND;
+    } else if ( !IsPunctuation( parser, parser.bStrictJson ? ':' : '=' ) ) {
         ReleaseDecoded( parser, decodedName );
-        if ( pChild == nullptr ) {
-            FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+        FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+        return CY_FALSE;
+    }
+    if ( !Advance( parser ) ) {
+        ReleaseDecoded( parser, decodedName );
+        return CY_FALSE;
+    }
+    if ( mark == 0u && bCykv2 && IsPunctuation( parser, '#' ) ) {
+        mark = PARSE_MARK_DELETE;
+    }
+    if ( mark != 0u && parser.nInheritanceDepth == 0u ) {
+        ReleaseDecoded( parser, decodedName );
+        Fail( parser, key_value_parse_status_t::OPERATOR_WITHOUT_BASE, memberLocation );
+        return CY_FALSE;
+    }
+    if ( !CanAllocateNode( parser ) ) {
+        ReleaseDecoded( parser, decodedName );
+        return CY_FALSE;
+    }
+    if ( pObject->nChildren >= parser.options.nMaxContainerValues ) {
+        ReleaseDecoded( parser, decodedName );
+        FailCurrent( parser, key_value_parse_status_t::CONTAINER_LIMIT );
+        return CY_FALSE;
+    }
+    key_value_t *pChild = KeyValue_ObjectInsert(
+        parser.pDocument,
+        pObject,
+        name,
+        key_value_type_t::NULL_VALUE );
+    ReleaseDecoded( parser, decodedName );
+    if ( pChild == nullptr ) {
+        FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+        return CY_FALSE;
+    }
+    if ( !CheckLimits( parser ) || !AddComments( parser, pChild, gap.Leading(), {}, {} ) ) {
+        return CY_FALSE;
+    }
+    if ( mark == PARSE_MARK_DELETE ) {
+        if ( !Advance( parser ) || HasTriviaBeforeCurrent( parser ) || !TokenEqualsIdentifier( parser, "delete" ) ) {
+            if ( parser.result.status == key_value_parse_status_t::OK )
+                FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
             return CY_FALSE;
         }
-        if ( !CheckLimits( parser ) ||
-             !ParseValue( parser, pChild, nDepth + 1u ) ) {
+        if ( !Advance( parser ) ) { return CY_FALSE; }
+    } else if ( !ParseValue( parser, pChild, nDepth + 1u ) ) {
+        return CY_FALSE;
+    }
+    if ( mark == PARSE_MARK_APPEND && pChild->type != key_value_type_t::ARRAY ) {
+        Fail( parser, key_value_parse_status_t::APPEND_TYPE_MISMATCH, memberLocation );
+        return CY_FALSE;
+    }
+    if ( mark != 0u ) {
+        pChild->parseMark = mark;
+        return PushOperator( parser, pChild, memberLocation );
+    }
+    return CY_TRUE;
+}
+
+// Members up to and including the closing '}'. CYKV 2 adds @when chains
+// between members.
+bool_t ParseObjectMembers(
+    parser_t &parser,
+    key_value_t *pObject,
+    usize nDepth ) noexcept
+{
+    const bool_t bCykv2 = !parser.bStrictJson && parser.nLanguageVersion == CYKV_LANGUAGE_VERSION_2;
+    if ( IsPunctuation( parser, '}' ) ) {
+        return TakeCommentsBeforeClose( parser, pObject ) && Advance( parser );
+    }
+
+    // Each pass consumes one member or conditional and leaves token at '}' or the next one.
+    while ( !parser.bAtEnd ) {
+        const bool_t bParsed = bCykv2 && IsPunctuation( parser, '@' )
+            ? ParseConditional( parser, pObject, nDepth )
+            : ParseObjectMember( parser, pObject, nDepth );
+        if ( !bParsed ) {
             return CY_FALSE;
         }
 
         if ( IsPunctuation( parser, '}' ) ) {
-            return Advance( parser );
+            return TakeCommentsBeforeClose( parser, pObject ) && Advance( parser );
         }
         // CYKV separates members with trivia; strict JSON requires an explicit comma.
         if ( !parser.bStrictJson ) {
@@ -1254,6 +1921,44 @@ CYPHER_NODISCARD bool_t ParseObject(
     return CY_FALSE;
 }
 
+CYPHER_NODISCARD bool_t ParseObject(
+    parser_t &parser,
+    key_value_t *pObject,
+    usize nDepth ) noexcept
+{
+    if ( nDepth > parser.options.nMaxDepth ) {
+        FailCurrent( parser, key_value_parse_status_t::DEPTH_LIMIT );
+        return CY_FALSE;
+    }
+    if ( !KeyValue_SetContainerType(
+             parser.pDocument,
+             pObject,
+             key_value_type_t::OBJECT ) || !Advance( parser ) ) {
+        if ( parser.result.status == key_value_parse_status_t::OK )
+            FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+        return CY_FALSE;
+    }
+    // CYKV 2 `#extends` lines open the object; members follow.
+    const key_value_t *extends[kMaxExtends]{};
+    usize nExtends = 0u;
+    while ( !parser.bStrictJson && parser.nLanguageVersion == CYKV_LANGUAGE_VERSION_2 && IsPunctuation( parser, '#' ) ) {
+        if ( !ParseExtends( parser, extends, nExtends ) ) {
+            return CY_FALSE;
+        }
+    }
+    if ( nExtends == 0u ) {
+        return ParseObjectMembers( parser, pObject, nDepth );
+    }
+    const usize iFirstOp = parser.nOps;
+    ++parser.nInheritanceDepth;
+    bool_t bOk = ParseObjectMembers( parser, pObject, nDepth );
+    for ( usize i = 0u; bOk && i < nExtends; ++i ) {
+        bOk = FillMissing( parser, pObject, extends[i], nDepth );
+    }
+    --parser.nInheritanceDepth;
+    return bOk && SettleOperators( parser, iFirstOp );
+}
+
 CYPHER_NODISCARD bool_t ParseArray(
     parser_t &parser,
     key_value_t *pArray,
@@ -1271,10 +1976,14 @@ CYPHER_NODISCARD bool_t ParseArray(
             FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
         return CY_FALSE;
     }
-    if ( IsPunctuation( parser, ']' ) ) return Advance( parser );
+    if ( IsPunctuation( parser, ']' ) ) return TakeCommentsBeforeClose( parser, pArray ) && Advance( parser );
 
     // Arrays always use commas, including CYKV; the option only permits a final comma.
     while ( !parser.bAtEnd ) {
+        gap_comments_t gap{};
+        if ( !TakeCommentsBeforeItem( parser, pArray, gap ) ) {
+            return CY_FALSE;
+        }
         if ( !CanAllocateNode( parser ) ) {
             return CY_FALSE;
         }
@@ -1290,8 +1999,9 @@ CYPHER_NODISCARD bool_t ParseArray(
             FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
             return CY_FALSE;
         }
+        if ( !AddComments( parser, pChild, gap.Leading(), {}, {} ) ) return CY_FALSE;
         if ( !ParseValue( parser, pChild, nDepth + 1u ) ) return CY_FALSE;
-        if ( IsPunctuation( parser, ']' ) ) return Advance( parser );
+        if ( IsPunctuation( parser, ']' ) ) return TakeCommentsBeforeClose( parser, pArray ) && Advance( parser );
         if ( !IsPunctuation( parser, ',' ) ) {
             FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
             return CY_FALSE;
@@ -1304,7 +2014,7 @@ CYPHER_NODISCARD bool_t ParseArray(
                 FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
                 return CY_FALSE;
             }
-            return Advance( parser );
+            return TakeCommentsBeforeClose( parser, pArray ) && Advance( parser );
         }
     }
     FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
@@ -1809,6 +2519,7 @@ key_value_parse_result_t KeyValue_InternalParseTextWithDefinitions(
     const key_value_parse_options_t &options,
     const key_value_definition_seed_t *pSeeds,
     usize nSeeds,
+    key_value_composition_t *pComposition,
     key_value_document_t *pDocument,
     bool_t bStrictJson ) noexcept
 {
@@ -1824,7 +2535,11 @@ key_value_parse_result_t KeyValue_InternalParseTextWithDefinitions(
          options.nMaxContainerValues == 0u ||
          options.nMaxCommentDepth == 0u ||
          options.cbMaxStringData == 0u ||
-         ( nSeeds != 0u && pSeeds == nullptr ) ) {
+         ( options.pBuildContext != nullptr && options.pBuildContext->nProperties != 0u &&
+           options.pBuildContext->pProperties == nullptr ) ||
+         ( nSeeds != 0u && pSeeds == nullptr ) ||
+         ( pComposition != nullptr && ( ( pComposition->nParts != 0u && pComposition->ppParts == nullptr ) ||
+                                        ( pComposition->nBases != 0u && pComposition->ppBases == nullptr ) ) ) ) {
         invalid.status = key_value_parse_status_t::INVALID_ARGUMENT;
         if ( StringView_IsValid( text ) &&
              options.cbMaxInput != 0u &&
@@ -1849,6 +2564,7 @@ key_value_parse_result_t KeyValue_InternalParseTextWithDefinitions(
     parser.pDocument = pTemporary;
     parser.pOutputDocument = pTemporary;
     parser.bStrictJson = bStrictJson;
+    parser.pBuildContext = options.pBuildContext != nullptr ? options.pBuildContext : KeyValue_HostBuildContext();
     if ( !ValidateSourceEncoding( parser, text ) ||
          !InitializeParser( parser, text ) ) {
         if ( parser.result.status == key_value_parse_status_t::OK )
@@ -1890,15 +2606,64 @@ key_value_parse_result_t KeyValue_InternalParseTextWithDefinitions(
              !bCykv2RootReference ) {
             FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
         } else {
+            // With #base documents, #delete and += are allowed anywhere in
+            // the root; they apply when the bases fill in below.
+            const bool_t bHasBases = pComposition != nullptr && pComposition->nBases != 0u;
+            parser.nInheritanceDepth = bHasBases ? 1u : 0u;
+            // Comments between the header and the root lead the document.
+            gap_comments_t rootGap{};
+            if ( KeepsComments( parser ) &&
+                 CollectGapComments( parser, parser.iPreviousTokenEnd, parser.token.range.begin.iByte, rootGap ) ) {
+                static_cast<void>( AddComments( parser, KeyValue_Root( pTemporary ), rootGap.Leading(), {}, {} ) );
+            }
             static_cast<void>( ParseValue(
                 parser,
                 KeyValue_Root( pTemporary ),
                 0u ) );
+            // Comments after the root's closing bracket end the document.
+            gap_comments_t endGap{};
+            if ( parser.result.status == key_value_parse_status_t::OK && parser.bAtEnd && KeepsComments( parser ) &&
+                 CollectGapComments( parser, parser.iPreviousTokenEnd, text.cchLength, endGap ) ) {
+                gap_comments_t lines{};
+                lines.pAllocator = pTemporary->pAllocator;
+                if ( ( endGap.trailing.cchLength == 0u || lines.AppendLeading( endGap.trailing ) ) &&
+                     ( endGap.cchLeading == 0u || lines.AppendLeading( endGap.Leading() ) ) ) {
+                    static_cast<void>( AddComments( parser, KeyValue_Root( pTemporary ), {}, lines.Leading(), {} ) );
+                }
+            }
             if ( parser.result.status == key_value_parse_status_t::OK &&
                  bRequiresObjectRoot &&
                  KeyValue_Type( KeyValue_Root( pTemporary ) ) !=
                     key_value_type_t::OBJECT ) {
                 FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+            }
+            // Document composition: merging #include parts first (they are
+            // part of this document), then #base fills what is still missing.
+            key_value_t *pRoot = KeyValue_Root( pTemporary );
+            const bool_t bObjectRoot = KeyValue_Type( pRoot ) == key_value_type_t::OBJECT;
+            for ( usize i = 0u; pComposition != nullptr && parser.result.status == key_value_parse_status_t::OK &&
+                                i < pComposition->nParts; ++i ) {
+                if ( !bObjectRoot || KeyValue_Type( pComposition->ppParts[i] ) != key_value_type_t::OBJECT ||
+                     !MergePart( parser, pRoot, pComposition->ppParts[i], 0u ) ) {
+                    if ( parser.result.status == key_value_parse_status_t::OK ) {
+                        FailCurrent( parser, key_value_parse_status_t::INCLUDE_CONFLICT );
+                    }
+                    pComposition->iFailedPart = i;
+                }
+            }
+            for ( usize i = 0u; bHasBases && parser.result.status == key_value_parse_status_t::OK &&
+                                i < pComposition->nBases; ++i ) {
+                if ( !bObjectRoot || KeyValue_Type( pComposition->ppBases[i] ) != key_value_type_t::OBJECT ||
+                     !FillMissing( parser, pRoot, pComposition->ppBases[i], 0u ) ) {
+                    if ( parser.result.status == key_value_parse_status_t::OK ) {
+                        FailCurrent( parser, key_value_parse_status_t::MERGE_CONFLICT );
+                    }
+                    pComposition->iFailedBase = i;
+                }
+            }
+            parser.nInheritanceDepth = 0u;
+            if ( parser.result.status == key_value_parse_status_t::OK ) {
+                static_cast<void>( SettleOperators( parser, 0u ) );
             }
         }
     }
@@ -1913,6 +2678,12 @@ key_value_parse_result_t KeyValue_InternalParseTextWithDefinitions(
     }
     if ( parser.pDefinitions != nullptr ) {
         KeyValue_DestroyDocument( parser.pDefinitions );
+    }
+    if ( parser.pScratch != nullptr ) {
+        KeyValue_DestroyDocument( parser.pScratch );
+    }
+    if ( parser.pOps != nullptr ) {
+        Allocator_FreeArrayStorage( pTemporary->pAllocator, parser.pOps, parser.nOpsCapacity );
     }
     KeyValue_DestroyDocument( pTemporary );
     return parser.result;
@@ -1929,8 +2700,37 @@ key_value_parse_result_t KeyValue_InternalParseText(
         options,
         nullptr,
         0u,
+        nullptr,
         pDocument,
         bStrictJson );
+}
+
+const key_value_build_context_t *KeyValue_HostBuildContext() noexcept
+{
+#if CYPHER_PLATFORM_WINDOWS
+    static constexpr const char kPlatform[] = "windows";
+#elif CYPHER_PLATFORM_MACOS
+    static constexpr const char kPlatform[] = "macos";
+#elif CYPHER_PLATFORM_LINUX
+    static constexpr const char kPlatform[] = "linux";
+#else
+    static constexpr const char kPlatform[] = "unknown";
+#endif
+    static constexpr const char kArchitecture[] = CYPHER_ARCH_NAME;
+    static const char *const pProfile = Cy_BuildConfigIsDebug() ? "debug"
+        : Cy_BuildConfigGetCurrent() == build_config_t::Development ? "development"
+        : Cy_BuildConfigGetCurrent() == build_config_t::Shipping ? "shipping"
+        : "release";
+    static const key_value_build_property_t properties[]{
+        { StringView_FromCString( "target.platform" ), key_value_build_value_kind_t::STRING, CY_FALSE, 0, StringView_FromCString( kPlatform ) },
+        { StringView_FromCString( "target.architecture" ), key_value_build_value_kind_t::STRING, CY_FALSE, 0, StringView_FromCString( kArchitecture ) },
+        { StringView_FromCString( "build.profile" ), key_value_build_value_kind_t::STRING, CY_FALSE, 0, StringView_FromCString( pProfile ) },
+        { StringView_FromCString( "build.debug" ), key_value_build_value_kind_t::BOOL, Cy_BuildConfigIsDebug(), 0, {} },
+        { StringView_FromCString( "build.shipping" ), key_value_build_value_kind_t::BOOL,
+          Cy_BuildConfigGetCurrent() == build_config_t::Shipping, 0, {} },
+    };
+    static const key_value_build_context_t context{ properties, sizeof( properties ) / sizeof( properties[0] ) };
+    return &context;
 }
 
 key_value_parse_result_t KeyValue_ParseText(
@@ -1970,6 +2770,18 @@ const char *KeyValue_ParseStatusName(
             return "UNDEFINED_DEFINITION";
         case key_value_parse_status_t::DEFINITION_LIMIT:
             return "DEFINITION_LIMIT";
+        case key_value_parse_status_t::UNKNOWN_CONDITION_PROPERTY:
+            return "UNKNOWN_CONDITION_PROPERTY";
+        case key_value_parse_status_t::CONDITION_TYPE_MISMATCH:
+            return "CONDITION_TYPE_MISMATCH";
+        case key_value_parse_status_t::MERGE_CONFLICT: return "MERGE_CONFLICT";
+        case key_value_parse_status_t::INCLUDE_CONFLICT: return "INCLUDE_CONFLICT";
+        case key_value_parse_status_t::INHERITED_VALUE_MISSING:
+            return "INHERITED_VALUE_MISSING";
+        case key_value_parse_status_t::APPEND_TYPE_MISMATCH:
+            return "APPEND_TYPE_MISMATCH";
+        case key_value_parse_status_t::OPERATOR_WITHOUT_BASE:
+            return "OPERATOR_WITHOUT_BASE";
     }
     return "UNKNOWN_KEY_VALUE_PARSE_STATUS";
 }

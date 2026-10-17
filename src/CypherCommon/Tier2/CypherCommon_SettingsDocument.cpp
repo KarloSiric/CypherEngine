@@ -45,11 +45,12 @@ CYPHER_NODISCARD key_value_document_t *CreateDocument( const allocator_t *pAlloc
 
 CYPHER_NODISCARD bool_t SetHeader(
     key_value_document_t *pDocument,
-    const settings_document_identity_t &identity ) noexcept
+    const settings_document_identity_t &identity,
+    u32 nLanguageVersion = CYKV_LANGUAGE_VERSION ) noexcept
 {
     return KeyValue_SetDocumentHeader(
         pDocument,
-        { CYKV_LANGUAGE_VERSION, identity.schemaId, identity.nCurrentVersion } );
+        { nLanguageVersion, identity.schemaId, identity.nCurrentVersion } );
 }
 
 CYPHER_NODISCARD bool_t IsHexDigit( char c, u32 &valueOut ) noexcept
@@ -208,6 +209,8 @@ settings_document_load_result_t SettingsDocument_Load(
         return result;
     }
     key_value_parse_options_t options{};
+    // Settings files are edited by hand; their comments survive a save.
+    options.flags |= KEY_VALUE_PARSE_FLAG_KEEP_COMMENTS;
     options.cbMaxInput = CY_SETTINGS_TEXT_MAX_BYTES;
     options.cbMaxStringData = CY_SETTINGS_TEXT_MAX_BYTES;
     const key_value_parse_result_t parsed = KeyValue_ParseText( text, options, owner.p );
@@ -222,7 +225,9 @@ settings_document_load_result_t SettingsDocument_Load(
 
     const key_value_document_header_t header = KeyValue_DocumentHeader( owner.p );
     result.nDeclaredVersion = header.nSchemaVersion;
-    if ( header.nLanguageVersion != CYKV_LANGUAGE_VERSION ) {
+    // Both CYKV languages are read; CYKV 2 definitions and conditionals are
+    // resolved while parsing.
+    if ( header.nLanguageVersion != CYKV_LANGUAGE_VERSION_1 && header.nLanguageVersion != CYKV_LANGUAGE_VERSION_2 ) {
         result.status = settings_document_status_t::LANGUAGE_MISMATCH;
         result.location = parsed.languageVersionLocation;
         return result;
@@ -262,7 +267,11 @@ settings_document_status_t SettingsDocument_Write(
     // Always write the current version: loading an older file and saving it
     // is the upgrade. The header is set on the owned tree, which is logically
     // const - its content is unchanged.
-    if ( !SetHeader( pStore->pDocument, pStore->identity ) ) {
+    // The file keeps the CYKV language it declares; what is written is the
+    // resolved document, valid in either.
+    const u32 nLanguage = KeyValue_DocumentHeader( pStore->pDocument ).nLanguageVersion == CYKV_LANGUAGE_VERSION_2
+        ? CYKV_LANGUAGE_VERSION_2 : CYKV_LANGUAGE_VERSION_1;
+    if ( !SetHeader( pStore->pDocument, pStore->identity, nLanguage ) ) {
         return settings_document_status_t::OUT_OF_MEMORY;
     }
     const key_value_t *pRoot = KeyValue_Root( pStore->pDocument );
@@ -272,7 +281,7 @@ settings_document_status_t SettingsDocument_Write(
     // typed (0.3, not 0.29999999999999999).
     key_value_write_options_t options{};
     options.flags = KEY_VALUE_WRITE_FLAG_PRETTY | KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE | KEY_VALUE_WRITE_FLAG_BARE_KEYS |
-                    KEY_VALUE_WRITE_FLAG_QUOTE_DOTTED_KEYS | KEY_VALUE_WRITE_FLAG_SHORTEST_REALS;
+                    KEY_VALUE_WRITE_FLAG_QUOTE_DOTTED_KEYS | KEY_VALUE_WRITE_FLAG_SHORTEST_REALS | KEY_VALUE_WRITE_FLAG_COMMENTS;
     options.nIndentSpaces = 4u;
     const key_value_write_result_t measured = KeyValue_WriteText( pRoot, options, nullptr, 0u );
     if ( measured.status != key_value_write_status_t::OUTPUT_TRUNCATED &&

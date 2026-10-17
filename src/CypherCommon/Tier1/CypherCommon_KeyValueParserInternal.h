@@ -47,15 +47,31 @@ CYPHER_NODISCARD key_value_parse_result_t KeyValue_InternalParseText(
     key_value_document_t *pDocument,
     bool_t bStrictJson ) noexcept;
 
+// Document-level composition the source resolver hands the parser: the
+// resolved roots of merging #include parts and of #base documents, in
+// directive order. The parser merges parts into the parsed root, then fills
+// missing values from the bases, applying #delete and += as it goes. On a
+// conflict the index of the offending part or base is written back.
+struct key_value_composition_t {
+    const key_value_t *const *ppParts{ nullptr };
+    usize nParts{ 0u };
+    const key_value_t *const *ppBases{ nullptr };
+    usize nBases{ 0u };
+    usize iFailedPart{ CY_USIZE_MAX };
+    usize iFailedBase{ CY_USIZE_MAX };
+};
+
 // Parses with immutable, already-resolved CYKV 2 definitions. Seed names must be
 // valid definition identifiers and values must be valid trees. Values are
 // deep-copied into private parser state before local #define declarations.
+// pComposition may be null.
 CYPHER_NODISCARD key_value_parse_result_t
 KeyValue_InternalParseTextWithDefinitions(
     string_view_t text,
     const key_value_parse_options_t &options,
     const key_value_definition_seed_t *pSeeds,
     usize nSeeds,
+    key_value_composition_t *pComposition,
     key_value_document_t *pDocument,
     bool_t bStrictJson ) noexcept;
 

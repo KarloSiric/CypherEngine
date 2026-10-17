@@ -419,7 +419,14 @@ CYPHER_NODISCARD key_value_t *InsertChild(
 CYPHER_NODISCARD bool_t CloneValue(
     key_value_document_t &document,
     key_value_t &dest,
-    const key_value_t &source ) noexcept
+    const key_value_t &source,
+    bool_t bComments ) noexcept;
+
+CYPHER_NODISCARD bool_t CloneNodeValue(
+    key_value_document_t &document,
+    key_value_t &dest,
+    const key_value_t &source,
+    bool_t bComments ) noexcept
 {
     switch ( source.type ) {
         case key_value_type_t::NULL_VALUE:
@@ -460,13 +467,35 @@ CYPHER_NODISCARD bool_t CloneValue(
                         { pChild->pName, pChild->cchName },
                         pChild->type )
                     : KeyValue_ArrayAppend( &document, &dest, pChild->type );
-                if ( pCopy == nullptr || !CloneValue( document, *pCopy, *pChild ) ) {
+                if ( pCopy == nullptr || !CloneValue( document, *pCopy, *pChild, bComments ) ) {
                     return CY_FALSE;
                 }
             }
             return CY_TRUE;
     }
     return CY_FALSE;
+}
+
+bool_t CloneValue(
+    key_value_document_t &document,
+    key_value_t &dest,
+    const key_value_t &source,
+    bool_t bComments ) noexcept
+{
+    if ( !CloneNodeValue( document, dest, source, bComments ) ) {
+        return CY_FALSE;
+    }
+    return !bComments || source.iComment == 0u || KeyValue_SetComments( &document, &dest, KeyValue_Comments( &source ) );
+}
+
+void FreeComments( key_value_document_t &document ) noexcept
+{
+    if ( document.pComments != nullptr ) {
+        Allocator_FreeArrayStorage( document.pAllocator, document.pComments, document.nCommentCapacity );
+    }
+    document.pComments = nullptr;
+    document.nComments = 0u;
+    document.nCommentCapacity = 0u;
 }
 
 CYPHER_NODISCARD bool_t ValidateSubtree(
@@ -600,6 +629,7 @@ void KeyValue_DestroyDocument( key_value_document_t *pDocument ) noexcept
     const allocator_t *pAllocator = pDocument->pAllocator;
     FreeNodeBlocks( *pDocument );
     FreeDataBlocks( *pDocument );
+    FreeComments( *pDocument );
     pDocument->nMagic = 0u;
     pDocument->~key_value_document_t();
     Allocator_Free(
@@ -616,6 +646,7 @@ void KeyValue_ClearDocument( key_value_document_t *pDocument ) noexcept
     }
     FreeNodeBlocks( *pDocument );
     FreeDataBlocks( *pDocument );
+    FreeComments( *pDocument );
     pDocument->nNextNodes = pDocument->nInitialNodes;
     pDocument->cbNextData = pDocument->cbInitialData;
     pDocument->pSchemaId = nullptr;
@@ -890,6 +921,21 @@ const key_value_t *KeyValue_FirstChild( const key_value_t *pContainer ) noexcept
         ? pContainer->pFirstChild : nullptr;
 }
 
+key_value_t *KeyValue_LastChild( key_value_t *pContainer ) noexcept
+{
+    return pContainer != nullptr && IsContainerType( pContainer->type ) ? pContainer->pLastChild : nullptr;
+}
+
+key_value_t *KeyValue_FirstChildMutable( key_value_t *pContainer ) noexcept
+{
+    return pContainer != nullptr && IsContainerType( pContainer->type ) ? pContainer->pFirstChild : nullptr;
+}
+
+key_value_t *KeyValue_NextSiblingMutable( key_value_t *pValue ) noexcept
+{
+    return pValue != nullptr && pValue->pParent != nullptr ? pValue->pNext : nullptr;
+}
+
 const key_value_t *KeyValue_NextSibling( const key_value_t *pValue ) noexcept
 {
     return pValue != nullptr && pValue->pParent != nullptr ? pValue->pNext : nullptr;
@@ -1008,7 +1054,7 @@ key_value_t *KeyValue_CloneInto(
             pDestParent,
             pSource->type );
     }
-    if ( pDest == nullptr || !CloneValue( *pDestDocument, *pDest, *pSource ) ) {
+    if ( pDest == nullptr || !CloneValue( *pDestDocument, *pDest, *pSource, CY_TRUE ) ) {
         if ( pDestParent != nullptr && pDest != nullptr ) {
             static_cast<void>( KeyValue_Remove(
                 pDestDocument,
@@ -1103,7 +1149,66 @@ bool_t KeyValue_InternalCopyValue(
             return CY_FALSE;
         }
     }
-    return CloneValue( *pDestDocument, *pDest, *pSource );
+    // Expansions inside the parser copy values, never the comments around them.
+    return CloneValue( *pDestDocument, *pDest, *pSource, CY_FALSE );
+}
+
+key_value_comments_t KeyValue_Comments( const key_value_t *pValue ) noexcept
+{
+    if ( pValue == nullptr || pValue->iComment == 0u || pValue->pDocument == nullptr ||
+         pValue->iComment > pValue->pDocument->nComments ) {
+        return {};
+    }
+    const key_value_comment_record_t &record = pValue->pDocument->pComments[pValue->iComment - 1u];
+    return { { record.pLeading, record.cchLeading }, { record.pTrailing, record.cchTrailing }, { record.pInner, record.cchInner } };
+}
+
+bool_t KeyValue_SetComments(
+    key_value_document_t *pDocument,
+    key_value_t *pValue,
+    const key_value_comments_t &comments ) noexcept
+{
+    if ( !BelongsTo( pDocument, pValue ) || !StringView_IsValid( comments.leading ) ||
+         !StringView_IsValid( comments.trailing ) || !StringView_IsValid( comments.inner ) ) {
+        return CY_FALSE;
+    }
+    if ( comments.leading.cchLength == 0u && comments.trailing.cchLength == 0u && comments.inner.cchLength == 0u ) {
+        pValue->iComment = 0u;
+        return CY_TRUE;
+    }
+    const auto copy = [&]( string_view_t text, const char *&pOut, usize &cchOut ) noexcept {
+        pOut = nullptr;
+        cchOut = 0u;
+        if ( text.cchLength == 0u ) { return CY_TRUE; }
+        pOut = CopyString( *pDocument, text );
+        cchOut = text.cchLength;
+        return pOut != nullptr;
+    };
+    key_value_comment_record_t record{};
+    if ( !copy( comments.leading, record.pLeading, record.cchLeading ) ||
+         !copy( comments.trailing, record.pTrailing, record.cchTrailing ) ||
+         !copy( comments.inner, record.pInner, record.cchInner ) ) {
+        return CY_FALSE;
+    }
+    if ( pValue->iComment != 0u && pValue->iComment <= pDocument->nComments ) {
+        pDocument->pComments[pValue->iComment - 1u] = record;
+        return CY_TRUE;
+    }
+    if ( pDocument->nComments == pDocument->nCommentCapacity ) {
+        if ( pDocument->nCommentCapacity >= 0x7fffffffu ) { return CY_FALSE; }
+        const u32 nCapacity = pDocument->nCommentCapacity == 0u ? 16u : pDocument->nCommentCapacity * 2u;
+        key_value_comment_record_t *pGrown = Allocator_AllocateArrayStorage<key_value_comment_record_t>( pDocument->pAllocator, nCapacity );
+        if ( pGrown == nullptr ) { return CY_FALSE; }
+        for ( u32 i = 0u; i < pDocument->nComments; ++i ) { pGrown[i] = pDocument->pComments[i]; }
+        if ( pDocument->pComments != nullptr ) {
+            Allocator_FreeArrayStorage( pDocument->pAllocator, pDocument->pComments, pDocument->nCommentCapacity );
+        }
+        pDocument->pComments = pGrown;
+        pDocument->nCommentCapacity = nCapacity;
+    }
+    pDocument->pComments[pDocument->nComments++] = record;
+    pValue->iComment = pDocument->nComments;
+    return CY_TRUE;
 }
 
 void KeyValue_InternalMoveDocumentContents(
@@ -1120,6 +1225,9 @@ void KeyValue_InternalMoveDocumentContents(
     pDest->pNodeBlocks = pSource->pNodeBlocks;
     pDest->pDataBlocks = pSource->pDataBlocks;
     pDest->pFreeNodes = pSource->pFreeNodes;
+    pDest->pComments = pSource->pComments;
+    pDest->nComments = pSource->nComments;
+    pDest->nCommentCapacity = pSource->nCommentCapacity;
     pDest->nNextNodes = pSource->nNextNodes;
     pDest->cbNextData = pSource->cbNextData;
     pDest->nNodes = pSource->nNodes;
@@ -1135,6 +1243,9 @@ void KeyValue_InternalMoveDocumentContents(
     pSource->pNodeBlocks = nullptr;
     pSource->pDataBlocks = nullptr;
     pSource->pFreeNodes = nullptr;
+    pSource->pComments = nullptr;
+    pSource->nComments = 0u;
+    pSource->nCommentCapacity = 0u;
     pSource->nNextNodes = pSource->nInitialNodes;
     pSource->cbNextData = pSource->cbInitialData;
     pSource->cbData = 0u;

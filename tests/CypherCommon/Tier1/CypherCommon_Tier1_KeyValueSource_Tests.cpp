@@ -20,6 +20,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <string>
+
 using namespace cypher::common;
 
 namespace
@@ -1365,9 +1367,10 @@ TEST_CASE( "CYKV source resolution is bounded versioned and transactional",
     }
 
     SECTION( "invalid include syntax" ) {
+        // Without `as` an include merges a part; a dangling `as` is an error.
         constexpr const char *pRoot =
             "@cykv 2\n@schema \"cypher.test\" 1\n"
-            "#include \"a.cydf\"\n{}";
+            "#include \"a.cydf\" as\n{}";
         source_fixture_t fixture{ entries, 2u };
         key_value_document_t *pDocument = CreateDocument();
         CHECK( ParseSource(
@@ -1441,4 +1444,233 @@ TEST_CASE( "CYKV source resolution is bounded versioned and transactional",
         StringView_FromCString( KeyValue_SourceStatusName(
             key_value_source_status_t::DEPENDENCY_CYCLE ) ),
         StringView_FromCString( "DEPENDENCY_CYCLE" ) ) );
+}
+
+// ---------------------------------------------------------------------------
+// Merging includes, folder includes, and operators against #base
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+// A folder listing for the list callback: names in deliberately unsorted
+// order, including ones the pattern must leave out.
+struct folder_fixture_t {
+    source_fixture_t files{};
+    const char *pFolder{ nullptr };
+    const char *const *ppNames{ nullptr };
+    usize nNames{ 0u };
+    usize nListed{ 0u };
+};
+
+key_value_source_open_status_t OpenFolderSource(
+    string_view_t requestingSourcePath,
+    string_view_t referencedPath,
+    key_value_source_view_t *pOutSource,
+    void *pUserData ) noexcept
+{
+    return OpenSource( requestingSourcePath, referencedPath, pOutSource, &static_cast<folder_fixture_t *>( pUserData )->files );
+}
+
+void ReleaseFolderSource( const key_value_source_view_t *pSource, void *pUserData ) noexcept
+{
+    ReleaseSource( pSource, &static_cast<folder_fixture_t *>( pUserData )->files );
+}
+
+key_value_source_open_status_t ListFolder(
+    string_view_t,
+    string_view_t referencedFolder,
+    key_value_source_emit_fn_t pfnEmit,
+    void *pEmitContext,
+    void *pUserData ) noexcept
+{
+    auto &fixture = *static_cast<folder_fixture_t *>( pUserData );
+    ++fixture.nListed;
+    if ( !StringView_Equals( referencedFolder, StringView_FromCString( fixture.pFolder ) ) ) {
+        return key_value_source_open_status_t::NOT_FOUND;
+    }
+    for ( usize i = 0u; i < fixture.nNames; ++i ) {
+        if ( !pfnEmit( pEmitContext, StringView_FromCString( fixture.ppNames[i] ) ) ) { break; }
+    }
+    return key_value_source_open_status_t::OK;
+}
+
+key_value_source_options_t FolderOptions( folder_fixture_t &fixture )
+{
+    key_value_source_options_t options{};
+    options.pfnOpen = OpenFolderSource;
+    options.pfnRelease = ReleaseFolderSource;
+    options.pfnList = ListFolder;
+    options.pUserData = &fixture;
+    return options;
+}
+
+key_value_dependency_kind_t g_lastKind = key_value_dependency_kind_t::INCLUDE;
+
+bool_t RecordKind( string_view_t, string_view_t, key_value_dependency_kind_t kind, void * ) noexcept
+{
+    g_lastKind = kind;
+    return CY_TRUE;
+}
+
+} // namespace
+
+TEST_CASE( "CYKV 2 merging includes add parts and refuse collisions",
+           "[CypherCommon][Tier1][CYKV][Source][Include]" )
+{
+    constexpr const char *pPartA = "@cykv 2\n@schema \"cypher.game\" 1\n{ classes = { light = { solid = false } } settings = { gravity = 800 } }";
+    constexpr const char *pPartB = "@cykv 2\n@schema \"cypher.game\" 1\n{ classes = { door = { solid = true } } version = 3 }";
+    constexpr const char *pRoot =
+        "@cykv 2\n@schema \"cypher.game\" 1\n"
+        "#include \"parts/entities_a.cydf\"\n"
+        "#include \"parts/entities_b.cydf\" // second part\n"
+        "{ name = \"reap\" classes = { worldspawn = { solid = true } } }";
+    const source_entry_t entries[]{
+        { "parts/entities_a.cydf", "game/parts/entities_a.cydf", pPartA },
+        { "parts/entities_b.cydf", "game/parts/entities_b.cydf", pPartB }
+    };
+
+    SECTION( "parts merge into the document" ) {
+        source_fixture_t fixture{ entries, 2u };
+        key_value_source_options_t options = SourceOptions( fixture );
+        options.pfnDependency = RecordKind;
+        key_value_document_t *pDocument = CreateDocument();
+        const key_value_source_result_t result = ParseSource( "game/reap.cygame", pRoot, fixture, pDocument, &options );
+        REQUIRE( result.status == key_value_source_status_t::OK );
+        CHECK( g_lastKind == key_value_dependency_kind_t::MERGE_INCLUDE );
+        key_value_t *pClasses = FindRequired( KeyValue_Root( pDocument ), "classes" );
+        CHECK( KeyValue_ChildCount( pClasses ) == 3u ); // worldspawn, light, door.
+        CHECK( KeyValue_Find( pClasses, StringView_FromCString( "door" ) ) != nullptr );
+        CHECK( KeyValue_Find( KeyValue_Root( pDocument ), StringView_FromCString( "settings" ) ) != nullptr );
+        CHECK( KeyValue_Find( KeyValue_Root( pDocument ), StringView_FromCString( "version" ) ) != nullptr );
+        KeyValue_DestroyDocument( pDocument );
+    }
+
+    SECTION( "a member two parts both define is an error naming the part" ) {
+        constexpr const char *pClash = "@cykv 2\n@schema \"cypher.game\" 1\n{ name = \"other\" }";
+        const source_entry_t clashing[]{
+            { "parts/entities_a.cydf", "game/parts/entities_a.cydf", pPartA },
+            { "parts/entities_b.cydf", "game/parts/entities_b.cydf", pClash }
+        };
+        source_fixture_t fixture{ clashing, 2u };
+        key_value_document_t *pDocument = CreateDocument();
+        const key_value_source_result_t result = ParseSource( "game/reap.cygame", pRoot, fixture, pDocument );
+        CHECK( result.status == key_value_source_status_t::INCLUDE_CONFLICT );
+        CHECK( std::string( result.errorReferencedPath ) == "parts/entities_b.cydf" );
+        CHECK( result.dependencyKind == key_value_dependency_kind_t::MERGE_INCLUDE );
+        KeyValue_DestroyDocument( pDocument );
+    }
+
+    SECTION( "a part must be the same kind of document" ) {
+        constexpr const char *pOther = "@cykv 2\n@schema \"cypher.settings\" 1\n{ version = 3 }";
+        const source_entry_t foreign[]{
+            { "parts/entities_a.cydf", "game/parts/entities_a.cydf", pPartA },
+            { "parts/entities_b.cydf", "game/parts/entities_b.cydf", pOther }
+        };
+        source_fixture_t fixture{ foreign, 2u };
+        key_value_document_t *pDocument = CreateDocument();
+        CHECK( ParseSource( "game/reap.cygame", pRoot, fixture, pDocument ).status == key_value_source_status_t::SCHEMA_MISMATCH );
+        KeyValue_DestroyDocument( pDocument );
+    }
+}
+
+TEST_CASE( "CYKV 2 folder includes take every matching file in sorted order",
+           "[CypherCommon][Tier1][CYKV][Source][Include]" )
+{
+    constexpr const char *pRifle = "@cykv 2\n@schema \"cypher.weapon\" 1\n{ damage = 24 }";
+    constexpr const char *pSmg = "@cykv 2\n@schema \"cypher.weapon\" 1\n{ damage = 12 }";
+    const source_entry_t entries[]{
+        { "weapons/rifle.cydf", "data/weapons/rifle.cydf", pRifle },
+        { "weapons/smg.cydf", "data/weapons/smg.cydf", pSmg }
+    };
+    const char *const names[]{ "smg.cydf", "notes.txt", ".hidden.cydf", "rifle.cydf" };
+
+    SECTION( "a namespaced folder include binds an object keyed by file stem" ) {
+        folder_fixture_t fixture{ { entries, 2u }, "weapons", names, 4u };
+        key_value_source_options_t options = FolderOptions( fixture );
+        constexpr const char *pRoot =
+            "@cykv 2\n@schema \"cypher.arsenal\" 1\n"
+            "#include \"weapons/*.cydf\" as weapons\n"
+            "{ arsenal = $weapons first = $weapons.rifle.damage }";
+        key_value_document_t *pDocument = CreateDocument();
+        const key_value_source_result_t result = KeyValue_ParseSource(
+            StringView_FromCString( "data/arsenal.cydf" ), StringView_FromCString( pRoot ), options, pDocument );
+        REQUIRE( result.status == key_value_source_status_t::OK );
+        CHECK( result.nDependencyEdges == 2u );
+        key_value_t *pArsenal = FindRequired( KeyValue_Root( pDocument ), "arsenal" );
+        REQUIRE( KeyValue_ChildCount( pArsenal ) == 2u );
+        CHECK( StringView_Equals( KeyValue_Name( KeyValue_ChildAt( pArsenal, 0u ) ), StringView_FromCString( "rifle" ) ) );
+        CHECK( StringView_Equals( KeyValue_Name( KeyValue_ChildAt( pArsenal, 1u ) ), StringView_FromCString( "smg" ) ) );
+        i64 damage = 0;
+        REQUIRE( KeyValue_GetI64( FindRequired( KeyValue_Root( pDocument ), "first" ), &damage ) );
+        CHECK( damage == 24 );
+        KeyValue_DestroyDocument( pDocument );
+    }
+
+    SECTION( "a merging folder include merges every file" ) {
+        constexpr const char *pA = "@cykv 2\n@schema \"cypher.arsenal\" 1\n{ rifle = { damage = 24 } }";
+        constexpr const char *pB = "@cykv 2\n@schema \"cypher.arsenal\" 1\n{ smg = { damage = 12 } }";
+        const source_entry_t parts[]{
+            { "weapons/rifle.cydf", "data/weapons/rifle.cydf", pA },
+            { "weapons/smg.cydf", "data/weapons/smg.cydf", pB }
+        };
+        folder_fixture_t fixture{ { parts, 2u }, "weapons", names, 4u };
+        key_value_source_options_t options = FolderOptions( fixture );
+        constexpr const char *pRoot = "@cykv 2\n@schema \"cypher.arsenal\" 1\n#include \"weapons/*.cydf\"\n{}";
+        key_value_document_t *pDocument = CreateDocument();
+        REQUIRE( KeyValue_ParseSource( StringView_FromCString( "data/arsenal.cydf" ), StringView_FromCString( pRoot ), options, pDocument ).status ==
+                 key_value_source_status_t::OK );
+        CHECK( KeyValue_ChildCount( KeyValue_Root( pDocument ) ) == 2u );
+        KeyValue_DestroyDocument( pDocument );
+    }
+
+    SECTION( "no match, no list callback, and a wildcard folder are errors" ) {
+        folder_fixture_t fixture{ { entries, 2u }, "weapons", names, 4u };
+        key_value_source_options_t options = FolderOptions( fixture );
+        key_value_document_t *pDocument = CreateDocument();
+        const auto status = [&]( const char *pRoot ) {
+            return KeyValue_ParseSource( StringView_FromCString( "data/arsenal.cydf" ), StringView_FromCString( pRoot ), options, pDocument ).status;
+        };
+        CHECK( status( "@cykv 2\n@schema \"cypher.arsenal\" 1\n#include \"weapons/*.cykv\" as weapons\n{}" ) == key_value_source_status_t::OPEN_FAILED );
+        CHECK( status( "@cykv 2\n@schema \"cypher.arsenal\" 1\n#include \"armor/*.cydf\" as armor\n{}" ) == key_value_source_status_t::OPEN_FAILED );
+        CHECK( status( "@cykv 2\n@schema \"cypher.arsenal\" 1\n#include \"*/rifle.cydf\" as weapons\n{}" ) == key_value_source_status_t::INVALID_PATH );
+        CHECK( status( "@cykv 2\n@schema \"cypher.arsenal\" 1\n#base \"weapons/*.cydf\"\n{}" ) == key_value_source_status_t::INVALID_PATH );
+        options.pfnList = nullptr;
+        CHECK( status( "@cykv 2\n@schema \"cypher.arsenal\" 1\n#include \"weapons/*.cydf\" as weapons\n{}" ) == key_value_source_status_t::INVALID_ARGUMENT );
+        KeyValue_DestroyDocument( pDocument );
+    }
+}
+
+TEST_CASE( "CYKV 2 #delete and += patch a #base document",
+           "[CypherCommon][Tier1][CYKV][Source][Base]" )
+{
+    constexpr const char *pBase =
+        "@cykv 2\n@schema \"cypher.mode\" 1\n"
+        "{ weapons = { rifle = { damage = 24 scope = true tags = [\"a\"] } } lives = 3 }";
+    const source_entry_t entries[]{ { "base.cydf", "data/base.cydf", pBase } };
+    const auto parse = [&]( const char *pRoot, key_value_document_t *pDocument ) {
+        source_fixture_t fixture{ entries, 1u };
+        return ParseSource( "data/mod.cydf", pRoot, fixture, pDocument );
+    };
+
+    key_value_document_t *pDocument = CreateDocument();
+    const key_value_source_result_t result = parse(
+        "@cykv 2\n@schema \"cypher.mode\" 1\n#base \"base.cydf\"\n"
+        "{ weapons = { rifle = { damage = 30 scope = #delete tags += [\"b\"] } } }", pDocument );
+    REQUIRE( result.status == key_value_source_status_t::OK );
+    key_value_t *pRifle = FindRequired( FindRequired( KeyValue_Root( pDocument ), "weapons" ), "rifle" );
+    i64 damage = 0;
+    REQUIRE( KeyValue_GetI64( FindRequired( pRifle, "damage" ), &damage ) );
+    CHECK( damage == 30 );
+    CHECK( KeyValue_Find( pRifle, StringView_FromCString( "scope" ) ) == nullptr );
+    CHECK( KeyValue_ChildCount( FindRequired( pRifle, "tags" ) ) == 2u );
+    CHECK( KeyValue_Find( KeyValue_Root( pDocument ), StringView_FromCString( "lives" ) ) != nullptr );
+    KeyValue_DestroyDocument( pDocument );
+
+    key_value_document_t *pMissing = CreateDocument();
+    const key_value_source_result_t missing = parse(
+        "@cykv 2\n@schema \"cypher.mode\" 1\n#base \"base.cydf\"\n{ armour = #delete }", pMissing );
+    CHECK( missing.status == key_value_source_status_t::PARSE_FAILED );
+    CHECK( missing.parseResult.status == key_value_parse_status_t::INHERITED_VALUE_MISSING );
+    KeyValue_DestroyDocument( pMissing );
 }
