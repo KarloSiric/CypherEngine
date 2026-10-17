@@ -22,8 +22,10 @@
 #include "CypherGeometry_Sanitation.h"
 #include "CypherGeometry_Planar_Triangulate.h"
 #include "CypherGeometry_PlanarRegion.h"
+#include "CypherGeometry_MeshGeometricValidation.h"
 
 #include <cmath>
+#include <utility>
 
 namespace cypher::editor::geometry
 {
@@ -85,7 +87,269 @@ geometry_status_t AddFaceDedup( polygon_soup_t *s, const u32 *idx, u32 n, u32 gr
     return st;
 }
 
+// The pool types deliberately disable implicit moves. Transfer their storage
+// only after every fallible preparation/validation step has succeeded.
+template <typename record_t, typename tag_t>
+void SwapHollowPool( generation_pool_t<record_t, tag_t> &a,
+                     generation_pool_t<record_t, tag_t> &b ) noexcept
+{
+    using std::swap;
+    swap( a.pSlots, b.pSlots ); swap( a.cRecords, b.cRecords );
+    swap( a.cSlots, b.cSlots ); swap( a.cRetiredSlots, b.cRetiredSlots );
+    swap( a.cSlotLimit, b.cSlotLimit ); swap( a.iFreeHead, b.iFreeHead );
+    swap( a.pAllocator, b.pAllocator );
+}
+
+bool HollowPositionOk( math::vec3d_t p, f64 limit ) noexcept
+{
+    return math::Vec3d_IsFinite( p ) && std::fabs( p.x ) <= limit &&
+           std::fabs( p.y ) <= limit && std::fabs( p.z ) <= limit;
+}
+
+f64 HollowDistance( math::vec3d_t a, math::vec3d_t b ) noexcept
+{
+    return std::sqrt( math::Vec3d_LengthSquared( math::Vec3d_Subtract( a, b ) ) );
+}
+
 } // namespace
+
+sweep_report_t Sweep_TryHollowCircularPath(
+    const curve_network_t *pNet, u32 iPath,
+    const hollow_sweep_options_t &options, const allocator_t *pAllocator,
+    editable_mesh_t *pMeshOut, mesh_attribute_store_t *pAttributesOut ) noexcept
+{
+    sweep_report_t report{};
+    if ( pMeshOut == nullptr || pAttributesOut == nullptr || !Allocator_IsValid( pAllocator ) ) { return report; }
+    if ( pMeshOut->pAllocator != nullptr || pMeshOut->vertices.pAllocator != nullptr ||
+         pMeshOut->halfEdges.pAllocator != nullptr || pMeshOut->edges.pAllocator != nullptr ||
+         pMeshOut->loops.pAllocator != nullptr || pMeshOut->faces.pAllocator != nullptr ||
+         pMeshOut->shells.pAllocator != nullptr || pAttributesOut->corners.pAllocator != nullptr ||
+         pAttributesOut->faces.pAllocator != nullptr || pAttributesOut->edges.pAllocator != nullptr ) {
+        return Fail( report, geometry_status_t::ALREADY_INITIALIZED );
+    }
+    const geometry_policy_t policy{};
+    const auto &numerical = policy.numerical;
+    const f64 outer = options.fOuterRadius, inner = outer - options.fWallThickness;
+    if ( !std::isfinite( outer ) || !std::isfinite( options.fWallThickness ) ||
+         !std::isfinite( options.fWorldUnitsPerUv ) || !( options.fWorldUnitsPerUv > 0.0 ) ||
+         !std::isfinite( options.sampling.fMaxSpacing ) || !( options.sampling.fMaxSpacing > 0.0 ) ||
+         !math::Vec3d_IsFinite( options.sampling.initialUp ) ||
+         !( inner > numerical.fMinimumEdgeLength ) || !( inner < outer ) ||
+         !( options.fWallThickness > numerical.fMinimumEdgeLength ) ||
+         options.cSides < 3u || options.cSides > 128u ) { return report; }
+    if ( !CurveNetwork_IsInitialized( pNet ) ) { return Fail( report, geometry_status_t::NOT_INITIALIZED ); }
+    if ( iPath >= pNet->paths.nCount || pNet->paths.pData[iPath].bClosed ) { return report; }
+    geometry_status_t status = CurveNetwork_Validate( pNet );
+    if ( status != geometry_status_t::OK ) { return Fail( report, status ); }
+
+    // A cubic's control polygon bounds its arc length. Bound the sampler's
+    // divisions before it converts ceil(length/spacing) to an integer. This
+    // deliberately conservative guard also bounds scratch work for tiny spacing.
+    const curve_path_t &path = pNet->paths.pData[iPath];
+    const usize maxRings = kHollowSweepFacesMax / ( 2u * options.cSides );
+    usize ringBound = 1u;
+    for ( u32 s = 0u; s < path.cSteps; ++s ) {
+        const auto &segment = pNet->segments.pData[pNet->steps.pData[path.iFirstStep + s].iSegment];
+        const auto a = pNet->nodes.pData[segment.iNode0].position;
+        const auto b = pNet->nodes.pData[segment.iNode1].position;
+        if ( !HollowPositionOk( a, numerical.fCoordinateMagnitudeLimit ) ||
+             !HollowPositionOk( b, numerical.fCoordinateMagnitudeLimit ) ||
+             !HollowPositionOk( segment.handle0, numerical.fCoordinateMagnitudeLimit ) ||
+             !HollowPositionOk( segment.handle1, numerical.fCoordinateMagnitudeLimit ) ) {
+            return Fail( report, geometry_status_t::NUMERIC_FAILURE );
+        }
+        const f64 bound = segment.basis == curve_basis_t::LINEAR ? HollowDistance( a, b ) :
+            HollowDistance( a, segment.handle0 ) + HollowDistance( segment.handle0, segment.handle1 ) +
+            HollowDistance( segment.handle1, b );
+        const f64 divisions = std::ceil( bound / options.sampling.fMaxSpacing );
+        if ( !std::isfinite( divisions ) || divisions > static_cast<f64>( maxRings - ringBound ) ) {
+            return Fail( report, geometry_status_t::LIMIT_EXCEEDED );
+        }
+        ringBound += divisions < 1.0 ? 1u : static_cast<usize>( divisions );
+        if ( ringBound > maxRings ) { return Fail( report, geometry_status_t::LIMIT_EXCEEDED ); }
+    }
+    vector_t<curve_sample_t> samples{};
+    if ( !Vector_Init( &samples, pAllocator ) ) { return Fail( report, geometry_status_t::ALLOCATION_FAILED ); }
+    status = CurveSampling_TrySamplePath( pNet, iPath, options.sampling, &samples );
+    if ( status != geometry_status_t::OK ) { return Fail( report, status ); }
+    const usize n = samples.nCount, sides = options.cSides;
+    if ( n < 2u ) { return Fail( report, geometry_status_t::DEGENERATE ); }
+    if ( n > maxRings ) { return Fail( report, geometry_status_t::LIMIT_EXCEEDED ); }
+    const usize faceCount = 2u * n * sides;
+    for ( usize i = 1u; i < n; ++i ) {
+        const auto &a = samples.pData[i - 1u], &b = samples.pData[i];
+        const f64 chord = HollowDistance( a.position, b.position );
+        const f64 cosine = math::Vec3d_Dot( a.tangent, b.tangent );
+        const f64 turn = std::sqrt( std::fmax( 0.0, 2.0 * ( 1.0 - cosine ) ) );
+        if ( !( chord > numerical.fMinimumEdgeLength ) || !( cosine > 0.0 ) ||
+             !( chord - outer * turn > numerical.fMinimumEdgeLength ) ) {
+            return Fail( report, geometry_status_t::DEGENERATE );
+        }
+    }
+
+    polygon_soup_t soup{};
+    soup_guard_t soupGuard{ &soup };
+    vector_t<math::vec2d_t> uvs{};
+    vector_t<geometry_mesh_face_handle_t> faceMap{};
+    status = PolygonSoup_Init( &soup, pAllocator );
+    if ( status != geometry_status_t::OK ) { return Fail( report, status ); }
+    if ( !Vector_Reserve( &soup.positions, faceCount ) || !Vector_Reserve( &soup.faces, faceCount ) ||
+         !Vector_Reserve( &soup.corners, 4u * faceCount ) || !Vector_Init( &uvs, pAllocator, 4u * faceCount ) ||
+         !Vector_Init( &faceMap, pAllocator, faceCount ) ) {
+        return Fail( report, geometry_status_t::ALLOCATION_FAILED );
+    }
+    auto vertex = [&]( usize ring, usize side, bool inside ) noexcept -> u32 {
+        return static_cast<u32>( 2u * sides * ring + ( inside ? sides : 0u ) + side % sides );
+    };
+    for ( usize i = 0u; i < n; ++i ) {
+        const auto &sample = samples.pData[i];
+        for ( u32 layer = 0u; layer < 2u; ++layer ) {
+            const f64 radius = layer == 0u ? outer : inner;
+            for ( usize k = 0u; k < sides; ++k ) {
+                const f64 angle = kTwoPi * static_cast<f64>( k ) / static_cast<f64>( sides );
+                const auto radial = math::Vec3d_Add( math::Vec3d_Scale( sample.normal, radius * std::cos( angle ) ),
+                                                     math::Vec3d_Scale( sample.binormal, radius * std::sin( angle ) ) );
+                const auto p = math::Vec3d_Add( sample.position, radial );
+                if ( !HollowPositionOk( p, numerical.fCoordinateMagnitudeLimit ) ) {
+                    return Fail( report, geometry_status_t::NUMERIC_FAILURE );
+                }
+                status = PolygonSoup_TryAddVertex( &soup, p, nullptr );
+                if ( status != geometry_status_t::OK ) { return Fail( report, status ); }
+            }
+        }
+    }
+    auto addFace = [&]( const u32 ( &indices )[4], const math::vec2d_t ( &chart )[4], u32 group,
+                        math::vec3d_t expectedNormal ) noexcept -> geometry_status_t {
+        // All four triangle corners must face the expected wall/rim direction.
+        // This refuses collapsed or folded quads before projection triangulation.
+        const f64 normalLength = std::sqrt( math::Vec3d_LengthSquared( expectedNormal ) );
+        if ( !( normalLength > 0.0 ) || !std::isfinite( normalLength ) ) { return geometry_status_t::DEGENERATE; }
+        expectedNormal = math::Vec3d_Scale( expectedNormal, 1.0 / normalLength );
+        for ( usize k = 0u; k < 4u; ++k ) {
+            if ( !math::Vec2d_IsFinite( chart[k] ) ) { return geometry_status_t::NUMERIC_FAILURE; }
+            const auto a = soup.positions.pData[indices[k]];
+            const auto b = soup.positions.pData[indices[( k + 1u ) % 4u]];
+            const auto c = soup.positions.pData[indices[( k + 2u ) % 4u]];
+            const auto normal = math::Vec3d_Cross( math::Vec3d_Subtract( b, a ), math::Vec3d_Subtract( c, b ) );
+            if ( !( math::Vec3d_Dot( normal, expectedNormal ) > numerical.fMinimumFaceArea ) ) {
+                return geometry_status_t::DEGENERATE;
+            }
+        }
+        const f64 uvArea = ( chart[1].x - chart[0].x ) * ( chart[2].y - chart[0].y ) -
+                           ( chart[1].y - chart[0].y ) * ( chart[2].x - chart[0].x );
+        if ( !std::isfinite( uvArea ) || uvArea == 0.0 ) { return geometry_status_t::NUMERIC_FAILURE; }
+        auto result = PolygonSoup_TryAddFace( &soup, { indices, 4u }, {}, group, nullptr );
+        if ( result == geometry_status_t::OK && !Vector_Append( &uvs, span_t<const math::vec2d_t>{ chart, 4u } ) ) {
+            result = geometry_status_t::ALLOCATION_FAILED;
+        }
+        return result;
+    };
+    const f64 repeat = options.fWorldUnitsPerUv;
+    for ( usize i = 0u; i + 1u < n; ++i ) {
+        for ( usize k = 0u; k < sides; ++k ) {
+            for ( u32 layer = 0u; layer < 2u; ++layer ) {
+                const bool inside = layer != 0u;
+                const f64 radius = inside ? inner : outer;
+                const f64 u0 = kTwoPi * radius * static_cast<f64>( k ) / ( static_cast<f64>( sides ) * repeat );
+                const f64 u1 = kTwoPi * radius * static_cast<f64>( k + 1u ) / ( static_cast<f64>( sides ) * repeat );
+                const f64 v0 = samples.pData[i].distance / repeat, v1 = samples.pData[i + 1u].distance / repeat;
+                u32 q[4] = { vertex( i, k, inside ), vertex( i, k + 1u, inside ),
+                             vertex( i + 1u, k + 1u, inside ), vertex( i + 1u, k, inside ) };
+                math::vec2d_t chart[4] = { { u0, v0 }, { u1, v0 }, { u1, v1 }, { u0, v1 } };
+                auto radial = math::Vec3d_Make( 0.0, 0.0, 0.0 );
+                for ( usize c = 0u; c < 4u; ++c ) {
+                    radial = math::Vec3d_Add( radial, math::Vec3d_Subtract( soup.positions.pData[q[c]],
+                        samples.pData[c < 2u ? i : i + 1u].position ) );
+                }
+                if ( inside ) {
+                    std::swap( q[1], q[3] ); std::swap( chart[1], chart[3] );
+                    for ( auto &uv : chart ) { uv.x = -uv.x; }
+                    radial = math::Vec3d_Scale( radial, -1.0 );
+                }
+                status = addFace( q, chart, layer, radial );
+                if ( status != geometry_status_t::OK ) { return Fail( report, status ); }
+            }
+        }
+    }
+    for ( u32 end = 0u; end < 2u; ++end ) {
+        const usize i = end == 0u ? 0u : n - 1u;
+        const auto normal = math::Vec3d_Scale( samples.pData[i].tangent, end == 0u ? -1.0 : 1.0 );
+        for ( usize k = 0u; k < sides; ++k ) {
+            u32 q[4] = { vertex( i, k, false ), vertex( i, k + 1u, false ),
+                         vertex( i, k + 1u, true ), vertex( i, k, true ) };
+            math::vec2d_t chart[4]{};
+            for ( usize c = 0u; c < 4u; ++c ) {
+                const auto offset = math::Vec3d_Subtract( soup.positions.pData[q[c]], samples.pData[i].position );
+                chart[c] = { math::Vec3d_Dot( offset, samples.pData[i].normal ) / repeat,
+                             math::Vec3d_Dot( offset, samples.pData[i].binormal ) / repeat };
+            }
+            if ( end == 0u ) { std::swap( q[1], q[3] ); std::swap( chart[1], chart[3] ); }
+            status = addFace( q, chart, 2u + end, normal );
+            if ( status != geometry_status_t::OK ) { return Fail( report, status ); }
+        }
+    }
+    editable_mesh_t candidate{};
+    mesh_attribute_store_t attributes{};
+    struct output_guard_t {
+        editable_mesh_t *mesh; mesh_attribute_store_t *attributes;
+        ~output_guard_t() { MeshAttributeStore_Shutdown( attributes ); EditableMesh_Shutdown( mesh ); }
+    } outputGuard{ &candidate, &attributes };
+    const auto sanitation = Sanitation_TryPolygonSoupToMesh( &soup, {}, pAllocator, &candidate, &faceMap );
+    if ( sanitation.status != geometry_status_t::OK ) { return Fail( report, sanitation.status ); }
+    if ( sanitation.cShells != 1u || sanitation.cBoundaryEdges != 0u ||
+         !( EditableMesh_SignedVolume( &candidate ) > numerical.fMinimumFaceArea ) ) {
+        return Fail( report, geometry_status_t::INVALID_TOPOLOGY );
+    }
+    const auto geometry = MeshValidation_ValidateGeometry( &candidate, policy, {} );
+    if ( geometry.status != geometry_status_t::OK ) { return Fail( report, geometry.status ); }
+    if ( geometry.cShortEdges != 0u || geometry.cCoincidentPairs != 0u ) {
+        return Fail( report, geometry_status_t::DEGENERATE );
+    }
+    status = MeshAttributeStore_Init( &attributes, pAllocator );
+    if ( status != geometry_status_t::OK ) { return Fail( report, status ); }
+    for ( usize f = 0u; f < faceMap.nCount; ++f ) {
+        const auto hFace = faceMap.pData[f];
+        const auto *face = EditableMesh_GetFace( &candidate, hFace );
+        const auto *loop = face ? EditableMesh_GetLoop( &candidate, face->hOuterLoop ) : nullptr;
+        if ( loop == nullptr || loop->cHalfEdges != 4u ) { return Fail( report, geometry_status_t::CORRUPT_STATE ); }
+        auto hCorner = loop->hFirstHalfEdge;
+        for ( usize c = 0u; c < 4u; ++c ) {
+            const auto *half = EditableMesh_GetHalfEdge( &candidate, hCorner );
+            const auto *point = half ? EditableMesh_GetVertex( &candidate, half->hOrigin ) : nullptr;
+            const usize sourceCorner = soup.faces.pData[f].iFirstCorner + c;
+            const auto expected = soup.positions.pData[soup.corners.pData[sourceCorner]];
+            if ( point == nullptr || point->position.x != expected.x || point->position.y != expected.y || point->position.z != expected.z ) {
+                return Fail( report, geometry_status_t::CORRUPT_STATE );
+            }
+            mesh_corner_attributes_t attr{};
+            attr.uv0 = attr.uv1 = uvs.pData[sourceCorner];
+            status = MeshAttributeStore_TrySetCorner( &attributes, hCorner, attr, candidate.limits.cHalfEdgeMax );
+            if ( status != geometry_status_t::OK ) { return Fail( report, status ); }
+            hCorner = half->hNext;
+        }
+        mesh_face_attributes_t attr{};
+        attr.smoothingGroups = soup.faces.pData[f].iGroup < 2u ? ( 1u << soup.faces.pData[f].iGroup ) : 0u;
+        status = MeshAttributeStore_TrySetFace( &attributes, hFace, attr, candidate.limits.cFaceMax );
+        if ( status != geometry_status_t::OK ) { return Fail( report, status ); }
+    }
+    SwapHollowPool( pMeshOut->vertices, candidate.vertices );
+    SwapHollowPool( pMeshOut->halfEdges, candidate.halfEdges );
+    SwapHollowPool( pMeshOut->edges, candidate.edges );
+    SwapHollowPool( pMeshOut->loops, candidate.loops );
+    SwapHollowPool( pMeshOut->faces, candidate.faces );
+    SwapHollowPool( pMeshOut->shells, candidate.shells );
+    std::swap( pMeshOut->pAllocator, candidate.pAllocator );
+    std::swap( pMeshOut->limits, candidate.limits );
+    Vector_Move( &pAttributesOut->corners, &attributes.corners );
+    Vector_Move( &pAttributesOut->faces, &attributes.faces );
+    Vector_Move( &pAttributesOut->edges, &attributes.edges );
+    report.status = geometry_status_t::OK;
+    report.cRings = static_cast<u32>( n );
+    report.cWallFaces = static_cast<u32>( 2u * sides * ( n - 1u ) );
+    report.cCapFaces = static_cast<u32>( 2u * sides );
+    report.bClosed = true;
+    return report;
+}
 
 sweep_report_t Sweep_TryAlongPath(
     const curve_network_t *pNet,

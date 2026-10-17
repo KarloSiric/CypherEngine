@@ -323,6 +323,15 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Geometry adds an open-path hollow circular sweep using shared rotation-
+  minimizing frames for its inner and outer walls and annular end rims, leaving
+  the passage open. Paired mesh/attribute outputs publish only after structural
+  and geometric validation. Distance UV charts include seams and rims in both
+  UV sets; UV1 is not a packed lightmap. Invalid walls, sampled folds,
+  self-intersections and results above 2,048 faces refuse without publishing.
+  Validation: five focused cases / 3,647 assertions, including every allocation
+  refusal on the small fixture; complete Geometry 1,290 cases / 383,414
+  assertions. This kernel increment is separate from Mason integration.
 - Geometry Inset now retains every original perimeter edge when replacing a
   face, including open boundaries without an external twin. Edge representatives
   point to the surviving ring, so isolated sheets and faces beside an open

@@ -44,6 +44,7 @@
 
 #include "CypherGeometry_CurveSampling.h"
 #include "CypherGeometry_EditableMesh.h"
+#include "CypherGeometry_Attributes_MeshStore.h"
 
 namespace cypher::editor::geometry
 {
@@ -74,6 +75,35 @@ CYPHER_NODISCARD sweep_report_t Sweep_TryAlongPath(
     const sweep_options_t &options,
     const common::allocator_t *pAllocator,
     editable_mesh_t *pMeshOut ) noexcept;
+
+inline constexpr common::u32 kHollowSweepFacesMax = 2048u;
+
+struct hollow_sweep_options_t {
+    curve_sampling_options_t sampling{};
+    common::f64 fOuterRadius{ 16.0 };
+    common::f64 fWallThickness{ 4.0 };
+    common::f64 fWorldUnitsPerUv{ 128.0 };
+    common::u32 cSides{ 16u }; // [3, 128]
+};
+
+// Constant circular wall along an OPEN path. Outer/inner rings share the
+// rotation-minimizing frames. Annular end rims close the wall, leaving the
+// passage open; cCapFaces counts these rim quads, never filled end disks.
+// UV0 and UV1 contain the same circumference/arc-length charts (separate
+// inner/outer seams and planar rims), not packed or baked lightmap UVs.
+// Both outputs must be zero-initialized; neither is published on failure.
+// The candidate is limited to 2048 faces, checked for folded wall quads and
+// self-intersection, and confined to the default geometry coordinate domain.
+// Short/coincident edges, collapsed walls and sampled turns whose effective
+// bend radius is no larger than the outer radius are refused. The result is
+// a sampled polygonal approximation, not an exact offset of a continuous curve.
+CYPHER_NODISCARD sweep_report_t Sweep_TryHollowCircularPath(
+    const curve_network_t *pNet,
+    common::u32 iPath,
+    const hollow_sweep_options_t &options,
+    const common::allocator_t *pAllocator,
+    editable_mesh_t *pMeshOut,
+    mesh_attribute_store_t *pAttributesOut ) noexcept;
 
 struct lathe_options_t {
     common::f64 angle{ 6.283185307179586 }; // radians; >= 2*pi - 1e-9 means full turn

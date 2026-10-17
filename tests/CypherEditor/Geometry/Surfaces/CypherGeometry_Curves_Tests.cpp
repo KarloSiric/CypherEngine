@@ -25,11 +25,13 @@
 #include "CypherGeometry_Sweep.h"
 #include "CypherGeometry_MeshValidation.h"
 #include "CypherGeometry_MeshGeometricValidation.h"
+#include "CypherGeometry_RaycastQueries.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace cypher::editor::geometry {
@@ -371,6 +373,263 @@ TEST_CASE( "Sweep: open profile makes a ribbon", "[Curves][Sweep]" )
     CHECK( r.cWallFaces == 4u );
     CHECK( EditableMesh_SurfaceArea( &m ) == Approx( 8.0 ) );
     EditableMesh_Shutdown( &m );
+}
+
+namespace {
+struct HollowOutput {
+    editable_mesh_t mesh{};
+    mesh_attribute_store_t attributes{};
+    ~HollowOutput() { MeshAttributeStore_Shutdown( &attributes ); EditableMesh_Shutdown( &mesh ); }
+};
+
+void CheckHollowTopology( const HollowOutput &out )
+{
+    const auto v = MeshValidation_Validate( &out.mesh );
+    CHECK( v.bReciprocalTwins ); CHECK( v.bClosedLoops ); CHECK( v.bAllVerticesReferenced );
+    CHECK( v.bEdgeLinks ); CHECK( v.bShellLinks ); CHECK( v.bConsistentWinding );
+    CHECK( v.bPositiveVolume );
+    CHECK( v.nEulerCharacteristic == 0 ); // Closed pipe wall has a passage (genus one).
+    CHECK( EditableMesh_ShellCount( &out.mesh ) == 1u );
+    CHECK( MeshValidation_ValidateGeometry( &out.mesh, {}, {} ).status == geometry_status_t::OK );
+    CHECK( MeshAttributeStore_Validate( &out.attributes, &out.mesh, nullptr ) == geometry_status_t::OK );
+    CHECK( MeshAttributeStore_CountLive( &out.attributes, &out.mesh ).cCorners == EditableMesh_HalfEdgeCount( &out.mesh ) );
+}
+
+mesh_raycast_hit_t HollowRay( const editable_mesh_t &mesh, vec3d_t origin, vec3d_t direction )
+{
+    common::usize size{};
+    REQUIRE( MeshQueries_TryGetRaycastScratchSize( &mesh, {}, &size ) == geometry_status_t::OK );
+    geometry_scratch_t scratch{};
+    REQUIRE( GeometryScratch_Acquire( &scratch, { {}, common::Allocator_GetSystem(), size, size } ) == geometry_status_t::OK );
+    mesh_raycast_hit_t hit{};
+    geometry_raycast_options_t options{}; options.fMaximumDistance = 100.0;
+    options.meshSurfaceMode = geometry_mesh_raycast_surface_t::PROJECTED_TRIANGLES;
+    const auto status = MeshQueries_TryRaycast( &mesh, Id( 1 ), { origin, direction }, options, {}, &scratch, &hit );
+    REQUIRE( GeometryScratch_Release( &scratch ) == geometry_status_t::OK );
+    REQUIRE( status == geometry_status_t::OK );
+    return hit;
+}
+
+struct HollowAllocatorState {
+    common::usize calls{}, failAt{ common::CY_INVALID_SIZE }, allocations{}, frees{};
+};
+void *HollowAllocate( void *data, common::usize size, common::usize alignment ) noexcept
+{
+    auto &s = *static_cast<HollowAllocatorState *>( data );
+    if ( ++s.calls == s.failAt ) { return nullptr; }
+    void *p = common::Allocator_Allocate( common::Allocator_GetSystem(), size, alignment );
+    if ( p ) { ++s.allocations; } return p;
+}
+void HollowFree( void *data, void *p, common::usize size, common::usize alignment ) noexcept
+{
+    auto &s = *static_cast<HollowAllocatorState *>( data );
+    if ( p ) { ++s.frees; }
+    common::Allocator_Free( common::Allocator_GetSystem(), p, size, alignment );
+}
+} // namespace
+
+TEST_CASE( "Hollow sweep has annular rims, exact radii, winding and seam-aware UV charts", "[Curves][Sweep][hollow-sweep]" )
+{
+    Net net;
+    const auto a = net.Node( { 0, 0, 0 } ), b = net.Node( { 0, 0, 5 } );
+    const auto path = net.Path( { { net.Line( a, b ), false } }, false );
+    hollow_sweep_options_t options{};
+    options.fOuterRadius = 2.0; options.fWallThickness = 0.5;
+    options.cSides = 8; options.fWorldUnitsPerUv = 4.0;
+    options.sampling.initialUp = { 1, 0, 0 }; options.sampling.fMaxSpacing = 1.0;
+    HollowOutput out;
+    const auto report = Sweep_TryHollowCircularPath( &net.n, path, options, &net.allocator, &out.mesh, &out.attributes );
+    REQUIRE( report.status == geometry_status_t::OK );
+    CHECK( report.cRings == 6u ); CHECK( report.cWallFaces == 80u ); CHECK( report.cCapFaces == 16u ); CHECK( report.bClosed );
+    CHECK( EditableMesh_VertexCount( &out.mesh ) == 96u );
+    CHECK( EditableMesh_FaceCount( &out.mesh ) == 96u );
+    CheckHollowTopology( out );
+    CHECK( EditableMesh_SignedVolume( &out.mesh ) == Approx( ( PolyArea( 8, 2.0 ) - PolyArea( 8, 1.5 ) ) * 5.0 ) );
+    for ( common::u32 i = 0; i < out.mesh.vertices.cSlots; ++i ) {
+        const auto *point = EditableMesh_GetVertex( &out.mesh, { i, out.mesh.vertices.pSlots[i].nGeneration } );
+        if ( point == nullptr ) { continue; }
+        const auto &v = *point;
+        const double radius = std::hypot( v.position.x, v.position.y );
+        CHECK( ( std::fabs( radius - 2.0 ) < 1e-12 || std::fabs( radius - 1.5 ) < 1e-12 ) );
+        CHECK( v.position.z == Approx( std::round( v.position.z ) ) );
+    }
+    CHECK_FALSE( HollowRay( out.mesh, { 0, 0, -1 }, { 0, 0, 1 } ).bHit );
+    const auto rim = HollowRay( out.mesh, { 1.75, 0, -1 }, { 0, 0, 1 } );
+    REQUIRE( rim.bHit ); CHECK( rim.normal.z == Approx( -1.0 ) );
+    const auto inner = HollowRay( out.mesh, { 0, 0, 2.5 }, { 1, 0, 0 } );
+    REQUIRE( inner.bHit ); CHECK( inner.position.x == Approx( 1.5 ) ); CHECK( inner.normal.x < 0.0 );
+    const auto outer = HollowRay( out.mesh, { 3, 0, 2.5 }, { -1, 0, 0 } );
+    REQUIRE( outer.bHit ); CHECK( outer.position.x == Approx( 2.0 ) ); CHECK( outer.normal.x > 0.0 );
+
+    bool seamZero = false, seamRepeat = false, innerSeam = false, endLength = false;
+    for ( common::u32 i = 0; i < out.mesh.faces.cSlots; ++i ) {
+        const geometry_mesh_face_handle_t h{ i, out.mesh.faces.pSlots[i].nGeneration };
+        const auto *record = EditableMesh_GetFace( &out.mesh, h );
+        if ( record == nullptr ) { continue; }
+        const auto &face = *record;
+        const auto *loop = EditableMesh_GetLoop( &out.mesh, face.hOuterLoop ); REQUIRE( loop );
+        const auto faceAttr = MeshAttributeStore_GetFace( &out.attributes, h );
+        auto corner = loop->hFirstHalfEdge;
+        vec2d_t chart[4]{};
+        for ( common::u32 k = 0; k < 4; ++k ) {
+            const auto *edge = EditableMesh_GetHalfEdge( &out.mesh, corner ); REQUIRE( edge );
+            const auto *v = EditableMesh_GetVertex( &out.mesh, edge->hOrigin ); REQUIRE( v );
+            const auto attr = MeshAttributeStore_GetCorner( &out.attributes, corner );
+            CHECK( attr.uv0.x == attr.uv1.x ); CHECK( attr.uv0.y == attr.uv1.y );
+            CHECK( std::isfinite( attr.uv0.x ) ); CHECK( std::isfinite( attr.uv0.y ) );
+            chart[k] = attr.uv0;
+            if ( faceAttr.smoothingGroups == 1u && std::fabs( v->position.x - 2.0 ) < 1e-12 && std::fabs( v->position.y ) < 1e-12 ) {
+                seamZero |= std::fabs( attr.uv0.x ) < 1e-12;
+                seamRepeat |= std::fabs( attr.uv0.x - kPi ) < 1e-12;
+            }
+            if ( faceAttr.smoothingGroups == 2u ) { innerSeam |= std::fabs( attr.uv0.x + 0.75 * kPi ) < 1e-12; }
+            if ( faceAttr.smoothingGroups != 0u ) { endLength |= std::fabs( attr.uv0.y - 1.25 ) < 1e-12; }
+            corner = edge->hNext;
+        }
+        const auto area = ( chart[1].x - chart[0].x ) * ( chart[2].y - chart[0].y ) -
+                          ( chart[1].y - chart[0].y ) * ( chart[2].x - chart[0].x );
+        CHECK( std::fabs( area ) > 1e-12 );
+    }
+    CHECK( seamZero ); CHECK( seamRepeat ); CHECK( innerSeam ); CHECK( endLength );
+}
+
+TEST_CASE( "Hollow sweep follows a quarter bend and an S bend with shared stable frames", "[Curves][Sweep][hollow-sweep]" )
+{
+    Net net;
+    common::u32 path{};
+    SECTION( "Quarter bend" ) {
+        const auto a = net.Node( { 12, 0, 0 } ), b = net.Node( { 0, 12, 0 } );
+        path = net.Path( { { net.QuarterArc( 12, a, b ), false } }, false );
+    }
+    SECTION( "S bend crosses a curvature inflection" ) {
+        const auto a = net.Node( { 0, 0, 0 } ), b = net.Node( { 24, 0, 0 } );
+        path = net.Path( { { net.Bez( a, b, { 8, 12, 0 }, { 16, -12, 0 } ), false } }, false );
+    }
+    hollow_sweep_options_t options{};
+    options.fOuterRadius = 1.0; options.fWallThickness = 0.25;
+    options.cSides = 12; options.sampling.fMaxSpacing = 1.0;
+    options.sampling.initialUp = { 0, 0, 1 };
+    HollowOutput out;
+    const auto report = Sweep_TryHollowCircularPath( &net.n, path, options, &net.allocator, &out.mesh, &out.attributes );
+    REQUIRE( report.status == geometry_status_t::OK );
+    CheckHollowTopology( out );
+    common::vector_t<curve_sample_t> samples{};
+    REQUIRE( common::Vector_Init( &samples, &net.allocator ) );
+    REQUIRE( CurveSampling_TrySamplePath( &net.n, path, options.sampling, &samples ) == geometry_status_t::OK );
+    CHECK( samples.nCount == report.cRings );
+    for ( common::usize i = 0; i < samples.nCount; ++i ) {
+        CHECK( samples.pData[i].normal.z == Approx( 1.0 ) );
+        common::usize ringVertices = 0;
+        for ( common::u32 slot = 0; slot < out.mesh.vertices.cSlots; ++slot ) {
+            const auto *point = EditableMesh_GetVertex( &out.mesh, { slot, out.mesh.vertices.pSlots[slot].nGeneration } );
+            if ( point == nullptr ) { continue; }
+            const auto &v = *point;
+            const auto d = math::Vec3d_Subtract( v.position, samples.pData[i].position );
+            const auto radius = std::sqrt( math::Vec3d_LengthSquared( d ) );
+            if ( std::fabs( math::Vec3d_Dot( d, samples.pData[i].tangent ) ) < 1e-9 &&
+                 ( std::fabs( radius - 1.0 ) < 1e-9 || std::fabs( radius - 0.75 ) < 1e-9 ) ) { ++ringVertices; }
+        }
+        CHECK( ringVertices == 24u );
+    }
+}
+
+TEST_CASE( "Hollow sweep refuses invalid walls, closed paths, budgets and folded geometry without output", "[Curves][Sweep][hollow-sweep]" )
+{
+    Net net;
+    const auto a = net.Node( { 0, 0, 0 } ), b = net.Node( { 0, 0, 8 } );
+    auto path = net.Path( { { net.Line( a, b ), false } }, false );
+    hollow_sweep_options_t options{};
+    options.fOuterRadius = 1; options.fWallThickness = 0.25; options.cSides = 8;
+    geometry_status_t expected = geometry_status_t::INVALID_ARGUMENT;
+    SECTION( "Zero wall" ) { options.fWallThickness = 0; }
+    SECTION( "No lumen" ) { options.fWallThickness = options.fOuterRadius; }
+    SECTION( "Negative radius" ) { options.fOuterRadius = -1; }
+    SECTION( "Nonfinite radius" ) { options.fOuterRadius = std::numeric_limits<double>::infinity(); }
+    SECTION( "Invalid sides" ) { options.cSides = 2; }
+    SECTION( "Too many sides" ) { options.cSides = 129; }
+    SECTION( "Invalid repeat" ) { options.fWorldUnitsPerUv = 0; }
+    SECTION( "Degenerate UV scale" ) { options.fWorldUnitsPerUv = 1e300; expected = geometry_status_t::NUMERIC_FAILURE; }
+    SECTION( "Invalid spacing" ) { options.sampling.fMaxSpacing = std::numeric_limits<double>::infinity(); }
+    SECTION( "Tiny spacing is bounded before integer conversion" ) { options.sampling.fMaxSpacing = 1e-300; expected = geometry_status_t::LIMIT_EXCEEDED; }
+    SECTION( "Face budget" ) { options.cSides = 128; options.sampling.fMaxSpacing = 0.5; expected = geometry_status_t::LIMIT_EXCEEDED; }
+    SECTION( "Coordinate domain" ) {
+        const auto c = net.Node( { 1e6, 0, 0 } ), d = net.Node( { 1e6, 0, 8 } );
+        path = net.Path( { { net.Line( c, d ), false } }, false ); expected = geometry_status_t::NUMERIC_FAILURE;
+    }
+    SECTION( "Closed path" ) { path = net.Path( { { net.Line( a, b ), false }, { net.Line( b, a ), false } }, true ); }
+    SECTION( "Tight elbow folds its inner bend" ) {
+        const auto c = net.Node( { 1, 0, 0 } ), d = net.Node( { 0, 1, 0 } );
+        path = net.Path( { { net.QuarterArc( 1, c, d ), false } }, false );
+        options.fOuterRadius = 2; options.sampling.fMaxSpacing = 0.2; expected = geometry_status_t::DEGENERATE;
+    }
+    SECTION( "Crossing gentle path" ) {
+        const vec3d_t points[] = { { -8,-8,0 }, { 0,0,0 }, { 8,8,0 }, { 16,0,0 }, { 8,-8,0 }, { 0,0,0 }, { -8,8,0 } };
+        REQUIRE( CurveNetwork_TryAddCatmullRomPath( &net.n, { points, 7 }, false, &net.ids, &path ) == geometry_status_t::OK );
+        options.fOuterRadius = 0.25; options.fWallThickness = 0.1; options.cSides = 6;
+        expected = geometry_status_t::SELF_INTERSECTING;
+    }
+    HollowOutput out;
+    const auto report = Sweep_TryHollowCircularPath( &net.n, path, options, &net.allocator, &out.mesh, &out.attributes );
+    CHECK( report.status == expected );
+    CHECK_FALSE( EditableMesh_IsInitialized( &out.mesh ) );
+    CHECK( out.mesh.vertices.pSlots == nullptr ); CHECK( out.mesh.faces.pSlots == nullptr );
+    CHECK( out.attributes.corners.pAllocator == nullptr ); CHECK( out.attributes.corners.pData == nullptr );
+}
+
+TEST_CASE( "Hollow sweep requires two empty outputs and preserves already-owned results", "[Curves][Sweep][hollow-sweep]" )
+{
+    Net net;
+    const auto a = net.Node( { 0,0,0 } ), b = net.Node( { 0,0,4 } );
+    const auto path = net.Path( { { net.Line( a,b ), false } }, false );
+    hollow_sweep_options_t options{}; options.fOuterRadius = 1; options.fWallThickness = 0.25; options.cSides = 8;
+    HollowOutput out;
+    SECTION( "Existing generated mesh and UVs" ) {
+        REQUIRE( Sweep_TryHollowCircularPath( &net.n, path, options, &net.allocator, &out.mesh, &out.attributes ).status == geometry_status_t::OK );
+        const auto *vertices = out.mesh.vertices.pSlots;
+        const auto *corners = out.attributes.corners.pData;
+        const auto count = EditableMesh_FaceCount( &out.mesh );
+        CHECK( Sweep_TryHollowCircularPath( &net.n, path, options, &net.allocator, &out.mesh, &out.attributes ).status == geometry_status_t::ALREADY_INITIALIZED );
+        CHECK( out.mesh.vertices.pSlots == vertices ); CHECK( out.attributes.corners.pData == corners );
+        CHECK( EditableMesh_FaceCount( &out.mesh ) == count );
+        CheckHollowTopology( out );
+    }
+    SECTION( "Attributes alone already initialized" ) {
+        REQUIRE( MeshAttributeStore_Init( &out.attributes, &net.allocator ) == geometry_status_t::OK );
+        CHECK( Sweep_TryHollowCircularPath( &net.n, path, options, &net.allocator, &out.mesh, &out.attributes ).status == geometry_status_t::ALREADY_INITIALIZED );
+        CHECK_FALSE( EditableMesh_IsInitialized( &out.mesh ) );
+        CHECK( MeshAttributeStore_IsInitialized( &out.attributes ) );
+    }
+}
+
+TEST_CASE( "Hollow sweep allocation failures leave both outputs empty and release private storage", "[Curves][Sweep][hollow-sweep][allocation]" )
+{
+    Net net;
+    const auto a = net.Node( { 0,0,0 } ), b = net.Node( { 0,0,2 } );
+    const auto path = net.Path( { { net.Line( a,b ), false } }, false );
+    hollow_sweep_options_t options{};
+    options.fOuterRadius = 1; options.fWallThickness = 0.25; options.cSides = 3; options.sampling.fMaxSpacing = 2;
+    HollowAllocatorState probe{};
+    common::allocator_t probeAllocator{ HollowAllocate, nullptr, HollowFree, &probe };
+    {
+        HollowOutput out;
+        REQUIRE( Sweep_TryHollowCircularPath( &net.n, path, options, &probeAllocator, &out.mesh, &out.attributes ).status == geometry_status_t::OK );
+        CHECK( MeshAttributeStore_CountLive( &out.attributes, &out.mesh ).cCorners == 48u );
+    }
+    REQUIRE( probe.allocations == probe.frees );
+    REQUIRE( probe.calls > 10u );
+    for ( common::usize fail = 1; fail <= probe.calls; ++fail ) {
+        CAPTURE( fail, probe.calls );
+        HollowAllocatorState state{}; state.failAt = fail;
+        common::allocator_t allocator{ HollowAllocate, nullptr, HollowFree, &state };
+        {
+            HollowOutput out;
+            CHECK( Sweep_TryHollowCircularPath( &net.n, path, options, &allocator, &out.mesh, &out.attributes ).status == geometry_status_t::ALLOCATION_FAILED );
+            CHECK_FALSE( EditableMesh_IsInitialized( &out.mesh ) );
+            CHECK( out.mesh.vertices.pSlots == nullptr ); CHECK( out.attributes.corners.pData == nullptr );
+            CHECK( out.attributes.corners.pAllocator == nullptr );
+        }
+        CHECK( state.allocations == state.frees );
+    }
 }
 
 TEST_CASE( "Lathe: rectangle profile makes a cylinder; arc makes a sphere-like solid", "[Curves][Lathe]" )
