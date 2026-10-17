@@ -45,7 +45,10 @@ struct map_entity_match_t {
 CYPHER_NODISCARD QVector<map_entity_match_t> MapFindEntities_Search( const map_workspace_t *pWorkspace, const QString &text, const QString &key = {} );
 
 // Replaces `text` with `with` in the matching string values (class and name
-// included) of `entities`, as one undo step. Returns how many values changed.
+// included) of `entities`, as one undo step. Duplicate entity IDs are visited
+// once. Returns the number of changed values, 0 for a successful no-op, or -1
+// for refusal/failure (with a notice). Any locked entity whose value would
+// change refuses the whole batch; no authored changes or history are published.
 CYPHER_NODISCARD int MapFindEntities_Replace( map_workspace_t *pWorkspace, const QVector<common::u64> &entities, const QString &text,
     const QString &with, const QString &key = {} );
 

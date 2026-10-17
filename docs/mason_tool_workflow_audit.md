@@ -584,9 +584,9 @@ includes native refusal and retry checks. This does not establish the write
 targets of the independent tools listed below.
 
 D2 is **not universally closed**: commands that target unselected objects and
-modeless/captured explicit targets need separate write-target checks. Carve,
-map-wide material replacement, Displace/sculpt and entity I/O
-are concrete follow-ups. Generic edit callbacks do not declare their write set,
+modeless/captured explicit targets need separate write-target checks. Entity I/O remains a concrete follow-up. Carve, map-wide material replacement
+and entity Find and Replace now have their own checked write-target paths,
+validated on 17 October; Displace/sculpt has the separate repair above. Generic edit callbacks do not declare their write set,
 so guarding only the current selection there would be insufficient. The original
 finding below records the pre-fix behavior; assembly gate G6 remains open.
 

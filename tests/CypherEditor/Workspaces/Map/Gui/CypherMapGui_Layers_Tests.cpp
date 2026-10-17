@@ -24,6 +24,12 @@
 #include "CypherMap_Groups.h"
 #include "CypherMap_SelectionSets.h"
 #include "CypherMap_Hierarchy.h"
+#include "CypherMap_Edit.h"
+#include "CypherMap_MeshEdit.h"
+#include "CypherMap_TextureEdit.h"
+#include "CypherGeometry_DocumentBrushAttributes.h"
+#include "CypherGeometry_DocumentMeshes.h"
+#include "CypherGeometry_DocumentSurfaces.h"
 
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 
@@ -36,6 +42,10 @@
 #include <QMouseEvent>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
+#include <QDialog>
+#include <QComboBox>
+#include <QLineEdit>
+#include <QTimer>
 
 #include <memory>
 #include <algorithm>
@@ -512,4 +522,209 @@ TEST_CASE( "Ordinary brush lock checks need no hierarchy allocation", "[map][gui
     }
     CHECK( s.ws.selection.revision == revision );
     REQUIRE( s.ws.selection.ids.nCount == 1 ); CHECK( s.ws.selection.ids.pData[0] == movable );
+}
+
+namespace
+{
+constexpr const char *kReplaceFrom = "materials/test/replace_old.cymat";
+constexpr const char *kReplaceTo = "materials/test/replace_new.cymat";
+constexpr const char *kReplaceCommand = "map.texture.replace materials/test/replace_old.cymat materials/test/replace_new.cymat";
+std::string MaterialMapText( map_document_t *map )
+{
+    text_buffer_t text{}; REQUIRE( TextBuffer_Init( &text, Allocator_GetSystem() ) );
+    REQUIRE( MapDocument_Save( map, &text ) == map_status_t::OK );
+    return { TextBuffer_Data( &text ), TextBuffer_Length( &text ) };
+}
+usize MaterialSurfaceCount( const map_document_t *map, const char *path )
+{
+    const auto uses = [&]( u64 material ) noexcept { return StringView_Equals( MapMaterials_Path( &map->materials, material ), StringView_FromCString( path ) ); };
+    usize count = 0;
+    for ( usize i = 0; i < map->geometry.brushes.nCount; ++i ) {
+        const auto *brush = map->geometry.brushes.pData[i];
+        const auto *attributes = geometry::GeometryDocument_FindBrushAttributes( &map->geometry, brush->sourceId ); REQUIRE( attributes );
+        for ( usize k = 0; k < brush->sides.nCount; ++k ) {
+            const auto index = brush->sides.pData[k].iAttributeIndex; REQUIRE( index < attributes->records.nCount );
+            count += uses( attributes->records.pData[index].material.value );
+        }
+    }
+    for ( usize i = 0; i < map->geometry.meshes.nCount; ++i ) {
+        const auto *mesh = map->geometry.meshes.pData[i];
+        ( void )GenerationPool_ForEach( &mesh->mesh.faces, [&]( geometry::geometry_mesh_face_handle_t face, const geometry::mesh_face_record_t & ) noexcept -> bool_t {
+            count += uses( geometry::MeshAttributeStore_GetFace( &mesh->attributes, face ).material.value ); return CY_TRUE;
+        } );
+    }
+    for ( usize i = 0; i < geometry::GeometryDocument_PatchCount( &map->geometry ); ++i ) {
+        count += uses( geometry::GeometryDocument_PatchAt( &map->geometry, i )->materialId );
+    }
+    return count;
+}
+struct material_fixture_t {
+    session_t s;
+    u64 ids[3]{};
+    material_fixture_t()
+    {
+        auto *map = s.ws.pDocument;
+        REQUIRE( MapEdit_CreateBox( map, { { 0, 0, 0 }, { 64, 64, 64 } }, StringView_FromCString( kReplaceFrom ), {}, &ids[0] ) == map_status_t::OK );
+        REQUIRE( MapEdit_CreateBox( map, { { 128, 0, 0 }, { 192, 64, 64 } }, StringView_FromCString( kReplaceFrom ), {}, &ids[1] ) == map_status_t::OK );
+        vector_t<u64> converted{}; REQUIRE( Vector_Init( &converted, map->pAllocator ) );
+        REQUIRE( MapMeshEdit_ConvertBrushes( map, { &ids[1], 1 }, &converted ) == map_status_t::OK );
+        REQUIRE( MapCreate_Patch( map, map_patch_shape_t::PLANE, { { 0, 200, 0 }, { 128, 328, 0 } }, 2, 8,
+            StringView_FromCString( kReplaceFrom ), &ids[2] ) == map_status_t::OK );
+        REQUIRE( MapDocument_AddLayer( map, StringView_FromCString( "protected" ), StringView_FromCString( "Protected" ) ) == map_status_t::OK );
+        MapWorkspace_DocumentChanged( &s.ws ); REQUIRE( MaterialSurfaceCount( map, kReplaceFrom ) == 13 );
+    }
+    void Protect( usize index, bool hidden )
+    {
+        REQUIRE( MapDocument_SetGeometryLayer( s.ws.pDocument, ids[index], StringView_FromCString( "protected" ) ) == map_status_t::OK );
+        MapWorkspace_DocumentChanged( &s.ws );
+        REQUIRE( MapLayers_SetLocked( &s.ws, QStringLiteral( "protected" ), true ) );
+        if ( hidden ) { REQUIRE( MapLayers_SetHidden( &s.ws, QStringLiteral( "protected" ), true ) ); }
+    }
+    void PrepareRedo()
+    {
+        MapWorkspace_Select( &s.ws, ids[0], MAP_SELECT_REPLACE ); REQUIRE( MapWorkspace_TranslateSelection( &s.ws, { 16, 0, 0 } ) );
+        REQUIRE( MapWorkspace_Undo( &s.ws ) == editor_history_status_t::OK ); REQUIRE( EditorHistory_CanRedo( &s.ws.history ) );
+        MapWorkspace_SetSelection( &s.ws, nullptr, 0 );
+    }
+};
+struct material_unchanged_t {
+    std::string text;
+    const map_document_t *document;
+    const math::vec3d_t *points;
+    const u64 *roots;
+    u64 revision, selectionRevision, nextId, nextSource;
+    usize steps, applied;
+    bool redo;
+    undo_state_token_t token;
+    explicit material_unchanged_t( map_workspace_t &ws ) : text( MaterialMapText( ws.pDocument ) ), document( ws.pDocument ), points( ws.wire.points.pData ),
+        roots( ws.selection.ids.pData ), revision( ws.pDocument->geometry.revision ), selectionRevision( ws.selection.revision ), nextId( ws.pDocument->nextId ),
+        nextSource( ws.pDocument->geometry.sourceIds.allocator.next.value ), steps( EditorHistory_StepCount( &ws.history ) ), applied( EditorHistory_AppliedStepCount( &ws.history ) ),
+        redo( EditorHistory_CanRedo( &ws.history ) ), token( UndoRedo_StateToken( ws.history.pUndo ) ) {}
+    void Check( map_workspace_t &ws ) const
+    {
+        CHECK( ws.pDocument == document ); CHECK( ws.wire.points.pData == points ); CHECK( ws.selection.ids.pData == roots );
+        CHECK( ws.pDocument->geometry.revision == revision ); CHECK( ws.selection.revision == selectionRevision ); CHECK( ws.pDocument->nextId == nextId );
+        CHECK( ws.pDocument->geometry.sourceIds.allocator.next.value == nextSource ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+        CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied ); CHECK( EditorHistory_CanRedo( &ws.history ) == redo );
+        CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) ); CHECK( MaterialMapText( ws.pDocument ) == text );
+    }
+};
+}
+
+TEST_CASE( "Map-wide replacement refuses locked material users atomically and retries after unlock", "[map][gui][layers][replace-material-locks]" )
+{
+    usize protectedKind = 0; bool hidden = false;
+    SECTION( "unselected brush" ) {}
+    SECTION( "hidden brush" ) { hidden = true; }
+    SECTION( "unselected mesh" ) { protectedKind = 1; }
+    SECTION( "hidden mesh" ) { protectedKind = 1; hidden = true; }
+    SECTION( "unselected patch" ) { protectedKind = 2; }
+    SECTION( "hidden patch" ) { protectedKind = 2; hidden = true; }
+    material_fixture_t f; auto &ws = f.s.ws; f.PrepareRedo(); f.Protect( protectedKind, hidden );
+    REQUIRE( EditorSelection_Count( &ws.selection ) == 0 ); const material_unchanged_t before( ws );
+    REQUIRE( f.s.Run( kReplaceCommand ) == command_result_t::FAILED ); before.Check( ws );
+    CHECK( MaterialSurfaceCount( ws.pDocument, kReplaceFrom ) == 13 ); CHECK( MaterialSurfaceCount( ws.pDocument, kReplaceTo ) == 0 );
+    map_notice_t kind{}; CHECK( MapNotice_Last( &ws, &kind ).contains( QStringLiteral( "locked" ) ) ); CHECK( kind == map_notice_t::WARNING );
+    REQUIRE( MapLayers_SetLocked( &ws, QStringLiteral( "protected" ), false ) );
+    const auto unlockedText = MaterialMapText( ws.pDocument ); const usize applied = EditorHistory_AppliedStepCount( &ws.history );
+    REQUIRE( f.s.Run( kReplaceCommand ) == command_result_t::OK ); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied + 1 );
+    CHECK_FALSE( EditorHistory_CanRedo( &ws.history ) ); CHECK( EditorSelection_Count( &ws.selection ) == 0 );
+    CHECK( MaterialSurfaceCount( ws.pDocument, kReplaceFrom ) == 0 ); CHECK( MaterialSurfaceCount( ws.pDocument, kReplaceTo ) == 13 );
+    const auto replaced = MaterialMapText( ws.pDocument );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CHECK( MaterialMapText( ws.pDocument ) == unlockedText );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( MaterialMapText( ws.pDocument ) == replaced );
+    map_document_t reopened{};
+    REQUIRE( MapDocument_Load( &reopened, Allocator_GetSystem(), { replaced.data(), replaced.size() } ) == map_status_t::OK );
+    CHECK( MaterialSurfaceCount( &reopened, kReplaceTo ) == 13 ); CHECK( MaterialMapText( &reopened ) == replaced ); MapDocument_Shutdown( &reopened );
+}
+
+TEST_CASE( "Replace Materials allows unrelated locked roots and preserves Redo for genuine no-ops", "[map][gui][layers][replace-material-locks]" )
+{
+    material_fixture_t f; auto &ws = f.s.ws; f.PrepareRedo(); f.Protect( 1, true );
+    for ( const char *command : { "map.texture.replace materials/test/replace_old.cymat materials/test/replace_old.cymat",
+         "map.texture.replace materials/test/not_present.cymat materials/test/replace_new.cymat" } ) {
+        const material_unchanged_t before( ws ); REQUIRE( f.s.Run( command ) == command_result_t::OK ); before.Check( ws );
+        CHECK( ws.lastEdit.outcome == map_edit_outcome_t::UNCHANGED ); CHECK( ws.lastEdit.status == map_status_t::OK );
+        CHECK( MapNotice_Last( &ws ).contains( QStringLiteral( "no material changes" ) ) );
+    }
+    REQUIRE( MapLayers_SetLocked( &ws, QStringLiteral( "protected" ), false ) );
+    u64 separate = 0;
+    REQUIRE( MapEdit_CreateBox( ws.pDocument, { { 400, 0, 0 }, { 464, 64, 64 } },
+        StringView_FromCString( "materials/test/unrelated_locked.cymat" ), {}, &separate ) == map_status_t::OK );
+    REQUIRE( MapDocument_SetGeometryLayer( ws.pDocument, separate, StringView_FromCString( "protected" ) ) == map_status_t::OK );
+    REQUIRE( MapDocument_SetGeometryLayer( ws.pDocument, f.ids[1], StringView_FromCString( ws.pDocument->layers.pData[0].id ) ) == map_status_t::OK );
+    MapWorkspace_DocumentChanged( &ws ); REQUIRE( MapLayers_SetLocked( &ws, QStringLiteral( "protected" ), true ) );
+    MapWorkspace_SetSelection( &ws, nullptr, 0 );
+    REQUIRE( f.s.Run( kReplaceCommand ) == command_result_t::OK ); CHECK( MaterialSurfaceCount( ws.pDocument, kReplaceTo ) == 13 );
+}
+
+TEST_CASE( "Replace Materials GUI allocation refusal preserves its map and Redo then retries", "[map][gui][layers][replace-material-locks][allocation]" )
+{
+    layer_allocation_t audit{}; const allocator_t allocator{ &LayerAllocate, nullptr, &LayerFree, &audit };
+    {
+        material_fixture_t f; auto &ws = f.s.ws; f.PrepareRedo(); const material_unchanged_t before( ws );
+        {
+            layer_allocator_scope_t scope( f.s.gui, &allocator ); audit.fail = true;
+            REQUIRE( f.s.Run( kReplaceCommand ) == command_result_t::FAILED ); REQUIRE( audit.calls > 0 ); CHECK( audit.live == 0 );
+        }
+        before.Check( ws ); CHECK( ws.lastEdit.status == map_status_t::OUT_OF_MEMORY );
+        CHECK( MapNotice_Last( &ws ).contains( QStringLiteral( "memory" ) ) );
+        REQUIRE( f.s.Run( kReplaceCommand ) == command_result_t::OK ); CHECK( MaterialSurfaceCount( ws.pDocument, kReplaceTo ) == 13 );
+    }
+    CHECK( audit.live == 0 );
+}
+
+namespace
+{
+struct material_allocation_t { usize calls{}, failOn{}, live{}; };
+void *MaterialAllocate( void *context, usize bytes, usize alignment ) noexcept
+{
+    auto &audit = *static_cast<material_allocation_t *>( context );
+    if ( ++audit.calls == audit.failOn ) { return nullptr; }
+    void *memory = Allocator_Allocate( Allocator_GetSystem(), bytes, alignment ); if ( memory ) { ++audit.live; } return memory;
+}
+void MaterialFree( void *context, void *memory, usize bytes, usize alignment ) noexcept
+{
+    if ( memory ) { --static_cast<material_allocation_t *>( context )->live; }
+    Allocator_Free( Allocator_GetSystem(), memory, bytes, alignment );
+}
+}
+
+TEST_CASE( "Material user collection handles each allocation failure before document mutation", "[map][gui][layers][replace-material-locks][allocation]" )
+{
+    material_fixture_t fixture; const auto source = MaterialMapText( fixture.s.ws.pDocument );
+    for ( usize failOn = 1; failOn <= 3; ++failOn ) {
+        INFO( "user collection allocation " << failOn );
+        material_allocation_t audit{}; const allocator_t allocator{ &MaterialAllocate, nullptr, &MaterialFree, &audit };
+        map_document_t map{}; REQUIRE( MapDocument_Load( &map, &allocator, { source.data(), source.size() } ) == map_status_t::OK );
+        const auto text = MaterialMapText( &map ); const auto revision = map.geometry.revision, nextId = map.nextId, nextSource = map.geometry.sourceIds.allocator.next.value;
+        const usize live = audit.live; audit.calls = 0; audit.failOn = failOn; usize replaced = 999;
+        const auto status = MapTextureEdit_ReplaceMaterial( &map, StringView_FromCString( kReplaceFrom ), StringView_FromCString( kReplaceTo ), &replaced );
+        audit.failOn = 0;
+        CHECK( status == map_status_t::OUT_OF_MEMORY ); CHECK( audit.calls == failOn ); CHECK( audit.live == live ); CHECK( replaced == 0 );
+        CHECK( map.geometry.revision == revision ); CHECK( map.nextId == nextId ); CHECK( map.geometry.sourceIds.allocator.next.value == nextSource );
+        CHECK( MaterialMapText( &map ) == text ); CHECK( MaterialSurfaceCount( &map, kReplaceFrom ) == 13 );
+        REQUIRE( MapTextureEdit_ReplaceMaterial( &map, StringView_FromCString( kReplaceFrom ), StringView_FromCString( kReplaceTo ), &replaced ) == map_status_t::OK );
+        CHECK( replaced == 13 ); CHECK( MaterialSurfaceCount( &map, kReplaceTo ) == 13 ); MapDocument_Shutdown( &map ); CHECK( audit.live == 0 );
+    }
+}
+
+TEST_CASE( "Replace Materials refuses a stale modal request after the map changes", "[map][gui][layers][replace-material-locks][dialog]" )
+{
+    material_fixture_t f; auto &ws = f.s.ws; MapWorkspace_Select( &ws, f.ids[0], MAP_SELECT_REPLACE );
+    bool opened = false, changed = false; std::string after;
+    QTimer::singleShot( 0, [&] {
+        auto *dialog = qobject_cast<QDialog *>( QApplication::activeModalWidget() );
+        if ( !dialog ) { return; }
+        opened = dialog->objectName() == QStringLiteral( "MapReplaceMaterialsDialog" );
+        if ( auto *find = dialog->findChild<QComboBox *>() ) { find->setCurrentText( QString::fromUtf8( kReplaceFrom ) ); }
+        for ( auto *field : dialog->findChildren<QLineEdit *>() ) {
+            if ( !qobject_cast<QComboBox *>( field->parentWidget() ) ) { field->setText( QString::fromUtf8( kReplaceTo ) ); }
+        }
+        changed = MapWorkspace_TranslateSelection( &ws, { 16, 0, 0 } ); after = MaterialMapText( ws.pDocument ); dialog->accept();
+    } );
+    REQUIRE( f.s.Run( "map.texture.replace" ) == command_result_t::FAILED ); REQUIRE( opened ); REQUIRE( changed );
+    CHECK( MaterialMapText( ws.pDocument ) == after ); CHECK( MaterialSurfaceCount( ws.pDocument, kReplaceFrom ) == 13 );
+    CHECK( MapNotice_Last( &ws ).contains( QStringLiteral( "map changed" ) ) );
+    REQUIRE( f.s.Run( kReplaceCommand ) == command_result_t::OK ); CHECK( MaterialSurfaceCount( ws.pDocument, kReplaceTo ) == 13 );
 }

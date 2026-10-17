@@ -15,6 +15,7 @@
 
 #include "CypherMapGui_FindEntities.h"
 #include "CypherMapGui_Notice.h"
+#include "CypherMapGui_Layers.h"
 #include "CypherMap_EntityEdit.h"
 
 #include <QDialog>
@@ -28,12 +29,30 @@
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
+#include <algorithm>
+#include <limits>
+#include <new>
+#include <utility>
+#include <vector>
+
 namespace cypher::editor::map
 {
 using namespace common;
 
 namespace
 {
+bool ReplaceReady( const map_workspace_t *ws ) noexcept
+{
+    return ws != nullptr && ws->pGui != nullptr && ws->pDocument != nullptr && !ws->pDocument->bReadOnly &&
+        !ws->editPreview.bActive && !EditorHistory_IsTransactionOpen( &ws->history );
+}
+
+int ReplaceMemoryFailure( const map_workspace_t *ws ) noexcept
+{
+    MapNotice_Post( ws, map_notice_t::ERROR, QStringLiteral( "Find and Replace: not enough memory; no values were changed." ) );
+    return -1;
+}
+
 QString Text( const key_value_t *value )
 {
     string_view_t text{}; f64 real = 0.0; i64 whole = 0; u64 count = 0; bool_t flag = CY_FALSE;
@@ -52,14 +71,14 @@ void EachValue( const map_workspace_t *ws, u64 id, Visit visit )
     const key_value_t *record = MapEntityEdit_FindEntity( ws->pDocument, id );
     if ( record == nullptr ) { return; }
     for ( const char *field : { "class", "name" } ) {
-        if ( const key_value_t *node = KeyValue_Find( record, StringView_FromCString( field ) ) ) { visit( QString::fromLatin1( field ), Text( node ), true ); }
+        if ( const key_value_t *node = KeyValue_Find( record, StringView_FromCString( field ) ) ) { visit( QString::fromLatin1( field ), Text( node ), true, true ); }
     }
     const key_value_t *properties = KeyValue_Find( record, StringView_FromCString( "properties" ) );
     for ( usize i = 0; i < KeyValue_ChildCount( properties ); ++i ) {
         const key_value_t *child = KeyValue_ChildAt( properties, i );
         const string_view_t key = KeyValue_Name( child );
         string_view_t text{};
-        visit( QString::fromUtf8( key.pData, static_cast<qsizetype>( key.cchLength ) ), Text( child ), KeyValue_GetString( child, &text ) != CY_FALSE );
+        visit( QString::fromUtf8( key.pData, static_cast<qsizetype>( key.cchLength ) ), Text( child ), KeyValue_GetString( child, &text ) != CY_FALSE, false );
     }
 }
 
@@ -110,11 +129,16 @@ public:
             if ( !ids.empty() ) { MapWorkspace_Frame( m_pWorkspace, CY_TRUE ); }
         } );
         QObject::connect( m_pReplace, &QPushButton::clicked, this, [this]() {
-            QVector<u64> ids;
-            for ( const auto &match : m_matches ) { if ( !ids.contains( match.id ) ) { ids.append( match.id ); } }
-            const int changed = MapFindEntities_Replace( m_pWorkspace, ids, m_pFind->text(), m_pWith->text(), m_pKey->text().trimmed() );
-            MapNotice_Post( m_pWorkspace, changed > 0 ? map_notice_t::SUCCESS : map_notice_t::INFO,
-                            changed > 0 ? QStringLiteral( "Replaced in %1 values" ).arg( changed ) : QStringLiteral( "Find and Replace: nothing to replace" ) );
+            int changed = -1;
+            try {
+                QVector<u64> ids;
+                for ( const auto &match : m_matches ) { if ( !ids.contains( match.id ) ) { ids.append( match.id ); } }
+                changed = MapFindEntities_Replace( m_pWorkspace, ids, m_pFind->text(), m_pWith->text(), m_pKey->text().trimmed() );
+            } catch ( const std::bad_alloc & ) { ( void )ReplaceMemoryFailure( m_pWorkspace ); }
+            if ( changed >= 0 ) {
+                MapNotice_Post( m_pWorkspace, changed > 0 ? map_notice_t::SUCCESS : map_notice_t::INFO,
+                                changed > 0 ? QStringLiteral( "Replaced in %1 values" ).arg( changed ) : QStringLiteral( "Find and Replace: nothing to replace" ) );
+            }
             Search();
         } );
         QObject::connect( pClose, &QPushButton::clicked, this, &QDialog::close );
@@ -180,7 +204,7 @@ QVector<map_entity_match_t> MapFindEntities_Search( const map_workspace_t *ws, c
     for ( usize i = 0; i < ws->wire.entities.nCount; ++i ) {
         const u64 id = ws->wire.entities.pData[i].id;
         bool any = false;
-        EachValue( ws, id, [&]( const QString &k, const QString &v, bool ) {
+        EachValue( ws, id, [&]( const QString &k, const QString &v, bool, bool ) {
             if ( any && text.isEmpty() ) { return; }
             if ( !key.isEmpty() && k.compare( key, Qt::CaseInsensitive ) != 0 ) { return; }
             if ( text.isEmpty() ? k == QStringLiteral( "class" ) : v.contains( text, Qt::CaseInsensitive ) ) { matches.append( { id, k, v } ); any = true; }
@@ -191,24 +215,72 @@ QVector<map_entity_match_t> MapFindEntities_Search( const map_workspace_t *ws, c
 
 int MapFindEntities_Replace( map_workspace_t *ws, const QVector<u64> &entities, const QString &text, const QString &with, const QString &key )
 {
-    if ( ws == nullptr || ws->pDocument == nullptr || text.isEmpty() || entities.isEmpty() ) { return 0; }
-    struct change_t { u64 id; QByteArray key; QByteArray value; bool identity; };
-    std::vector<change_t> changes;
-    for ( u64 id : entities ) {
-        EachValue( ws, id, [&]( const QString &k, const QString &v, bool isString ) {
-            if ( !isString || ( !key.isEmpty() && k.compare( key, Qt::CaseInsensitive ) != 0 ) || !v.contains( text, Qt::CaseInsensitive ) ) { return; }
-            QString next = v; next.replace( text, with, Qt::CaseInsensitive );
-            if ( next == v || ( k == QStringLiteral( "class" ) && next.isEmpty() ) ) { return; }
-            changes.push_back( { id, k.toUtf8(), next.toUtf8(), k == QStringLiteral( "class" ) || k == QStringLiteral( "name" ) } );
-        } );
+    if ( !ReplaceReady( ws ) ) {
+        if ( ws != nullptr ) {
+            MapNotice_Post( ws, map_notice_t::WARNING, ws->pDocument != nullptr && ws->pDocument->bReadOnly ?
+                QStringLiteral( "Find and Replace: this map is read-only; no values were changed." ) :
+                QStringLiteral( "Find and Replace: finish the current edit before replacing values; no values were changed." ) );
+        }
+        return -1;
     }
-    if ( changes.empty() ) { return 0; }
-    struct job_t { const std::vector<change_t> *pChanges; const map_workspace_t *pWorkspace; } job{ &changes, ws };
+    if ( text.isEmpty() || entities.isEmpty() ) { return 0; }
+    const auto *document = ws->pDocument;
+    const u64 geometryRevision = document->geometry.revision, selectionRevision = ws->selection.revision;
+    struct change_t { u64 id; QByteArray key; QByteArray value; bool identity; };
+    vector_t<change_t> changes{};
+    vector_t<u64> ids{};
+    if ( !Vector_Init( &changes, ws->pGui->pAllocator ) || !Vector_Init( &ids, ws->pGui->pAllocator ) ||
+         !Vector_Append( &ids, span_t<const u64>{ entities.constData(), static_cast<usize>( entities.size() ) } ) ) { return ReplaceMemoryFailure( ws ); }
+    std::sort( ids.pData, ids.pData + ids.nCount );
+    try {
+        bool prepared = true;
+        for ( usize i = 0; prepared && i < ids.nCount; ++i ) {
+            const u64 id = ids.pData[i];
+            if ( i != 0 && id == ids.pData[i - 1] ) { continue; }
+            EachValue( ws, id, [&]( const QString &k, const QString &v, bool isString, bool identity ) {
+                if ( !prepared || !isString || ( !key.isEmpty() && k.compare( key, Qt::CaseInsensitive ) != 0 ) || !v.contains( text, Qt::CaseInsensitive ) ) { return; }
+                QString next = v; next.replace( text, with, Qt::CaseInsensitive );
+                if ( next == v || ( identity && k == QStringLiteral( "class" ) && next.isEmpty() ) ) { return; }
+                change_t change{ id, k.toUtf8(), next.toUtf8(), identity };
+                prepared = Vector_PushBackMove( &changes, std::move( change ) );
+            } );
+        }
+        if ( !prepared ) { return ReplaceMemoryFailure( ws ); }
+    } catch ( const std::bad_alloc & ) {
+        // Qt text construction can allocate independently of the fallible
+        // container. Nothing authored has changed during preparation.
+        return ReplaceMemoryFailure( ws );
+    }
+    if ( changes.nCount == 0 ) { return 0; }
+    if ( changes.nCount > static_cast<usize>( std::numeric_limits<int>::max() ) ) {
+        MapNotice_Post( ws, map_notice_t::ERROR, QStringLiteral( "Find and Replace: too many matching values; no values were changed." ) ); return -1;
+    }
+    if ( !ReplaceReady( ws ) || ws->pDocument != document || ws->pDocument->geometry.revision != geometryRevision || ws->selection.revision != selectionRevision ) {
+        MapNotice_Post( ws, map_notice_t::WARNING, QStringLiteral( "Find and Replace: the edit context changed. Try again; no values were changed." ) ); return -1;
+    }
+    for ( usize i = 0; i < changes.nCount; ++i ) {
+        if ( MapLayers_IsObjectLocked( ws, changes.pData[i].id ) ) {
+            MapNotice_Post( ws, map_notice_t::WARNING, QStringLiteral( "Find and Replace: a matching entity is on a locked layer. Unlock it and retry; no values were changed." ) ); return -1;
+        }
+    }
+    struct job_t {
+        const vector_t<change_t> *pChanges;
+        const map_workspace_t *pWorkspace;
+        const map_document_t *pDocument;
+        u64 geometryRevision, selectionRevision;
+        int applied{};
+    } job{ &changes, ws, document, geometryRevision, selectionRevision };
     const bool done = MapWorkspace_ApplyMetadataEdit( ws, "Find and Replace", []( void *pContext, map_document_t *copy, vector_t<u64> *pSelection, bool *pChanged ) noexcept {
-        const auto &j = *static_cast<job_t *>( pContext );
+        auto &j = *static_cast<job_t *>( pContext );
+        if ( !ReplaceReady( j.pWorkspace ) || j.pWorkspace->pDocument != j.pDocument ||
+             j.pWorkspace->pDocument->geometry.revision != j.geometryRevision || j.pWorkspace->selection.revision != j.selectionRevision ) { return map_status_t::INVALID_ARGUMENT; }
+        for ( usize i = 0; i < j.pChanges->nCount; ++i ) {
+            if ( MapLayers_IsObjectLocked( j.pWorkspace, j.pChanges->pData[i].id ) ) { return map_status_t::INVALID_ARGUMENT; }
+        }
         for ( usize i = 0; i < j.pWorkspace->selection.ids.nCount; ++i ) { if ( !Vector_PushBack( pSelection, j.pWorkspace->selection.ids.pData[i] ) ) { return map_status_t::OUT_OF_MEMORY; } }
         key_value_document_desc_t desc{}; desc.pAllocator = copy->pAllocator;
-        for ( const auto &c : *j.pChanges ) {
+        for ( usize i = 0; i < j.pChanges->nCount; ++i ) {
+            const auto &c = j.pChanges->pData[i];
             const string_view_t keyView{ c.key.constData(), static_cast<usize>( c.key.size() ) }, valueView{ c.value.constData(), static_cast<usize>( c.value.size() ) };
             bool changed = false;
             map_status_t status;
@@ -222,10 +294,15 @@ int MapFindEntities_Replace( map_workspace_t *ws, const QVector<u64> &entities, 
             }
             if ( status != map_status_t::OK ) { return status; }
             *pChanged = *pChanged || changed;
+            j.applied += changed;
         }
         return map_status_t::OK;
     }, &job );
-    return done ? static_cast<int>( changes.size() ) : 0;
+    if ( done ) { return job.applied; }
+    if ( ws->lastEdit.outcome == map_edit_outcome_t::UNCHANGED && ws->lastEdit.status == map_status_t::OK ) { return 0; }
+    if ( ws->lastEdit.status == map_status_t::OUT_OF_MEMORY ) { return ReplaceMemoryFailure( ws ); }
+    MapNotice_Post( ws, map_notice_t::ERROR, QStringLiteral( "Find and Replace: the edit could not be applied; no values were changed." ) );
+    return -1;
 }
 
 QDialog *MapFindEntities_Show( map_workspace_t *pWorkspace, QWidget *pParent, bool bReplace ) noexcept

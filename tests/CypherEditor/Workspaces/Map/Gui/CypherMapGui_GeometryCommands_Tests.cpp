@@ -3128,3 +3128,132 @@ TEST_CASE( "Tool Properties mouse buttons publish brush conversion once and refu
     const brush_face_unchanged_t before( ws ); click( "map.mesh.inset" ); before.Check( ws );
     REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); f.CheckMeshSelection(); CHECK( s.Steps() == steps + 1 );
 }
+
+namespace
+{
+u64 CarveBox( map_workspace_t &ws, cypher::math::vec3d_t low, cypher::math::vec3d_t high )
+{
+    u64 root = 0;
+    REQUIRE( MapEdit_CreateBox( ws.pDocument, { low, high }, StringView_FromCString( "materials/test/carve.cymat" ), {}, &root ) == map_status_t::OK );
+    return root;
+}
+void CarveLockLayer( map_workspace_t &ws, u64 target, bool hidden = false )
+{
+    REQUIRE( MapDocument_AddLayer( ws.pDocument, StringView_FromCString( "protected" ), StringView_FromCString( "Protected" ) ) == map_status_t::OK );
+    REQUIRE( MapDocument_SetGeometryLayer( ws.pDocument, target, StringView_FromCString( "protected" ) ) == map_status_t::OK );
+    MapWorkspace_DocumentChanged( &ws ); REQUIRE( MapLayers_SetLocked( &ws, QStringLiteral( "protected" ), true ) );
+    if ( hidden ) { REQUIRE( MapLayers_SetHidden( &ws, QStringLiteral( "protected" ), true ) ); }
+}
+void CarveSelect( map_workspace_t &ws, std::vector<u64> cutters )
+{
+    MapWorkspace_DocumentChanged( &ws ); MapWorkspace_SetTool( &ws, map_tool_t::SELECT );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS ); Select( ws, cutters );
+    REQUIRE( ws.selection.ids.nCount == cutters.size() );
+}
+std::string CarvePrepareRedo( map_workspace_t &ws )
+{
+    REQUIRE( MapWorkspace_TranslateSelection( &ws, { 0, 16, 0 } ) );
+    const auto translated = ExportMapSnapshot( ws.pDocument ); REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+    REQUIRE( EditorHistory_CanRedo( &ws.history ) ); return translated;
+}
+struct carve_brush_snapshot_t {
+    geo::brush_source_t source{};
+    explicit carve_brush_snapshot_t( const map_document_t *map, u64 id )
+    {
+        REQUIRE( geo::GeometryDocument_TryCopyBrushSource( &map->geometry, { id }, Allocator_GetSystem(), &source ) == geo::geometry_status_t::OK );
+    }
+    ~carve_brush_snapshot_t() { geo::BrushSource_Shutdown( &source ); }
+    void Check( const map_document_t *map, u64 id ) const
+    {
+        carve_brush_snapshot_t actual( map, id ); CHECK( geo::BrushSource_Equal( &source, &actual.source ) );
+    }
+};
+}
+
+TEST_CASE( "Carve refuses every cutter when an unselected locked victim would change", "[map][gui][geometry-commands][carve-target-locks]" )
+{
+    session_t s; auto &ws = s.workspace;
+    const u64 unlocked = CarveBox( ws, { 0, 0, 0 }, { 128, 128, 128 } );
+    const u64 locked = CarveBox( ws, { 256, 0, 0 }, { 384, 128, 128 } );
+    const u64 first = CarveBox( ws, { 96, 32, 32 }, { 160, 96, 96 } );
+    const u64 second = CarveBox( ws, { 352, 32, 32 }, { 416, 96, 96 } );
+    CarveLockLayer( ws, locked ); CarveSelect( ws, { first, second } );
+    const auto redo = CarvePrepareRedo( ws ); const brush_face_unchanged_t before( ws );
+    carve_brush_snapshot_t cutterA( ws.pDocument, first ), cutterB( ws.pDocument, second );
+    REQUIRE( s.Enabled( "map.brush.carve" ) ); CHECK( s.Run( "map.brush.carve" ) == command_result_t::FAILED ); before.Check( ws );
+    REQUIRE( ws.selection.ids.nCount == 2 ); CHECK( ws.selection.ids.pData[0] == first ); CHECK( ws.selection.ids.pData[1] == second );
+    map_notice_t kind{}; CHECK( MapNotice_Last( &ws, &kind ).contains( QStringLiteral( "locked layer" ) ) ); CHECK( kind == map_notice_t::WARNING );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( ExportMapSnapshot( ws.pDocument ) == redo );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+    REQUIRE( MapLayers_SetLocked( &ws, QStringLiteral( "protected" ), false ) );
+    REQUIRE( s.Run( "map.brush.carve" ) == command_result_t::OK ); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == before.applied + 1 );
+    CHECK( s.Steps() == before.applied + 1 ); CHECK_FALSE( EditorHistory_CanRedo( &ws.history ) );
+    CHECK( geo::GeometryDocument_FindBrush( &ws.pDocument->geometry, { unlocked } ) == nullptr );
+    CHECK( geo::GeometryDocument_FindBrush( &ws.pDocument->geometry, { locked } ) == nullptr );
+    cutterA.Check( ws.pDocument, first ); cutterB.Check( ws.pDocument, second );
+    const auto carved = ExportMapSnapshot( ws.pDocument ); REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+    CHECK( ExportMapSnapshot( ws.pDocument ) == before.saved ); REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
+    CHECK( ExportMapSnapshot( ws.pDocument ) == carved );
+}
+
+TEST_CASE( "Carve allows unrelated, touching, separated angled and hidden locked brushes without modifying them", "[map][gui][geometry-commands][carve-target-locks]" )
+{
+    session_t s; auto &ws = s.workspace; u64 protectedRoot = 0, cutter = 0;
+    const u64 victim = CarveBox( ws, { -128, -128, -16 }, { 128, 128, 128 } ); bool hidden = false;
+    SECTION( "Unrelated locked layer" ) {
+        cutter = CarveBox( ws, { 96, 32, 32 }, { 160, 96, 96 } ); protectedRoot = CarveBox( ws, { 512, 0, 0 }, { 576, 64, 64 } );
+    }
+    SECTION( "Locked face only touches the cutter" ) {
+        cutter = CarveBox( ws, { 96, 32, 32 }, { 160, 96, 96 } ); protectedRoot = CarveBox( ws, { 160, 32, 32 }, { 224, 96, 96 } );
+    }
+    SECTION( "Parallel slats have overlapping bounds but no shared volume" ) {
+        cutter = CarveBox( ws, { -64, -4, 0 }, { 64, 4, 32 } ); protectedRoot = CarveBox( ws, { -64, -4, 0 }, { 64, 4, 32 } );
+        const u64 both[]{ cutter, protectedRoot };
+        REQUIRE( MapEdit_Rotate( ws.pDocument, { both, 2 }, { 0, 0, 45 }, {} ) == map_status_t::OK );
+        REQUIRE( MapEdit_Translate( ws.pDocument, { &protectedRoot, 1 }, { -16, 16, 0 } ) == map_status_t::OK );
+    }
+    SECTION( "Hidden brushes are outside Carve's visible target scope" ) {
+        cutter = CarveBox( ws, { 96, 32, 32 }, { 160, 96, 96 } ); protectedRoot = CarveBox( ws, { 128, 40, 40 }, { 152, 88, 88 } ); hidden = true;
+    }
+    CarveLockLayer( ws, protectedRoot, hidden ); CarveSelect( ws, { cutter } );
+    carve_brush_snapshot_t protectedBefore( ws.pDocument, protectedRoot ), cutterBefore( ws.pDocument, cutter );
+    const auto original = ExportMapSnapshot( ws.pDocument ); const usize steps = s.Steps();
+    REQUIRE( s.Run( "map.brush.carve" ) == command_result_t::OK ); CHECK( s.Steps() == steps + 1 );
+    CHECK( geo::GeometryDocument_FindBrush( &ws.pDocument->geometry, { victim } ) == nullptr );
+    protectedBefore.Check( ws.pDocument, protectedRoot ); cutterBefore.Check( ws.pDocument, cutter );
+    REQUIRE( ws.selection.ids.nCount == 1 ); CHECK( ws.selection.ids.pData[0] == cutter );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CHECK( ExportMapSnapshot( ws.pDocument ) == original );
+}
+
+TEST_CASE( "Carve with only a touching locked target is a truthful no-op that retains Redo", "[map][gui][geometry-commands][carve-target-locks]" )
+{
+    session_t s; auto &ws = s.workspace;
+    const u64 victim = CarveBox( ws, { 128, 0, 0 }, { 256, 128, 128 } ); const u64 cutter = CarveBox( ws, { 0, 0, 0 }, { 128, 128, 128 } );
+    CarveLockLayer( ws, victim ); CarveSelect( ws, { cutter } ); const auto redo = CarvePrepareRedo( ws );
+    const brush_face_unchanged_t before( ws ); REQUIRE( s.Enabled( "map.brush.carve" ) );
+    CHECK( s.Run( "map.brush.carve" ) == command_result_t::OK ); before.Check( ws );
+    map_notice_t kind{}; CHECK( MapNotice_Last( &ws, &kind ).contains( QStringLiteral( "no changes" ) ) ); CHECK( kind == map_notice_t::INFO );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( ExportMapSnapshot( ws.pDocument ) == redo );
+}
+
+TEST_CASE( "Carve state is allocation-free and preparation refusal leaves the map and Redo available", "[map][gui][geometry-commands][carve-target-locks][allocation]" )
+{
+    for ( const usize failOn : { usize{ 1 }, usize{ 2 }, usize{ 3 } } ) {
+        CAPTURE( failOn ); export_allocation_t audit{}; const allocator_t allocator{ &ExportAllocate, nullptr, &ExportFree, &audit };
+        {
+            // The audit allocator owns the complete session through teardown.
+            session_t s( &allocator ); auto &ws = s.workspace;
+            (void)CarveBox( ws, { 0, 0, 0 }, { 128, 128, 128 } ); const u64 protectedRoot = CarveBox( ws, { 160, 32, 32 }, { 224, 96, 96 } );
+            const u64 cutter = CarveBox( ws, { 96, 32, 32 }, { 160, 96, 96 } ); CarveLockLayer( ws, protectedRoot ); CarveSelect( ws, { cutter } );
+            const auto redo = CarvePrepareRedo( ws ); const brush_face_unchanged_t before( ws );
+            audit.calls = 0; audit.failOn = 1; CHECK( s.Enabled( "map.brush.carve" ) ); CHECK( audit.calls == 0 );
+            audit.failOn = failOn; const auto status = s.Run( "map.brush.carve" ); audit.failOn = 0;
+            CHECK( status == command_result_t::FAILED ); CHECK( audit.calls >= failOn ); before.Check( ws );
+            map_notice_t kind{}; CHECK( MapNotice_Last( &ws, &kind ).contains( QStringLiteral( "memory" ) ) ); CHECK( kind == map_notice_t::ERROR );
+            REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( ExportMapSnapshot( ws.pDocument ) == redo );
+            REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); REQUIRE( s.Run( "map.brush.carve" ) == command_result_t::OK );
+            CHECK( EditorHistory_AppliedStepCount( &ws.history ) == before.applied + 1 ); CHECK( s.Steps() == before.applied + 1 );
+        }
+        CHECK( audit.live == 0 );
+    }
+}

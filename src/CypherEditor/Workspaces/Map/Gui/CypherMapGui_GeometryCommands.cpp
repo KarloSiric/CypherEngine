@@ -47,6 +47,8 @@
 #include "CypherMap_Compile.h"
 #include "CypherMap_ObjectCreate.h"
 #include "CypherGeometry_DocumentMeshes.h"
+#include "CypherGeometry_DocumentBrushAttributes.h"
+#include "CypherGeometry_BrushCSG.h"
 #include "CypherGeometry_MeshBoundaryOps.h"
 #include "CypherGeometry_MeshSelectionQueries.h"
 #include "CypherGeometry_DocumentSurfaces.h"
@@ -1598,49 +1600,111 @@ Object commands
 bool WholeObjectsEditable( const map_workspace_t *ws ) noexcept { return Ready( ws ) && ObjectMode( ws ) && MapWorkspace_CanEditSelection( ws ); }
 bool WholeObjectsMovable( const map_workspace_t *ws ) noexcept { return Ready( ws ) && ObjectMode( ws ) && MapWorkspace_CanMoveSelection( ws ); }
 
-// Visible brushes outside the selection whose bounds meet a cutter's.
-std::vector<u64> CarveTargets( const map_workspace_t *ws )
+// This broad-phase scan is also used by command-state queries. It must not
+// allocate: refreshing a menu is not a fallible geometry preparation step.
+bool CarveTarget( const map_workspace_t *ws, const map_wire_object_t &object, span_t<const u64> cutters ) noexcept
 {
-    std::vector<u64> targets;
-    for ( usize i = 0; i < ws->wire.objects.nCount; ++i ) {
-        const auto &object = ws->wire.objects.pData[i];
-        if ( object.kind != map_wire_kind_t::BRUSH || EditorSelection_Contains( &ws->selection, object.id ) ||
-             !MapWorkspace_IsVisible( ws, object ) ) { continue; }
-        for ( usize k = 0; k < ws->selection.ids.nCount; ++k ) {
-            const auto *cutter = MapWireframe_FindObject( ws->wire, ws->selection.ids.pData[k] );
-            if ( cutter != nullptr && Overlaps( cutter->bounds, object.bounds ) ) { targets.push_back( object.id ); break; }
+    if ( object.kind != map_wire_kind_t::BRUSH || !MapWorkspace_IsVisible( ws, object ) ) { return false; }
+    for ( usize i = 0; i < cutters.nCount; ++i ) { if ( cutters.pData[i] == object.id ) { return false; } }
+    for ( usize i = 0; i < cutters.nCount; ++i ) {
+        const auto *cutter = MapWireframe_FindObject( ws->wire, cutters.pData[i] );
+        if ( cutter != nullptr && Overlaps( cutter->bounds, object.bounds ) ) { return true; }
+    }
+    return false;
+}
+
+map_status_t CarveLockedTargets( const map_workspace_t *ws, span_t<const u64> targets, span_t<const u64> cutters,
+    u64 *blocked ) noexcept
+{
+    *blocked = 0;
+    for ( usize i = 0; i < targets.nCount; ++i ) {
+        const u64 targetId = targets.pData[i];
+        if ( !MapLayers_IsObjectLocked( ws, targetId ) ) { continue; }
+        const auto *target = geo::GeometryDocument_FindBrush( &ws->pDocument->geometry, { targetId } );
+        const auto *wire = MapWireframe_FindObject( ws->wire, targetId );
+        if ( target == nullptr || wire == nullptr ) { return map_status_t::GEOMETRY_FAILED; }
+        geo::brush_boundary_t targetBoundary{};
+        auto status = geo::BrushBoundary_Init( &targetBoundary, ws->pGui->pAllocator );
+        if ( status == geo::geometry_status_t::OK ) { status = geo::BrushBoundary_TryReconstruct( &targetBoundary, target, ws->pDocument->geometryPolicy ); }
+        if ( status != geo::geometry_status_t::OK ) { return status == geo::geometry_status_t::ALLOCATION_FAILED ? map_status_t::OUT_OF_MEMORY : map_status_t::GEOMETRY_FAILED; }
+        for ( usize k = 0; k < cutters.nCount; ++k ) {
+            const auto *cutterWire = MapWireframe_FindObject( ws->wire, cutters.pData[k] );
+            if ( cutterWire == nullptr ) { return map_status_t::GEOMETRY_FAILED; }
+            if ( !Overlaps( wire->bounds, cutterWire->bounds ) ) { continue; }
+            const auto *cutter = geo::GeometryDocument_FindBrush( &ws->pDocument->geometry, { cutters.pData[k] } );
+            if ( cutter == nullptr ) { return map_status_t::GEOMETRY_FAILED; }
+            geo::brush_boundary_t cutterBoundary{};
+            status = geo::BrushBoundary_Init( &cutterBoundary, ws->pGui->pAllocator );
+            if ( status == geo::geometry_status_t::OK ) { status = geo::BrushBoundary_TryReconstruct( &cutterBoundary, cutter, ws->pDocument->geometryPolicy ); }
+            if ( status != geo::geometry_status_t::OK ) { return status == geo::geometry_status_t::ALLOCATION_FAILED ? map_status_t::OUT_OF_MEMORY : map_status_t::GEOMETRY_FAILED; }
+            const auto relation = geo::BrushCSG_Classify( target, &targetBoundary, cutter, &cutterBoundary,
+                ws->pDocument->geometryPolicy.numerical.fCoplanarDistanceTolerance );
+            if ( relation == geo::brush_csg_classification_t::INVALID ) { return map_status_t::GEOMETRY_FAILED; }
+            // AABB overlap alone is not a write: adjacent faces and separated
+            // angled brushes may share bounds without sharing any volume.
+            if ( relation != geo::brush_csg_classification_t::DISJOINT && relation != geo::brush_csg_classification_t::TOUCHING ) {
+                *blocked = targetId; return map_status_t::OK;
+            }
         }
     }
-    return targets;
+    return map_status_t::OK;
 }
 
 u32 CarveState( void *pContext ) noexcept
 {
     const auto *ws = Ws( pContext );
-    return State( Ready( ws ) && ObjectMode( ws ) && MapWorkspace_CanEditBrushSelection( ws ) && !CarveTargets( ws ).empty() );
+    if ( !Ready( ws ) || !ObjectMode( ws ) || !MapWorkspace_CanEditBrushSelection( ws ) ) { return COMMAND_STATE_NONE; }
+    for ( usize i = 0; i < ws->wire.objects.nCount; ++i ) {
+        if ( CarveTarget( ws, ws->wire.objects.pData[i], Selected( ws ) ) ) { return COMMAND_STATE_ENABLED; }
+    }
+    return COMMAND_STATE_NONE;
 }
 command_result_t Carve( void *pContext, const command_args_t & ) noexcept
 {
     auto *ws = Ws( pContext );
     if ( CarveState( pContext ) == COMMAND_STATE_NONE ) { return command_result_t::DISABLED; }
-    const auto initial = CarveTargets( ws );
-    return Result( ApplyKeeping( ws, "Carve", [&]( map_document_t *copy ) noexcept {
+    const auto fail = [&]( map_status_t status ) noexcept {
+        MapNotice_Post( ws, map_notice_t::ERROR, status == map_status_t::OUT_OF_MEMORY ?
+            QStringLiteral( "Carve: not enough memory to prepare the edit; no brushes were changed." ) :
+            QStringLiteral( "Carve: the geometry could not be prepared; no brushes were changed." ) );
+        return command_result_t::FAILED;
+    };
+    vector_t<u64> cutters{}, initial{};
+    if ( !Vector_Init( &cutters, ws->pGui->pAllocator ) || !Vector_Append( &cutters, Selected( ws ) ) ||
+         !Vector_Init( &initial, ws->pGui->pAllocator ) ) { return fail( map_status_t::OUT_OF_MEMORY ); }
+    const span_t<const u64> cutterIds{ cutters.pData, cutters.nCount };
+    for ( usize i = 0; i < ws->wire.objects.nCount; ++i ) {
+        const auto &object = ws->wire.objects.pData[i];
+        if ( CarveTarget( ws, object, cutterIds ) && !Vector_PushBack( &initial, object.id ) ) { return fail( map_status_t::OUT_OF_MEMORY ); }
+    }
+    u64 blocked = 0;
+    const auto lockStatus = CarveLockedTargets( ws, { initial.pData, initial.nCount }, cutterIds, &blocked );
+    if ( lockStatus != map_status_t::OK ) { return fail( lockStatus ); }
+    if ( blocked != 0 ) {
+        MapNotice_Post( ws, map_notice_t::WARNING, QStringLiteral( "Carve would change brush #%1 on a locked layer. Unlock it and retry; no brushes were changed." ).arg( blocked ) );
+        return command_result_t::FAILED;
+    }
+    const bool done = Apply( ws, "Carve", [&]( map_document_t *copy, vector_t<u64> *out ) noexcept {
+        if ( !Vector_Append( out, cutterIds ) ) { return map_status_t::OUT_OF_MEMORY; }
         // Each cutter carves what the previous ones left: its fragments
         // replace the brush they came from in the next cutter's target list.
         vector_t<u64> targets{};
-        if ( !Vector_Init( &targets, copy->pAllocator, initial.size() ) ) { return map_status_t::OUT_OF_MEMORY; }
-        for ( u64 id : initial ) { if ( !Vector_PushBack( &targets, id ) ) { Vector_Shutdown( &targets ); return map_status_t::OUT_OF_MEMORY; } }
+        if ( !Vector_Init( &targets, copy->pAllocator ) || !Vector_Append( &targets, { initial.pData, initial.nCount } ) ) { return map_status_t::OUT_OF_MEMORY; }
         auto status = map_status_t::OK;
-        for ( usize i = 0; status == map_status_t::OK && i < ws->selection.ids.nCount && targets.nCount != 0; ++i ) {
+        for ( usize i = 0; status == map_status_t::OK && i < cutters.nCount && targets.nCount != 0; ++i ) {
             vector_t<u64> roots{};
             if ( !Vector_Init( &roots, copy->pAllocator ) ) { status = map_status_t::OUT_OF_MEMORY; break; }
-            status = MapBrushEdit_Subtract( copy, { targets.pData, targets.nCount }, ws->selection.ids.pData[i], &roots );
+            status = MapBrushEdit_Subtract( copy, { targets.pData, targets.nCount }, cutters.pData[i], &roots );
             if ( status == map_status_t::OK ) { Vector_Shutdown( &targets ); Vector_Move( &targets, &roots ); }
-            Vector_Shutdown( &roots );
         }
-        Vector_Shutdown( &targets );
         return status;
-    } ) );
+    } );
+    if ( done ) { return command_result_t::OK; }
+    if ( ws->lastEdit.outcome == map_edit_outcome_t::UNCHANGED && ws->lastEdit.status == map_status_t::OK ) {
+        MapNotice_Post( ws, map_notice_t::INFO, QStringLiteral( "Carve: the brushes do not share interior volume; no changes were needed." ) );
+        return command_result_t::OK;
+    }
+    return fail( ws->lastEdit.status );
 }
 
 u32 EditableObjectsState( void *pContext ) noexcept { return State( WholeObjectsEditable( Ws( pContext ) ) ); }
@@ -2171,11 +2235,47 @@ QStringList UsedMaterials( const map_workspace_t *ws )
 }
 
 u32 ReplaceState( void *pContext ) noexcept { const auto *ws = Ws( pContext ); return State( Ready( ws ) && ws->wire.faces.nCount != 0 ); }
+
+// Match the authored domains of MapTextureEdit_ReplaceMaterial, including
+// hidden roots and patches. Wire visibility and current selection do not
+// narrow this map-wide command. This admission query needs no allocation.
+bool LockedMaterialUser( const map_workspace_t *ws, string_view_t from ) noexcept
+{
+    if ( !MapLayers_HasLocked( ws ) ) { return false; }
+    const auto *map = ws->pDocument;
+    const auto uses = [&]( u64 ref ) noexcept { return ref != 0 && StringView_Equals( MapMaterials_Path( &map->materials, ref ), from ); };
+    for ( usize i = 0; i < map->geometry.brushes.nCount; ++i ) {
+        const auto *brush = map->geometry.brushes.pData[i];
+        if ( !MapLayers_IsObjectLocked( ws, brush->sourceId.value ) ) { continue; }
+        const auto *attributes = geo::GeometryDocument_FindBrushAttributes( &map->geometry, brush->sourceId );
+        for ( usize k = 0; attributes != nullptr && k < attributes->records.nCount; ++k ) {
+            if ( uses( attributes->records.pData[k].material.value ) ) { return true; }
+        }
+    }
+    for ( usize i = 0; i < map->geometry.meshes.nCount; ++i ) {
+        const auto *mesh = map->geometry.meshes.pData[i];
+        if ( !MapLayers_IsObjectLocked( ws, mesh->sourceId.value ) ) { continue; }
+        bool found = false;
+        ( void )GenerationPool_ForEach( &mesh->mesh.faces, [&]( geo::geometry_mesh_face_handle_t handle, const geo::mesh_face_record_t & ) noexcept -> bool_t {
+            found = uses( geo::MeshAttributeStore_GetFace( &mesh->attributes, handle ).material.value );
+            return found ? CY_FALSE : CY_TRUE;
+        } );
+        if ( found ) { return true; }
+    }
+    for ( usize i = 0; i < geo::GeometryDocument_PatchCount( &map->geometry ); ++i ) {
+        const auto *patch = geo::GeometryDocument_PatchAt( &map->geometry, i );
+        if ( MapLayers_IsObjectLocked( ws, patch->sourceId.value ) && uses( patch->materialId ) ) { return true; }
+    }
+    return false;
+}
+
 // map.texture.replace <from> <to>; without arguments a dialog asks.
 command_result_t ReplaceMaterials( void *pContext, const command_args_t &args ) noexcept
 {
     auto *ws = Ws( pContext );
     if ( ReplaceState( pContext ) == COMMAND_STATE_NONE ) { return command_result_t::DISABLED; }
+    const auto *document = ws->pDocument;
+    const u64 geometryRevision = document->geometry.revision;
     QString from, to;
     if ( args.nArgs == 2 ) {
         from = QString::fromUtf8( args.pArgs[0].pData, static_cast<qsizetype>( args.pArgs[0].cchLength ) );
@@ -2200,12 +2300,32 @@ command_result_t ReplaceMaterials( void *pContext, const command_args_t &args ) 
         return command_result_t::INVALID_ARGUMENTS;
     }
     if ( from.isEmpty() || to.isEmpty() ) { return command_result_t::INVALID_ARGUMENTS; }
+    // The modal dialog runs an event loop: never apply its old request to a
+    // replacement document, changed geometry, or a now-busy workspace.
+    if ( !Ready( ws ) || ws->pDocument != document || ws->pDocument->geometry.revision != geometryRevision ) {
+        MapNotice_Post( ws, map_notice_t::WARNING, QStringLiteral( "Replace Materials: the map changed while the dialog was open. Try again; no replacement was applied." ) );
+        return command_result_t::FAILED;
+    }
     const QByteArray fromUtf8 = from.toUtf8(), toUtf8 = to.toUtf8();
-    return Result( ApplyKeeping( ws, "Replace Materials", [&]( map_document_t *copy ) noexcept {
+    const string_view_t fromPath{ fromUtf8.constData(), static_cast<usize>( fromUtf8.size() ) };
+    const string_view_t toPath{ toUtf8.constData(), static_cast<usize>( toUtf8.size() ) };
+    if ( !StringView_Equals( fromPath, toPath ) && LockedMaterialUser( ws, fromPath ) ) {
+        MapNotice_Post( ws, map_notice_t::WARNING, QStringLiteral( "Replace Materials: a matching object is on a locked layer. Unlock it and retry; no materials were changed." ) );
+        return command_result_t::FAILED;
+    }
+    const bool done = ApplyKeeping( ws, "Replace Materials", [&]( map_document_t *copy ) noexcept {
         usize replaced = 0;
-        return MapTextureEdit_ReplaceMaterial( copy, { fromUtf8.constData(), static_cast<usize>( fromUtf8.size() ) },
-            { toUtf8.constData(), static_cast<usize>( toUtf8.size() ) }, &replaced );
-    } ) );
+        return MapTextureEdit_ReplaceMaterial( copy, fromPath, toPath, &replaced );
+    } );
+    if ( done ) { return command_result_t::OK; }
+    if ( ws->lastEdit.outcome == map_edit_outcome_t::UNCHANGED && ws->lastEdit.status == map_status_t::OK ) {
+        MapNotice_Post( ws, map_notice_t::INFO, QStringLiteral( "Replace Materials: no material changes were needed." ) );
+        return command_result_t::OK;
+    }
+    MapNotice_Post( ws, map_notice_t::ERROR, ws->lastEdit.status == map_status_t::OUT_OF_MEMORY ?
+        QStringLiteral( "Replace Materials: not enough memory; no materials were changed." ) :
+        QStringLiteral( "Replace Materials: the edit could not be applied; no materials were changed." ) );
+    return command_result_t::FAILED;
 }
 
 /*

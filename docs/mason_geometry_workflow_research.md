@@ -2492,3 +2492,50 @@ instrumentation, not a claim of a complete local sanitized build. Commands,
 source hashes and logs are in build-mason/artifacts/mason_patch_thicken_asan.
 The full Linux sanitizer job is required for published verification. No new
 build tree, package download or dependency cache was created.
+
+
+## Explicit command write targets and layer locks — 2026-10-17
+
+Carve previously checked only selected cutters, although it writes unselected
+visible victims. It now captures cutters and candidate IDs in fallible vectors
+and refuses the whole request when a locked victim shares interior volume.
+The existing CSG classifier distinguishes touching and genuinely disjoint
+solids from overlap, so an unrelated locked brush with overlapping bounds
+does not block an otherwise valid carve. The menu query no longer constructs
+an allocating target vector. Sequential subtraction uses captured cutters;
+no-op batches report unchanged success and retain Redo. The existing visible-
+target policy and private-copy subtraction contract remain.
+
+Replace Materials checks the authoritative brush attributes, live mesh face
+attributes and patches matching the requested old path. Hidden/unselected
+matching roots participate in lock admission; unrelated locked material users
+do not block. Modal completion revalidates its original map/revision/readiness
+and current locks. Core collection uses fallible Common vectors; collection
+failure occurs before mutation. Later Core mutation failure still relies on
+discarding its private candidate. Terrain materials are not in this command's
+existing supported domain.
+
+Find Entities / Replace All checks only entities with actual value changes,
+deduplicates supplied IDs, and captures document/selection context. Its result
+now distinguishes failure (-1), unchanged (0) and actual changed-value count;
+the modeless button keeps the failure notice. Explicit field provenance also
+fixes a separate corruption path: properties named name/class no longer route
+to the top-level identity setter, and an empty ordinary class property is legal.
+Read-only, active-preview and open-history-transaction requests refuse safely.
+
+Fourteen new focused cases pass 1,779 assertions. The final full Map GUI suite
+passes 858 cases / 188,346 assertions; Map Core passes 266 / 216,507, including
+the preceding patch placement repair and fallible material collection source.
+Combined Cocoa checks for these commands, atomic brush-face commands and camera
+selection pass 30 / 4,606; Mason routing passes 6 / 410. Widget-event tests cover
+the real modeless button, modal document replacement, and refusal/retry. Other
+oracles cover hidden and unselected mixed targets, existing Redo, exact authored
+data/ID preservation, one-step Undo/Redo, Save/Open and bounded allocator refusal
+with balanced ownership. These are event-dispatch tests, not a manual OS-pointer
+or performance benchmark.
+
+Independent source reviews caught two geometry enum spelling errors before
+building; they were corrected to ALLOCATION_FAILED. Source baselines, hashes
+and logs remain under build-mason/artifacts. Entity I/O and other independent
+explicit-target commands still need their own write-target review; this does
+not universally close D2 or the eight completion gates. Renderer work is deferred.

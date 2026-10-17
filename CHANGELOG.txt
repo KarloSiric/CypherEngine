@@ -302,6 +302,12 @@ Added
   integration remain separate work.
 
 Fixed
+- Carve, map-wide Replace Materials and entity Find and Replace admit their
+  actual write targets against layer locks, including unselected targets.
+  Refusal preserves the entire map and Redo; unrelated/no-op locked matches
+  do not block valid edits. Fallible target preparation returns an error.
+- Find and Replace distinguishes identity fields from properties named name
+  or class, deduplicates entity IDs and retains specific failure notices.
 - Patch Thicken and Cap snapshot source placement before adding records,
   fixing a sanitizer-confirmed use-after-free on geometry-record growth.
   Relocating-storage tests retain generated layer/owner/material and source

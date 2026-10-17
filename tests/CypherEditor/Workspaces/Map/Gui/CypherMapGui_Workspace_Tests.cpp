@@ -15,6 +15,10 @@
 
 #include "CypherMapGui_Workspace.h"
 #include "CypherMapGui_Notice.h"
+#include "CypherMapGui_FindEntities.h"
+#include "CypherMapGui_Layers.h"
+#include "CypherMap_EntityEdit.h"
+#include "CypherMap_ObjectCreate.h"
 
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 #include "CypherGeometry_DocumentMeshes.h"
@@ -23,6 +27,12 @@
 
 #include <QApplication>
 #include <QTemporaryDir>
+#include <QDialog>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QMouseEvent>
+#include <QPointer>
+#include <QTreeWidget>
 
 #include <filesystem>
 #include <cmath>
@@ -1290,4 +1300,188 @@ TEST_CASE( "Camera speed batches fractional and extreme wheel steps into one ato
         CHECK( CameraSpeed( settings ) == 10.0 ); CHECK( log.calls == 4u ); CHECK( local.store.pDocument == tree ); CHECK( SettingsText( local.store ) == original );
     }
     CHECK( original.find( "keep" ) != std::string::npos ); EditorSettings_RemoveListener( &settings, &RecordCameraSpeed, &log );
+}
+
+namespace
+{
+std::string FindReplaceText( map_document_t *map )
+{
+    text_buffer_t text{}; REQUIRE( TextBuffer_Init( &text, Allocator_GetSystem() ) ); REQUIRE( MapDocument_Save( map, &text ) == map_status_t::OK );
+    return { TextBuffer_Data( &text ), TextBuffer_Length( &text ) };
+}
+struct find_replace_fixture_t {
+    edge_session_t session;
+    u64 first{}, second{}, unrelated{};
+    QPointer<QDialog> window;
+    explicit find_replace_fixture_t( const allocator_t *allocator = Allocator_GetSystem() ) : session( allocator )
+    {
+        auto &ws = session.workspace; auto *map = ws.pDocument;
+        REQUIRE( MapDocument_AddLayer( map, StringView_FromCString( "protected" ), StringView_FromCString( "Protected" ) ) == map_status_t::OK );
+        const auto add = [&]( const char *layer, const char *name, const char *message, u64 &id ) {
+            REQUIRE( MapDocument_AddEntity( map, StringView_FromCString( layer ), StringView_FromCString( "logic_relay" ), {}, &id ) == map_status_t::OK );
+            bool changed = false;
+            REQUIRE( MapEntityEdit_SetIdentityField( map, { &id, 1 }, StringView_FromCString( "name" ), StringView_FromCString( name ), &changed ) == map_status_t::OK );
+            REQUIRE( MapEntity_SetString( map, id, StringView_FromCString( "message" ), StringView_FromCString( message ) ) == map_status_t::OK );
+        };
+        add( map->layers.pData[0].id, "door_first", "open the door", first );
+        add( "protected", "door_second", "open the door", second );
+        add( "protected", "lamp", "unchanged lamp", unrelated );
+        MapWorkspace_DocumentChanged( &ws ); MapWorkspace_SetSelection( &ws, nullptr, 0 );
+    }
+    ~find_replace_fixture_t()
+    {
+        if ( window ) { window->close(); QCoreApplication::sendPostedEvents( nullptr, QEvent::DeferredDelete ); }
+    }
+    void Open()
+    {
+        window = MapFindEntities_Show( &session.workspace, nullptr, true ); REQUIRE( window ); QCoreApplication::processEvents();
+        window->findChild<QLineEdit *>( QStringLiteral( "MapFindText" ) )->setText( QStringLiteral( "door" ) );
+        window->findChild<QLineEdit *>( QStringLiteral( "MapFindKey" ) )->setText( QStringLiteral( "message" ) );
+        window->findChild<QLineEdit *>( QStringLiteral( "MapFindReplaceWith" ) )->setText( QStringLiteral( "gate" ) );
+        REQUIRE( window->findChild<QTreeWidget *>( QStringLiteral( "MapFindResults" ) )->topLevelItemCount() == 2 );
+    }
+    void Click()
+    {
+        auto *button = window->findChild<QPushButton *>( QStringLiteral( "MapFindReplaceAll" ) ); REQUIRE( button );
+        const QPointF local = button->rect().center(), global = button->mapToGlobal( local );
+        QMouseEvent press( QEvent::MouseButtonPress, local, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+        QCoreApplication::sendEvent( button, &press );
+        QMouseEvent release( QEvent::MouseButtonRelease, local, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+        QCoreApplication::sendEvent( button, &release );
+    }
+    void PrepareRedo()
+    {
+        auto &ws = session.workspace; struct job_t { u64 id; } job{ first };
+        REQUIRE( MapWorkspace_ApplyMetadataEdit( &ws, "Remember entity name", []( void *context, map_document_t *copy, vector_t<u64> *, bool *changed ) noexcept {
+            const auto id = static_cast<job_t *>( context )->id;
+            return MapEntityEdit_SetIdentityField( copy, { &id, 1 }, StringView_FromCString( "name" ), StringView_FromCString( "saved_redo_name" ), changed );
+        }, &job ) );
+        REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); REQUIRE( EditorHistory_CanRedo( &ws.history ) );
+    }
+};
+struct find_replace_unchanged_t {
+    std::string text;
+    const map_document_t *document;
+    const math::vec3d_t *points;
+    const u64 *roots;
+    u64 geometryRevision, selectionRevision, nextId, nextSource;
+    usize steps, applied;
+    bool redo;
+    undo_state_token_t token;
+    explicit find_replace_unchanged_t( map_workspace_t &ws ) : text( FindReplaceText( ws.pDocument ) ), document( ws.pDocument ), points( ws.wire.points.pData ),
+        roots( ws.selection.ids.pData ), geometryRevision( ws.pDocument->geometry.revision ), selectionRevision( ws.selection.revision ), nextId( ws.pDocument->nextId ),
+        nextSource( ws.pDocument->geometry.sourceIds.allocator.next.value ), steps( EditorHistory_StepCount( &ws.history ) ), applied( EditorHistory_AppliedStepCount( &ws.history ) ),
+        redo( EditorHistory_CanRedo( &ws.history ) ), token( UndoRedo_StateToken( ws.history.pUndo ) ) {}
+    void Check( map_workspace_t &ws ) const
+    {
+        CHECK( ws.pDocument == document ); CHECK( ws.wire.points.pData == points ); CHECK( ws.selection.ids.pData == roots );
+        CHECK( ws.pDocument->geometry.revision == geometryRevision ); CHECK( ws.selection.revision == selectionRevision ); CHECK( ws.pDocument->nextId == nextId );
+        CHECK( ws.pDocument->geometry.sourceIds.allocator.next.value == nextSource ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+        CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied ); CHECK( EditorHistory_CanRedo( &ws.history ) == redo );
+        CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) ); CHECK( FindReplaceText( ws.pDocument ) == text );
+    }
+};
+}
+
+TEST_CASE( "Find and Replace button refuses a locked mixed batch without hiding the failure", "[map][gui][find-entities][find-replace-locks]" )
+{
+    bool hidden = false;
+    SECTION( "visible locked matching entity" ) {}
+    SECTION( "hidden locked matching entity" ) { hidden = true; }
+    find_replace_fixture_t f; auto &ws = f.session.workspace; f.PrepareRedo();
+    REQUIRE( MapLayers_SetLocked( &ws, QStringLiteral( "protected" ), true ) );
+    if ( hidden ) { REQUIRE( MapLayers_SetHidden( &ws, QStringLiteral( "protected" ), true ) ); }
+    f.Open(); const find_replace_unchanged_t before( ws ); f.Click(); before.Check( ws );
+    map_notice_t kind{}; const auto notice = MapNotice_Last( &ws, &kind ); CHECK( kind == map_notice_t::WARNING );
+    CHECK( notice.contains( QStringLiteral( "locked" ) ) ); CHECK_FALSE( notice.contains( QStringLiteral( "nothing to replace" ) ) );
+    CHECK( MapFindEntities_Search( &ws, QStringLiteral( "open the door" ), QStringLiteral( "message" ) ).size() == 2 );
+    REQUIRE( MapLayers_SetLocked( &ws, QStringLiteral( "protected" ), false ) );
+    const auto original = FindReplaceText( ws.pDocument ); const auto steps = EditorHistory_AppliedStepCount( &ws.history );
+    f.Click(); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == steps + 1 ); CHECK_FALSE( EditorHistory_CanRedo( &ws.history ) );
+    CHECK( MapFindEntities_Search( &ws, QStringLiteral( "open the gate" ), QStringLiteral( "message" ) ).size() == 2 );
+    CHECK( MapNotice_Last( &ws, &kind ).contains( QStringLiteral( "2 values" ) ) ); CHECK( kind == map_notice_t::SUCCESS );
+    const auto changed = FindReplaceText( ws.pDocument );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CHECK( FindReplaceText( ws.pDocument ) == original );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( FindReplaceText( ws.pDocument ) == changed );
+    map_document_t reopened{}; REQUIRE( MapDocument_Load( &reopened, Allocator_GetSystem(), { changed.data(), changed.size() } ) == map_status_t::OK );
+    CHECK( FindReplaceText( &reopened ) == changed ); MapDocument_Shutdown( &reopened );
+}
+
+TEST_CASE( "Find and Replace deduplicates IDs and ignores locked nonchanges", "[map][gui][find-entities][find-replace-locks]" )
+{
+    find_replace_fixture_t f; auto &ws = f.session.workspace; f.PrepareRedo();
+    REQUIRE( MapLayers_SetLocked( &ws, QStringLiteral( "protected" ), true ) );
+    for ( const bool sameText : { false, true } ) {
+        const find_replace_unchanged_t before( ws );
+        CHECK( MapFindEntities_Replace( &ws, { f.first, f.second, f.second, f.unrelated }, sameText ? QStringLiteral( "door" ) : QStringLiteral( "missing" ),
+            sameText ? QStringLiteral( "door" ) : QStringLiteral( "gate" ), QStringLiteral( "message" ) ) == 0 ); before.Check( ws );
+    }
+    // The requested locked entity has no matching value, so only the unlocked
+    // entity is a write target. Repeated IDs must not inflate the value count.
+    CHECK( MapFindEntities_Replace( &ws, { f.first, f.unrelated, f.first, f.unrelated }, QStringLiteral( "door" ), QStringLiteral( "gate" ), QStringLiteral( "message" ) ) == 1 );
+    CHECK( MapFindEntities_Search( &ws, QStringLiteral( "open the gate" ), QStringLiteral( "message" ) ).size() == 1 );
+    REQUIRE( MapLayers_SetLocked( &ws, QStringLiteral( "protected" ), false ) );
+    CHECK( MapFindEntities_Replace( &ws, { f.first, f.first, f.second, f.second }, QStringLiteral( "door_" ), QStringLiteral( "gate_" ), QStringLiteral( "name" ) ) == 2 );
+    CHECK( MapFindEntities_Search( &ws, QStringLiteral( "gate_" ), QStringLiteral( "name" ) ).size() == 2 );
+}
+
+TEST_CASE( "Find and Replace refuses read-only, preview and history-transaction states", "[map][gui][find-entities][find-replace-locks]" )
+{
+    int busy = 0;
+    SECTION( "read-only document" ) {}
+    SECTION( "active drag preview" ) { busy = 1; }
+    SECTION( "open history transaction" ) { busy = 2; }
+    find_replace_fixture_t f; auto &ws = f.session.workspace; f.PrepareRedo(); f.Open(); const find_replace_unchanged_t before( ws );
+    if ( busy == 0 ) { ws.pDocument->bReadOnly = CY_TRUE; }
+    else if ( busy == 1 ) { ws.editPreview.bActive = true; }
+    else { REQUIRE( EditorHistory_Begin( &ws.history, StringView_FromCString( "Existing transaction" ) ) == editor_history_status_t::OK ); }
+    f.Click(); map_notice_t kind{}; CHECK_FALSE( MapNotice_Last( &ws, &kind ).contains( QStringLiteral( "nothing to replace" ) ) ); CHECK( kind == map_notice_t::WARNING );
+    if ( busy == 0 ) { CHECK( MapNotice_Last( &ws ).contains( QStringLiteral( "read-only" ) ) ); ws.pDocument->bReadOnly = CY_FALSE; }
+    else if ( busy == 1 ) { ws.editPreview.bActive = false; }
+    else { REQUIRE( EditorHistory_Commit( &ws.history ) == editor_history_status_t::OK ); } // Close the empty transaction without discarding an existing Redo.
+    before.Check( ws ); f.Click(); CHECK( MapFindEntities_Search( &ws, QStringLiteral( "open the gate" ), QStringLiteral( "message" ) ).size() == 2 );
+}
+
+TEST_CASE( "Find and Replace preparation and publication allocation failures keep Redo and allow retry", "[map][gui][find-entities][find-replace-locks][allocation]" )
+{
+    for ( usize failure = 1; failure <= 3; ++failure ) {
+        INFO( "GUI allocation " << failure ); edge_allocation_t audit{}; const allocator_t allocator{ &AllocateEdgeTest, nullptr, &FreeEdgeTest, &audit };
+        {
+            find_replace_fixture_t f; auto &ws = f.session.workspace; f.PrepareRedo(); f.Open(); const find_replace_unchanged_t before( ws );
+            // The first two allocations prepare canonical IDs and changes;
+            // the next one belongs to GUI candidate/history publication.
+            const auto *previous = f.session.gui.pAllocator; f.session.gui.pAllocator = &allocator; audit.failOn = failure;
+            f.Click(); f.session.gui.pAllocator = previous;
+            CHECK( audit.calls >= failure ); CHECK( audit.live == 0 ); before.Check( ws );
+            map_notice_t kind{}; CHECK( MapNotice_Last( &ws, &kind ).contains( QStringLiteral( "memory" ) ) ); CHECK( kind == map_notice_t::ERROR );
+            CHECK_FALSE( MapNotice_Last( &ws ).contains( QStringLiteral( "nothing to replace" ) ) );
+            f.Click(); CHECK( MapFindEntities_Search( &ws, QStringLiteral( "open the gate" ), QStringLiteral( "message" ) ).size() == 2 );
+        }
+        CHECK( audit.live == 0 );
+    }
+}
+
+TEST_CASE( "Find and Replace distinguishes identity fields from same-named string properties", "[map][gui][find-entities][find-replace-locks][identity]" )
+{
+    find_replace_fixture_t f; auto &ws = f.session.workspace;
+    REQUIRE( MapEntity_SetString( ws.pDocument, f.first, StringView_FromCString( "name" ), StringView_FromCString( "door_label" ) ) == map_status_t::OK );
+    REQUIRE( MapEntity_SetString( ws.pDocument, f.first, StringView_FromCString( "class" ), StringView_FromCString( "door" ) ) == map_status_t::OK );
+    MapWorkspace_DocumentChanged( &ws ); const auto before = FindReplaceText( ws.pDocument );
+    CHECK( MapFindEntities_Replace( &ws, { f.first, f.first }, QStringLiteral( "door" ), QStringLiteral( "gate" ), QStringLiteral( "name" ) ) == 2 );
+    const auto field = [&]( bool property, const char *key ) {
+        const auto *record = MapEntityEdit_FindEntity( ws.pDocument, f.first ); REQUIRE( record );
+        const auto *object = property ? KeyValue_Find( record, StringView_FromCString( "properties" ) ) : record;
+        string_view_t value{}; REQUIRE( KeyValue_GetString( KeyValue_Find( object, StringView_FromCString( key ) ), &value ) );
+        return std::string( value.pData, value.cchLength );
+    };
+    CHECK( field( false, "name" ) == "gate_first" ); CHECK( field( true, "name" ) == "gate_label" );
+    CHECK( field( false, "class" ) == "logic_relay" ); CHECK( field( true, "class" ) == "door" );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CHECK( FindReplaceText( ws.pDocument ) == before );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
+    CHECK( MapFindEntities_Replace( &ws, { f.first }, QStringLiteral( "door" ), QString(), QStringLiteral( "class" ) ) == 1 );
+    CHECK( field( false, "class" ) == "logic_relay" ); CHECK( field( true, "class" ).empty() );
+    // Empty entity classes remain invalid, even though ordinary string
+    // properties named class may legitimately become empty.
+    const find_replace_unchanged_t unchanged( ws );
+    CHECK( MapFindEntities_Replace( &ws, { f.first }, QStringLiteral( "logic_relay" ), QString(), QStringLiteral( "class" ) ) == 0 ); unchanged.Check( ws );
 }

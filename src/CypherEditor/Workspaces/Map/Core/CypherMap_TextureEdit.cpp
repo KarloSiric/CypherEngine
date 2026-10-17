@@ -549,12 +549,17 @@ map_status_t MapTextureEdit_ReplaceMaterial( map_document_t *map, string_view_t 
     if ( StringView_Equals( from, to ) ) { return map_status_t::OK; }
     const auto uses = [&]( u64 ref ) { return ref != 0 && StringView_Equals( MapMaterials_Path( &map->materials, ref ), from ); };
     // Gather the users first: the target path may enter the table now.
-    std::vector<u64> brushes, meshes, patches;
+    vector_t<u64> brushes{}, meshes{}, patches{};
+    if ( !Vector_Init( &brushes, map->pAllocator ) || !Vector_Init( &meshes, map->pAllocator ) ||
+         !Vector_Init( &patches, map->pAllocator ) ) { return map_status_t::OUT_OF_MEMORY; }
     for ( usize i = 0; i < map->geometry.brushes.nCount; ++i ) {
         const auto *brush = map->geometry.brushes.pData[i];
         const auto *store = geo::GeometryDocument_FindBrushAttributes( &map->geometry, brush->sourceId );
         for ( usize k = 0; store != nullptr && k < store->records.nCount; ++k ) {
-            if ( uses( store->records.pData[k].material.value ) ) { brushes.push_back( brush->sourceId.value ); break; }
+            if ( uses( store->records.pData[k].material.value ) ) {
+                if ( !Vector_PushBack( &brushes, brush->sourceId.value ) ) { return map_status_t::OUT_OF_MEMORY; }
+                break;
+            }
         }
     }
     for ( usize i = 0; i < map->geometry.meshes.nCount; ++i ) {
@@ -564,19 +569,19 @@ map_status_t MapTextureEdit_ReplaceMaterial( map_document_t *map, string_view_t 
             found = uses( geo::MeshAttributeStore_GetFace( &mesh->attributes, handle ).material.value );
             return found ? CY_FALSE : CY_TRUE;
         } );
-        if ( found ) { meshes.push_back( mesh->sourceId.value ); }
+        if ( found && !Vector_PushBack( &meshes, mesh->sourceId.value ) ) { return map_status_t::OUT_OF_MEMORY; }
     }
     for ( usize i = 0; i < geo::GeometryDocument_PatchCount( &map->geometry ); ++i ) {
         const auto *patch = geo::GeometryDocument_PatchAt( &map->geometry, i );
-        if ( uses( patch->materialId ) ) { patches.push_back( patch->sourceId.value ); }
+        if ( uses( patch->materialId ) && !Vector_PushBack( &patches, patch->sourceId.value ) ) { return map_status_t::OUT_OF_MEMORY; }
     }
-    if ( brushes.empty() && meshes.empty() && patches.empty() ) { return map_status_t::OK; }
+    if ( brushes.nCount == 0 && meshes.nCount == 0 && patches.nCount == 0 ) { return map_status_t::OK; }
     u64 target = 0;
     auto result = MapDocument_MaterialRef( map, to, &target );
     usize replaced = 0;
-    for ( usize i = 0; result == map_status_t::OK && i < brushes.size(); ++i ) {
+    for ( usize i = 0; result == map_status_t::OK && i < brushes.nCount; ++i ) {
         geo::brush_source_t source{};
-        auto status = geo::GeometryDocument_TryCopyBrushSource( &map->geometry, { brushes[i] }, map->pAllocator, &source );
+        auto status = geo::GeometryDocument_TryCopyBrushSource( &map->geometry, { brushes.pData[i] }, map->pAllocator, &source );
         for ( usize k = 0; status == OK && k < source.attributes.records.nCount; ++k ) {
             auto record = source.attributes.records.pData[k];
             if ( !uses( record.material.value ) ) { continue; }
@@ -588,9 +593,9 @@ map_status_t MapTextureEdit_ReplaceMaterial( map_document_t *map, string_view_t 
         geo::BrushSource_Shutdown( &source );
         result = Status( status );
     }
-    for ( usize i = 0; result == map_status_t::OK && i < meshes.size(); ++i ) {
+    for ( usize i = 0; result == map_status_t::OK && i < meshes.nCount; ++i ) {
         struct job_t { decltype( uses ) *pUses; u64 target; usize *pReplaced; } job{ &uses, target, &replaced };
-        result = MapMeshEdit_Apply( map, meshes[i], []( void *context, geo::mesh_source_t *working, geo::mesh_edit_report_t * ) noexcept {
+        result = MapMeshEdit_Apply( map, meshes.pData[i], []( void *context, geo::mesh_source_t *working, geo::mesh_edit_report_t * ) noexcept {
             auto &replace = *static_cast<job_t *>( context );
             geo::mesh_source_description_t description{};
             auto status = geo::MeshSourceDescription_Init( &description, working->mesh.pAllocator, working->sourceId );
@@ -606,9 +611,9 @@ map_status_t MapTextureEdit_ReplaceMaterial( map_document_t *map, string_view_t 
             return status;
         }, &job );
     }
-    for ( usize i = 0; result == map_status_t::OK && i < patches.size(); ++i ) {
+    for ( usize i = 0; result == map_status_t::OK && i < patches.nCount; ++i ) {
         geo::patch_surface_t copy{};
-        auto status = geo::Patch_TryClone( geo::GeometryDocument_FindPatch( &map->geometry, { patches[i] } ), map->pAllocator, &copy );
+        auto status = geo::Patch_TryClone( geo::GeometryDocument_FindPatch( &map->geometry, { patches.pData[i] } ), map->pAllocator, &copy );
         if ( status == OK ) { copy.materialId = static_cast<u32>( target ); status = geo::GeometryDocument_TryReplacePatch( &map->geometry, &copy ); ++replaced; }
         geo::Patch_Shutdown( &copy );
         result = Status( status );
