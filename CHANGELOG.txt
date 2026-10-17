@@ -302,6 +302,10 @@ Added
   integration remain separate work.
 
 Fixed
+- Fixes the GCC Map Core build: TopologyEdit now includes <vector> for its
+  public std::vector declaration instead of relying on incidental libc++
+  includes. The header passes a standalone local syntax check and the Map
+  Core target rebuilds. Cross-platform CI verifies the Linux repair.
 - Publishes the tested Mason authoring integration and its V11 single-file
   map foundation: layer/owner/identity retention, component selection and
   scoped transforms, connected edge continuation with custom pivots/repeat,

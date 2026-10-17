@@ -35,6 +35,8 @@
 #include "CypherGeometry_MeshSelection.h"
 #include "CypherGeometry_MeshSourceTopology.h"
 
+#include <vector>
+
 namespace cypher::editor::map
 {
 
