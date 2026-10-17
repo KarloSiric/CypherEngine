@@ -24,6 +24,9 @@
 #include "CypherGeometry_IdAllocator.h"
 #include "CypherGeometry_PolygonSoup.h"
 #include "CypherGeometry_Sanitation.h"
+#include "CypherGeometry_MeshSourceModeling.h"
+#include "CypherGeometry_MeshSourceTopology.h"
+#include "CypherGeometry_MeshBoundaryOps.h"
 
 #include "CypherMath.h"
 
@@ -33,6 +36,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace cypher::editor::geometry {
 
@@ -1191,6 +1195,160 @@ TEST_CASE( "MeshOps: ExtrudeFace allocation failures are atomic",
 // ---------------------------------------------------------------------------
 // InsetFace (Gate 12)
 // ---------------------------------------------------------------------------
+
+namespace {
+struct OpenInsetFixture {
+    common::allocator_t allocator;
+    mesh_source_t source{};
+    mesh_source_description_t description{};
+    explicit OpenInsetFixture( bool neighbour, const common::allocator_t &input = *common::Allocator_GetSystem() ) : allocator( input )
+    {
+        REQUIRE( MeshSourceDescription_Init( &description, &allocator, { 1 } ) == geometry_status_t::OK );
+        const math::vec3d_t points[]{ { 0, 0, 0 }, { 1, 0, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 0, 0 }, { 2, 1, 0 } };
+        for ( common::u32 i = 0; i < ( neighbour ? 6u : 4u ); ++i ) {
+            REQUIRE( MeshSourceDescription_TryAddVertex( &description, points[i], { 10u + i }, nullptr ) == geometry_status_t::OK );
+        }
+        const common::u32 faces[2][4]{ { 0, 1, 2, 3 }, { 1, 4, 5, 2 } };
+        for ( common::u32 i = 0; i < ( neighbour ? 2u : 1u ); ++i ) {
+            REQUIRE( MeshSourceDescription_TryAddFace( &description, { faces[i], 4 }, { 20u + i },
+                { { 100u + i }, 1u << i }, nullptr ) == geometry_status_t::OK );
+            for ( common::u32 k = 0; k < 4; ++k ) {
+                auto &corner = description.corners.pData[i * 4u + k]; const auto p = points[corner.iVertex];
+                corner.attributes.uv0 = { 10.0 * i + p.x, 20.0 * i + p.y };
+                corner.attributes.uv1 = { p.x * 0.25, p.y * 0.5 };
+                corner.attributes.colorRgba = i == 0 ? 0x123456FFu : 0xABCDEF80u;
+            }
+        }
+        REQUIRE( MeshSourceDescription_TrySetEdge( &description, 0, 1, { MESH_EDGE_FLAG_SEAM }, 0.375 ) == geometry_status_t::OK );
+        REQUIRE( MeshSourceDescription_TrySetEdge( &description, 1, 2, { MESH_EDGE_FLAG_HARD }, 0.625 ) == geometry_status_t::OK );
+        REQUIRE( MeshSource_TryBuild( &description, &allocator, &source ) == geometry_status_t::OK );
+        REQUIRE( MeshSource_Validate( &source, &allocator ).fault == mesh_source_fault_t::NONE );
+    }
+    ~OpenInsetFixture() { MeshSource_Shutdown( &source ); MeshSourceDescription_Shutdown( &description ); }
+    geometry_mesh_face_handle_t Face( common::u64 id )
+    {
+        geometry_mesh_face_handle_t face{}; REQUIRE( MeshSource_TryFindFace( &source, { id }, &face ) ); return face;
+    }
+};
+void CheckOpenInsetTopology( const editable_mesh_t &mesh, bool neighbour )
+{
+    CHECK( EditableMesh_VertexCount( &mesh ) == ( neighbour ? 10u : 8u ) );
+    CHECK( EditableMesh_EdgeCount( &mesh ) == ( neighbour ? 15u : 12u ) );
+    CHECK( EditableMesh_FaceCount( &mesh ) == ( neighbour ? 6u : 5u ) );
+    CHECK( EditableMesh_ShellCount( &mesh ) == 1u ); CHECK( EditableMesh_EulerCharacteristic( &mesh ) == 1 );
+    CHECK( MeshBoundary_CountBoundaryEdges( &mesh ) == ( neighbour ? 6u : 4u ) );
+    // The full validator also requires a closed positive-volume solid. These
+    // open sheets instead require its independent structural invariants.
+    const auto valid = MeshValidation_Validate( &mesh );
+    CHECK( valid.bEdgeLinks ); CHECK( valid.bClosedLoops ); CHECK( valid.bAllVerticesReferenced );
+    CHECK( valid.bShellLinks ); CHECK( valid.bConsistentWinding );
+}
+}
+
+TEST_CASE( "MeshOps: InsetFace preserves open perimeter edges with and without a neighbour",
+           "[Gate12][TopologyOps][open-boundary-inset]" )
+{
+    for ( const bool neighbour : { false, true } ) {
+        DYNAMIC_SECTION( ( neighbour ? "Two connected quads" : "Isolated quad" ) ) {
+            OpenInsetFixture f( neighbour ); auto &mesh = f.source.mesh;
+            const auto vertices = CapturePoolSnapshot( mesh.vertices ); REQUIRE( vertices.bComplete );
+            const auto edges = CapturePoolSnapshot( mesh.edges ); REQUIRE( edges.bComplete );
+            const auto other = neighbour ? f.Face( 21 ) : geometry_mesh_face_handle_t{};
+            mesh_face_record_t otherFace{}; mesh_loop_record_t otherLoop{};
+            if ( neighbour ) {
+                otherFace = *EditableMesh_GetFace( &mesh, other );
+                otherLoop = *EditableMesh_GetLoop( &mesh, otherFace.hOuterLoop );
+            }
+            const auto inset = MeshOps_InsetFace( &mesh, f.Face( 20 ), 0.2 );
+            REQUIRE( inset.status == geometry_status_t::OK ); REQUIRE( EditableMesh_GetFace( &mesh, inset.hInsetFace ) != nullptr );
+            CheckOpenInsetTopology( mesh, neighbour );
+            for ( common::usize i = 0; i < vertices.cRecords; ++i ) {
+                const auto *vertex = EditableMesh_GetVertex( &mesh, vertices.handles[i] ); REQUIRE( vertex != nullptr );
+                CHECK( VectorsMatch( vertex->position, vertices.records[i].position ) );
+            }
+            for ( common::usize i = 0; i < edges.cRecords; ++i ) {
+                const auto *edge = EditableMesh_GetEdge( &mesh, edges.handles[i] ); REQUIRE( edge != nullptr );
+                const auto *half = EditableMesh_GetHalfEdge( &mesh, edge->hHalfEdge ); REQUIRE( half != nullptr );
+                CHECK( HandlesMatch( half->hEdge, edges.handles[i] ) );
+                CHECK( edge->creaseWeight == edges.records[i].creaseWeight );
+            }
+            if ( neighbour ) {
+                const auto *face = EditableMesh_GetFace( &mesh, other ); REQUIRE( face != nullptr );
+                CHECK( RecordsMatch( *face, otherFace ) );
+                const auto *loop = EditableMesh_GetLoop( &mesh, face->hOuterLoop ); REQUIRE( loop != nullptr );
+                CHECK( RecordsMatch( *loop, otherLoop ) );
+            }
+        }
+    }
+}
+
+TEST_CASE( "Source Inset preserves open-sheet face identity and neighbouring surface attributes",
+           "[Gate12][TopologyOps][meshedit][open-boundary-inset]" )
+{
+    OpenInsetFixture f( true );
+    REQUIRE( MeshSourceEdit_TryInsetFace( &f.source, { 20 }, 0.2, nullptr ) == geometry_status_t::OK );
+    geometry_source_id_allocator_t ids{ { 1000 } };
+    REQUIRE( MeshSource_TryAssignMissingIds( &f.source, &ids, nullptr ) == geometry_status_t::OK );
+    REQUIRE( MeshSource_Validate( &f.source, &f.allocator ).fault == mesh_source_fault_t::NONE );
+    CheckOpenInsetTopology( f.source.mesh, true );
+    REQUIRE( MeshSource_TryDescribe( &f.source, &f.description ) == geometry_status_t::OK );
+    bool innerFound = false, neighbourFound = false;
+    for ( common::usize i = 0; i < f.description.faces.nCount; ++i ) {
+        const auto &face = f.description.faces.pData[i]; const bool neighbour = face.sourceId.value == 21;
+        innerFound = innerFound || face.sourceId.value == 20; neighbourFound = neighbourFound || neighbour;
+        CHECK( face.attributes.material.value == ( neighbour ? 101u : 100u ) );
+        CHECK( face.attributes.smoothingGroups == ( neighbour ? 2u : 1u ) );
+        REQUIRE( face.cCorners == 4 );
+        for ( common::u32 k = 0; k < face.cCorners; ++k ) {
+            const auto &corner = f.description.corners.pData[face.iFirstCorner + k];
+            const auto &vertex = f.description.vertices.pData[corner.iVertex]; const auto p = vertex.position;
+            CHECK( p.z == 0.0 );
+            CHECK( corner.attributes.uv0.x == Approx( ( neighbour ? 10.0 : 0.0 ) + p.x ) );
+            CHECK( corner.attributes.uv0.y == Approx( ( neighbour ? 20.0 : 0.0 ) + p.y ) );
+            CHECK( corner.attributes.uv1.x == Approx( p.x * 0.25 ) ); CHECK( corner.attributes.uv1.y == Approx( p.y * 0.5 ) );
+            CHECK( corner.attributes.colorRgba == ( neighbour ? 0xABCDEF80u : 0x123456FFu ) );
+            if ( neighbour ) {
+                CHECK( ( vertex.sourceId.value == 11u || vertex.sourceId.value == 12u || vertex.sourceId.value == 14u || vertex.sourceId.value == 15u ) );
+            }
+        }
+    }
+    CHECK( innerFound ); CHECK( neighbourFound );
+    for ( const auto edge : { std::pair{ 10u, 11u }, std::pair{ 11u, 12u } } ) {
+        geometry_mesh_edge_handle_t handle{};
+        REQUIRE( MeshSourceEdit_TryFindEdge( &f.source, { edge.first }, { edge.second }, &handle ) );
+        const auto attributes = MeshAttributeStore_GetEdge( &f.source.attributes, handle );
+        CHECK( attributes.flags == ( edge.first == 10u ? MESH_EDGE_FLAG_SEAM : MESH_EDGE_FLAG_HARD ) );
+        CHECK( EditableMesh_GetEdge( &f.source.mesh, handle )->creaseWeight == ( edge.first == 10u ? 0.375 : 0.625 ) );
+    }
+}
+
+TEST_CASE( "MeshOps: open-sheet InsetFace allocation failures preserve exact topology",
+           "[Gate12][TopologyOps][open-boundary-inset][allocation]" )
+{
+    common::usize calls = 0;
+    {
+        topology_ops_failure_allocator_state_t state{}; const auto allocator = MakeTopologyOpsFailureAllocator( &state );
+        {
+            OpenInsetFixture f( true, allocator ); const auto begin = state.cAllocationCalls;
+            REQUIRE( MeshOps_InsetFace( &f.source.mesh, f.Face( 20 ), 0.2 ).status == geometry_status_t::OK );
+            calls = state.cAllocationCalls - begin;
+        }
+        REQUIRE( state.cSuccessfulAllocations == state.cFreeCalls );
+    }
+    REQUIRE( calls != 0 );
+    for ( common::usize failure = 0; failure < calls; ++failure ) {
+        CAPTURE( failure, calls );
+        topology_ops_failure_allocator_state_t state{}; const auto allocator = MakeTopologyOpsFailureAllocator( &state );
+        {
+            OpenInsetFixture f( true, allocator ); const auto before = CaptureMeshSnapshot( f.source.mesh );
+            REQUIRE( MeshSnapshotIsComplete( before ) ); state.iFailure = state.cAllocationCalls + failure;
+            const auto result = MeshOps_InsetFace( &f.source.mesh, f.Face( 20 ), 0.2 );
+            CHECK( result.status == geometry_status_t::ALLOCATION_FAILED ); CHECK_FALSE( GeometryHandle_IsValid( result.hInsetFace ) );
+            CHECK( MeshMatchesSnapshot( f.source.mesh, before ) );
+        }
+        CHECK( state.cSuccessfulAllocations == state.cFreeCalls );
+    }
+}
 
 TEST_CASE( "MeshOps: InsetFace adds correct element counts",
            "[Gate12][TopologyOps]" )

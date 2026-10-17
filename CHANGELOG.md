@@ -323,6 +323,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Geometry Inset now retains every original perimeter edge when replacing a
+  face, including open boundaries without an external twin. Edge representatives
+  point to the surviving ring, so isolated sheets and faces beside an open
+  neighbour validate instead of failing with invalid edge links. Local validation:
+  three focused cases / 590 assertions, including every raw edit allocation
+  refusal; complete Geometry suite, 1,285 cases / 379,767 assertions. This kernel
+  increment is separate from Mason's local connected-region integration.
 - Command History no longer treats map tool or component-mode activation as
   repeatable edits. An additive query reports explicitly selected successful
   entries so callers can preserve command-list precedence. Validation: all four

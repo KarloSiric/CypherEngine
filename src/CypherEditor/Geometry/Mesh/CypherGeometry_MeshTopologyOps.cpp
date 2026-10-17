@@ -2954,22 +2954,24 @@ static mesh_inset_face_result_t MeshOps_InsetFaceInPlace(
                 GenerationPool_Get( &pMesh->halfEdges, ringHEs[i][0] );
             mesh_half_edge_record_t *pT =
                 GenerationPool_Get( &pMesh->halfEdges, twinHEs[i] );
-            if ( pR0 && pT ) {
+            const mesh_half_edge_record_t *pOrigHE =
+                GenerationPool_Get( &pMesh->halfEdges, origHEs[i] );
+            mesh_edge_record_t *pEdge = pOrigHE != nullptr
+                ? GenerationPool_Get( &pMesh->edges, pOrigHE->hEdge ) : nullptr;
+            if ( pR0 == nullptr || pOrigHE == nullptr || pEdge == nullptr ||
+                 ( GeometryHandle_IsValid( twinHEs[i] ) && pT == nullptr ) ) {
+                result.status = geometry_status_t::CORRUPT_STATE;
+                return result;
+            }
+            // The perimeter edge survives even on an open sheet. Its old
+            // representative is removed below, so always point it at the
+            // replacement ring; only the external twin is optional.
+            pR0->hEdge = pOrigHE->hEdge;
+            pEdge->hHalfEdge = ringHEs[i][0];
+            if ( pT != nullptr ) {
                 pR0->hTwin = twinHEs[i];
                 pT->hTwin = ringHEs[i][0];
-
-                // Reuse original edge.
-                const mesh_half_edge_record_t *pOrigHE =
-                    GenerationPool_Get( &pMesh->halfEdges, origHEs[i] );
-                if ( pOrigHE != nullptr ) {
-                    pR0->hEdge = pOrigHE->hEdge;
-                    pT->hEdge = pOrigHE->hEdge;
-                    mesh_edge_record_t *pEdge =
-                        GenerationPool_Get( &pMesh->edges, pOrigHE->hEdge );
-                    if ( pEdge != nullptr ) {
-                        pEdge->hHalfEdge = ringHEs[i][0];
-                    }
-                }
+                pT->hEdge = pOrigHE->hEdge;
             }
         }
 
